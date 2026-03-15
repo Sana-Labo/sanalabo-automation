@@ -26,8 +26,19 @@ export async function verifyLineSignature(
 }
 
 export function parseLineEvents(body: string): LineWebhookEvent[] {
-  const parsed = JSON.parse(body) as LineWebhookBody;
-  return parsed.events;
+  try {
+    const parsed = JSON.parse(body) as unknown;
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      !Array.isArray((parsed as LineWebhookBody).events)
+    ) {
+      return [];
+    }
+    return (parsed as LineWebhookBody).events;
+  } catch {
+    return [];
+  }
 }
 
 export function extractTextMessage(event: LineMessageEvent): string {

@@ -20,6 +20,7 @@ export const config = {
     return required("LINE_USER_ID");
   },
   get port() {
-    return Number(process.env["PORT"] ?? "3000");
+    const raw = process.env["PORT"];
+    return raw ? Number(raw) : 3000;
   },
 } as const;

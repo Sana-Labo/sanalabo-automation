@@ -8,14 +8,14 @@ export function startScheduler(registry: ToolRegistry): Cron[] {
   const tz = "Asia/Tokyo";
 
   const jobs = [
-    new Cron("0 8 * * 1-5", { timezone: tz }, () => {
-      morningBriefing(registry);
+    new Cron("0 8 * * 1-5", { timezone: tz }, async () => {
+      await morningBriefing(registry);
     }),
-    new Cron("*/30 8-22 * * *", { timezone: tz }, () => {
-      urgentMailCheck(registry);
+    new Cron("*/30 8-22 * * *", { timezone: tz }, async () => {
+      await urgentMailCheck(registry);
     }),
-    new Cron("0 21 * * 1-5", { timezone: tz }, () => {
-      eveningSummary(registry);
+    new Cron("0 21 * * 1-5", { timezone: tz }, async () => {
+      await eveningSummary(registry);
     }),
   ];
 

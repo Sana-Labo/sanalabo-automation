@@ -1,23 +1,27 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { config } from "../config.js";
 import type { AgentResult, ToolExecutor, ToolRegistry } from "../types.js";
 import { buildSystemPrompt } from "./system.js";
 
 const MAX_ITERATIONS = 15;
 const MODEL = "claude-haiku-4-5-20251001";
 
+const client = new Anthropic({ apiKey: config.anthropicApiKey });
+
 export async function runAgentLoop(
   userMessage: string,
   registry: ToolRegistry,
 ): Promise<AgentResult> {
-  const client = new Anthropic();
-
   const messages: Anthropic.MessageParam[] = [
     { role: "user", content: userMessage },
   ];
 
+  let iterations = 0;
   let toolCalls = 0;
 
-  while (toolCalls < MAX_ITERATIONS) {
+  while (iterations < MAX_ITERATIONS) {
+    iterations++;
+
     const response = await client.messages.create({
       model: MODEL,
       max_tokens: 4096,
@@ -26,7 +30,15 @@ export async function runAgentLoop(
       messages,
     });
 
-    if (response.stop_reason === "end_turn" || response.stop_reason !== "tool_use") {
+    if (response.stop_reason === "max_tokens") {
+      const text = response.content
+        .filter((b): b is Anthropic.TextBlock => b.type === "text")
+        .map((b) => b.text)
+        .join("\n");
+      return { text: text || "応答が長すぎて切り詰められました。", toolCalls };
+    }
+
+    if (response.stop_reason !== "tool_use") {
       const text = response.content
         .filter((b): b is Anthropic.TextBlock => b.type === "text")
         .map((b) => b.text)

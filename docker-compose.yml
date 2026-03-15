@@ -3,7 +3,13 @@ services:
     build: .
     env_file: .env
     volumes:
-      - gws-config:/root/.config/gws
+      - gws-config:/home/app/.config/gws
+    healthcheck:
+      test: ["CMD", "bun", "-e", "fetch('http://localhost:3000/health').then(r=>{if(!r.ok)process.exit(1)})"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     restart: unless-stopped
 
   tunnel:
@@ -11,6 +17,9 @@ services:
     command: tunnel run
     environment:
       - TUNNEL_TOKEN=${CF_TUNNEL_TOKEN}
+    depends_on:
+      assistant:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:

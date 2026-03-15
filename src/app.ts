@@ -57,4 +57,7 @@ process.on("SIGTERM", async () => {
   process.exit(0);
 });
 
-export default await main();
+export default await main().catch((err) => {
+  console.error("[app] Fatal startup error:", err);
+  process.exit(1);
+});

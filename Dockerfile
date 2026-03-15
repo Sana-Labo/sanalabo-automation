@@ -1,4 +1,4 @@
-FROM oven/bun:alpine
+FROM oven/bun:1-alpine
 
 WORKDIR /app
 
@@ -6,5 +6,8 @@ COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile --production
 
 COPY src/ ./src/
+
+RUN addgroup -S app && adduser -S app -G app && chown -R app:app /app
+USER app
 
 CMD ["bun", "run", "src/app.ts"]
