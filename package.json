@@ -1,0 +1,22 @@
+{
+  "name": "sanalabo-automation",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --hot src/app.ts",
+    "start": "bun run src/app.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "croner": "^9.0.0",
+    "hono": "^4.7.6"
+  },
+  "devDependencies": {
+    "@tsconfig/bun": "^1.0.7",
+    "@types/bun": "^1.2.10",
+    "typescript": "^5.8.2"
+  }
+}
