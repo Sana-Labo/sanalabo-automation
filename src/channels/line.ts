@@ -1,19 +1,29 @@
 import type { LineMessageEvent, LineWebhookBody, LineWebhookEvent } from "../types.js";
 
+let cachedKey: CryptoKey | null = null;
+let cachedSecret: string | null = null;
+
+async function getHmacKey(channelSecret: string): Promise<CryptoKey> {
+  if (cachedKey && cachedSecret === channelSecret) {
+    return cachedKey;
+  }
+  cachedKey = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(channelSecret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["verify"],
+  );
+  cachedSecret = channelSecret;
+  return cachedKey;
+}
+
 export async function verifyLineSignature(
   body: string,
   signature: string,
   channelSecret: string,
 ): Promise<boolean> {
-  const encoder = new TextEncoder();
-
-  const key = await crypto.subtle.importKey(
-    "raw",
-    encoder.encode(channelSecret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["verify"],
-  );
+  const key = await getHmacKey(channelSecret);
 
   let signatureBytes: Uint8Array;
   try {
@@ -22,7 +32,7 @@ export async function verifyLineSignature(
     return false;
   }
 
-  return crypto.subtle.verify("HMAC", key, signatureBytes, encoder.encode(body));
+  return crypto.subtle.verify("HMAC", key, signatureBytes, new TextEncoder().encode(body));
 }
 
 export function parseLineEvents(body: string): LineWebhookEvent[] {

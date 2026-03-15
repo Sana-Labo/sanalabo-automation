@@ -7,20 +7,9 @@ function required(name: string): string {
 }
 
 export const config = {
-  get anthropicApiKey() {
-    return required("ANTHROPIC_API_KEY");
-  },
-  get lineChannelAccessToken() {
-    return required("LINE_CHANNEL_ACCESS_TOKEN");
-  },
-  get lineChannelSecret() {
-    return required("LINE_CHANNEL_SECRET");
-  },
-  get lineUserId() {
-    return required("LINE_USER_ID");
-  },
-  get port() {
-    const raw = process.env["PORT"];
-    return raw ? Number(raw) : 3000;
-  },
+  anthropicApiKey: required("ANTHROPIC_API_KEY"),
+  lineChannelAccessToken: required("LINE_CHANNEL_ACCESS_TOKEN"),
+  lineChannelSecret: required("LINE_CHANNEL_SECRET"),
+  lineUserId: required("LINE_USER_ID"),
+  port: process.env["PORT"] ? Number(process.env["PORT"]) : 3000,
 } as const;

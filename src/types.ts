@@ -20,11 +20,9 @@ export interface AgentResult {
 
 // --- GWS ---
 
-export interface GwsCommandResult {
-  success: boolean;
-  data: unknown;
-  error?: string;
-}
+export type GwsCommandResult =
+  | { success: true; data: unknown }
+  | { success: false; data: null; error: string };
 
 // --- LINE Webhook ---
 

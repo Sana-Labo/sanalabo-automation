@@ -3,94 +3,90 @@ import { config } from "../config.js";
 import type { AgentResult, ToolExecutor, ToolRegistry } from "../types.js";
 import { buildSystemPrompt } from "./system.js";
 
-const MAX_ITERATIONS = 15;
+const MAX_TURNS = 15;
 const MODEL = "claude-haiku-4-5-20251001";
 
 const client = new Anthropic({ apiKey: config.anthropicApiKey });
+
+function extractText(content: Anthropic.ContentBlock[]): string {
+  return content
+    .filter((b): b is Anthropic.TextBlock => b.type === "text")
+    .map((b) => b.text)
+    .join("\n");
+}
 
 export async function runAgentLoop(
   userMessage: string,
   registry: ToolRegistry,
 ): Promise<AgentResult> {
+  const systemPrompt = buildSystemPrompt();
   const messages: Anthropic.MessageParam[] = [
     { role: "user", content: userMessage },
   ];
 
-  let iterations = 0;
+  let turns = 0;
   let toolCalls = 0;
 
-  while (iterations < MAX_ITERATIONS) {
-    iterations++;
+  while (turns < MAX_TURNS) {
+    turns++;
 
     const response = await client.messages.create({
       model: MODEL,
       max_tokens: 4096,
-      system: buildSystemPrompt(),
+      system: systemPrompt,
       tools: registry.tools,
       messages,
     });
 
     if (response.stop_reason === "max_tokens") {
-      const text = response.content
-        .filter((b): b is Anthropic.TextBlock => b.type === "text")
-        .map((b) => b.text)
-        .join("\n");
+      const text = extractText(response.content);
       return { text: text || "応答が長すぎて切り詰められました。", toolCalls };
     }
 
     if (response.stop_reason !== "tool_use") {
-      const text = response.content
-        .filter((b): b is Anthropic.TextBlock => b.type === "text")
-        .map((b) => b.text)
-        .join("\n");
-      return { text, toolCalls };
+      return { text: extractText(response.content), toolCalls };
     }
 
-    // Extract tool_use blocks
     const toolUseBlocks = response.content.filter(
       (b): b is Anthropic.ToolUseBlock => b.type === "tool_use",
     );
 
-    // Build tool results
-    const toolResults: Anthropic.ToolResultBlockParam[] = [];
+    const toolResults = await Promise.all(
+      toolUseBlocks.map(async (block) => {
+        toolCalls++;
+        const executor = registry.executors.get(block.name);
 
-    for (const block of toolUseBlocks) {
-      toolCalls++;
-      const executor = registry.executors.get(block.name);
+        if (!executor) {
+          return {
+            type: "tool_result" as const,
+            tool_use_id: block.id,
+            content: `Error: Unknown tool "${block.name}"`,
+            is_error: true,
+          };
+        }
 
-      if (!executor) {
-        toolResults.push({
-          type: "tool_result",
-          tool_use_id: block.id,
-          content: `Error: Unknown tool "${block.name}"`,
-          is_error: true,
-        });
-        continue;
-      }
+        try {
+          const result = await executor(block.input as Record<string, unknown>);
+          return {
+            type: "tool_result" as const,
+            tool_use_id: block.id,
+            content: result,
+          };
+        } catch (e) {
+          return {
+            type: "tool_result" as const,
+            tool_use_id: block.id,
+            content: `Error: ${e instanceof Error ? e.message : String(e)}`,
+            is_error: true,
+          };
+        }
+      }),
+    );
 
-      try {
-        const result = await executor(block.input as Record<string, unknown>);
-        toolResults.push({
-          type: "tool_result",
-          tool_use_id: block.id,
-          content: result,
-        });
-      } catch (e) {
-        toolResults.push({
-          type: "tool_result",
-          tool_use_id: block.id,
-          content: `Error: ${e instanceof Error ? e.message : String(e)}`,
-          is_error: true,
-        });
-      }
-    }
-
-    // Append assistant response and tool results to conversation
     messages.push({ role: "assistant", content: response.content });
     messages.push({ role: "user", content: toolResults });
   }
 
-  // Max iterations reached
   return {
     text: "ツール呼び出しの上限に達しました。処理を中断します。",
     toolCalls,

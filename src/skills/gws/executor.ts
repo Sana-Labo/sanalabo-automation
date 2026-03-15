@@ -1,21 +1,44 @@
 import type { GwsCommandResult, ToolExecutor } from "../../types.js";
 
+function getString(input: Record<string, unknown>, key: string): string {
+  const val = input[key];
+  if (typeof val !== "string" || val === "") {
+    throw new Error(`Missing or invalid parameter: ${key}`);
+  }
+  return val;
+}
+
+function optString(input: Record<string, unknown>, key: string): string | undefined {
+  const val = input[key];
+  if (val == null) return undefined;
+  return String(val);
+}
+
 async function runGws(args: string[]): Promise<GwsCommandResult> {
   const proc = Bun.spawn(["gws", ...args, "--format", "json"], {
     stdout: "pipe",
     stderr: "pipe",
   });
 
-  const timeoutId = setTimeout(() => proc.kill(), 30_000);
+  const timeout = new Promise<never>((_, reject) =>
+    setTimeout(() => {
+      proc.kill();
+      reject(new Error("gws command timed out after 30s"));
+    }, 30_000),
+  );
 
   try {
-    const [stdout, stderr] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
+    const { stdout, stderr, exitCode } = await Promise.race([
+      Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+      ]).then(async ([stdout, stderr]) => ({
+        stdout,
+        stderr,
+        exitCode: await proc.exited,
+      })),
+      timeout,
     ]);
-    const exitCode = await proc.exited;
-
-    clearTimeout(timeoutId);
 
     if (exitCode !== 0) {
       return {
@@ -31,7 +54,6 @@ async function runGws(args: string[]): Promise<GwsCommandResult> {
       return { success: true, data: stdout.trim() };
     }
   } catch (e) {
-    clearTimeout(timeoutId);
     return {
       success: false,
       data: null,
@@ -59,20 +81,17 @@ export function createGwsExecutors(): Map<string, ToolExecutor> {
     "gmail_list",
     gwsExecutor((input) => {
       const args = ["gmail", "messages", "list"];
-      if (input["query"]) args.push("--query", String(input["query"]));
-      if (input["maxResults"]) args.push("--max-results", String(input["maxResults"]));
+      const query = optString(input, "query");
+      if (query) args.push("--query", query);
+      const maxResults = optString(input, "maxResults");
+      if (maxResults) args.push("--max-results", maxResults);
       return args;
     }),
   );
 
   executors.set(
-    "gmail_search",
-    gwsExecutor((input) => ["gmail", "messages", "list", "--query", String(input["query"])]),
-  );
-
-  executors.set(
     "gmail_get",
-    gwsExecutor((input) => ["gmail", "messages", "get", String(input["messageId"])]),
+    gwsExecutor((input) => ["gmail", "messages", "get", getString(input, "messageId")]),
   );
 
   executors.set(
@@ -82,11 +101,11 @@ export function createGwsExecutors(): Map<string, ToolExecutor> {
       "drafts",
       "create",
       "--to",
-      String(input["to"]),
+      getString(input, "to"),
       "--subject",
-      String(input["subject"]),
+      getString(input, "subject"),
       "--body",
-      String(input["body"]),
+      getString(input, "body"),
     ]),
   );
 
@@ -94,8 +113,10 @@ export function createGwsExecutors(): Map<string, ToolExecutor> {
     "calendar_list",
     gwsExecutor((input) => {
       const args = ["calendar", "events", "list"];
-      if (input["timeMin"]) args.push("--time-min", String(input["timeMin"]));
-      if (input["timeMax"]) args.push("--time-max", String(input["timeMax"]));
+      const timeMin = optString(input, "timeMin");
+      if (timeMin) args.push("--time-min", timeMin);
+      const timeMax = optString(input, "timeMax");
+      if (timeMax) args.push("--time-max", timeMax);
       return args;
     }),
   );
@@ -108,20 +129,21 @@ export function createGwsExecutors(): Map<string, ToolExecutor> {
         "events",
         "create",
         "--summary",
-        String(input["summary"]),
+        getString(input, "summary"),
         "--start",
-        String(input["start"]),
+        getString(input, "start"),
         "--end",
-        String(input["end"]),
+        getString(input, "end"),
       ];
-      if (input["description"]) args.push("--description", String(input["description"]));
+      const description = optString(input, "description");
+      if (description) args.push("--description", description);
       return args;
     }),
   );
 
   executors.set(
     "drive_search",
-    gwsExecutor((input) => ["drive", "files", "list", "--query", String(input["query"])]),
+    gwsExecutor((input) => ["drive", "files", "list", "--query", getString(input, "query")]),
   );
 
   return executors;

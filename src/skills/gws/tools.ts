@@ -4,33 +4,19 @@ export const gwsTools: Anthropic.Tool[] = [
   {
     name: "gmail_list",
     description:
-      "List recent emails from Gmail. Optionally filter by query and limit results.",
+      "List or search emails in Gmail. Supports full Gmail search syntax (e.g. 'is:unread', 'from:user@example.com', 'newer_than:1h is:important').",
     input_schema: {
       type: "object",
       properties: {
         query: {
           type: "string",
-          description: "Gmail search query (e.g. 'is:unread', 'from:user@example.com')",
+          description: "Gmail search query. Omit to list recent emails.",
         },
         maxResults: {
           type: "number",
           description: "Maximum number of results to return (default: 10)",
         },
       },
-    },
-  },
-  {
-    name: "gmail_search",
-    description: "Search emails in Gmail with a query string.",
-    input_schema: {
-      type: "object",
-      properties: {
-        query: {
-          type: "string",
-          description: "Gmail search query",
-        },
-      },
-      required: ["query"],
     },
   },
   {
