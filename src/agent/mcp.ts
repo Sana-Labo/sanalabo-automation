@@ -10,16 +10,35 @@ export interface McpConnection {
   close: () => Promise<void>;
 }
 
-export async function connectMcp(): Promise<McpConnection> {
+const MCP_PACKAGE = "@line/line-bot-mcp-server";
+
+interface McpRuntime {
+  command: string;
+  args: string[];
+}
+
+const RUNTIMES: McpRuntime[] = [
+  { command: "bunx", args: [MCP_PACKAGE] },
+  { command: "npx", args: ["-y", MCP_PACKAGE] },
+];
+
+function buildMcpEnv(): Record<string, string> {
+  return {
+    CHANNEL_ACCESS_TOKEN: config.lineChannelAccessToken,
+    DESTINATION_USER_ID: config.lineUserId,
+    PATH: process.env["PATH"] ?? "",
+    HOME: process.env["HOME"] ?? "",
+  };
+}
+
+async function tryConnect(
+  runtime: McpRuntime,
+  env: Record<string, string>,
+): Promise<{ client: Client; close: () => Promise<void> }> {
   const transport = new StdioClientTransport({
-    command: "bunx",
-    args: ["@line/line-bot-mcp-server"],
-    env: {
-      CHANNEL_ACCESS_TOKEN: config.lineChannelAccessToken,
-      DESTINATION_USER_ID: config.lineUserId,
-      PATH: process.env["PATH"] ?? "",
-      HOME: process.env["HOME"] ?? "",
-    },
+    command: runtime.command,
+    args: runtime.args,
+    env,
   });
 
   const client = new Client({
@@ -28,6 +47,39 @@ export async function connectMcp(): Promise<McpConnection> {
   });
 
   await client.connect(transport);
+
+  return {
+    client,
+    close: () => client.close(),
+  };
+}
+
+export async function connectMcp(): Promise<McpConnection> {
+  const env = buildMcpEnv();
+  let client: Client;
+  let close: () => Promise<void>;
+
+  let lastError: unknown;
+  for (const runtime of RUNTIMES) {
+    try {
+      console.log(`[mcp] Trying ${runtime.command} ${runtime.args.join(" ")}...`);
+      ({ client, close } = await tryConnect(runtime, env));
+      console.log(`[mcp] Connected via ${runtime.command}`);
+      break;
+    } catch (e) {
+      lastError = e;
+      console.warn(
+        `[mcp] ${runtime.command} failed:`,
+        e instanceof Error ? e.message : e,
+      );
+    }
+  }
+
+  if (!client!) {
+    throw new Error(
+      `Failed to connect to LINE MCP Server with any runtime: ${lastError instanceof Error ? lastError.message : lastError}`,
+    );
+  }
 
   const { tools: mcpTools } = await client.listTools();
 
@@ -69,11 +121,5 @@ export async function connectMcp(): Promise<McpConnection> {
     });
   }
 
-  return {
-    tools,
-    executors,
-    close: async () => {
-      await client.close();
-    },
-  };
+  return { tools, executors, close: close! };
 }
