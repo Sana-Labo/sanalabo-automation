@@ -34,7 +34,7 @@ function buildMcpEnv(): Record<string, string> {
 async function tryConnect(
   runtime: McpRuntime,
   env: Record<string, string>,
-): Promise<{ client: Client; close: () => Promise<void> }> {
+): Promise<Client> {
   const transport = new StdioClientTransport({
     command: runtime.command,
     args: runtime.args,
@@ -47,25 +47,18 @@ async function tryConnect(
   });
 
   await client.connect(transport);
-
-  return {
-    client,
-    close: () => client.close(),
-  };
+  return client;
 }
 
-export async function connectMcp(): Promise<McpConnection> {
-  const env = buildMcpEnv();
-  let client: Client;
-  let close: () => Promise<void>;
-
+async function connectWithFallback(env: Record<string, string>): Promise<Client> {
   let lastError: unknown;
+
   for (const runtime of RUNTIMES) {
     try {
       console.log(`[mcp] Trying ${runtime.command} ${runtime.args.join(" ")}...`);
-      ({ client, close } = await tryConnect(runtime, env));
+      const client = await tryConnect(runtime, env);
       console.log(`[mcp] Connected via ${runtime.command}`);
-      break;
+      return client;
     } catch (e) {
       lastError = e;
       console.warn(
@@ -75,13 +68,59 @@ export async function connectMcp(): Promise<McpConnection> {
     }
   }
 
-  if (!client!) {
-    throw new Error(
-      `Failed to connect to LINE MCP Server with any runtime: ${lastError instanceof Error ? lastError.message : lastError}`,
-    );
+  throw new Error(
+    `Failed to connect to LINE MCP Server: ${lastError instanceof Error ? lastError.message : lastError}`,
+  );
+}
+
+function extractMcpText(result: Awaited<ReturnType<Client["callTool"]>>): string {
+  if (!("content" in result) || !Array.isArray(result.content)) {
+    return JSON.stringify(result);
   }
 
-  const { tools: mcpTools } = await client.listTools();
+  const texts = result.content
+    .filter((c: { type: string }): c is { type: "text"; text: string } => c.type === "text")
+    .map((c) => c.text);
+
+  if (result.isError) {
+    throw new Error(texts.join("\n") || "MCP tool error");
+  }
+
+  return texts.join("\n");
+}
+
+export async function connectMcp(): Promise<McpConnection> {
+  const env = buildMcpEnv();
+
+  // Mutable client reference — replaced on reconnect
+  let currentClient = await connectWithFallback(env);
+
+  // Coalesce concurrent reconnection attempts into a single promise
+  let reconnecting: Promise<void> | null = null;
+
+  async function reconnect(): Promise<void> {
+    if (reconnecting) return reconnecting;
+
+    reconnecting = (async () => {
+      console.log("[mcp] Reconnecting to LINE MCP Server...");
+      try {
+        await currentClient.close();
+      } catch {
+        // Old client may already be dead
+      }
+      currentClient = await connectWithFallback(env);
+      console.log("[mcp] Reconnected successfully");
+    })();
+
+    try {
+      await reconnecting;
+    } finally {
+      reconnecting = null;
+    }
+  }
+
+  // Discover tools once — LINE MCP Server's tool list is stable
+  const { tools: mcpTools } = await currentClient.listTools();
 
   const tools: Anthropic.Tool[] = mcpTools.map((t) => {
     const { type: _type, ...rest } = t.inputSchema;
@@ -95,31 +134,34 @@ export async function connectMcp(): Promise<McpConnection> {
     };
   });
 
+  // Build executors with auto-reconnect: try once, reconnect on failure, retry once
   const executors = new Map<string, ToolExecutor>();
 
   for (const t of mcpTools) {
     executors.set(t.name, async (input) => {
-      const result = await client.callTool({
-        name: t.name,
-        arguments: input,
-      });
+      const attempt = () =>
+        currentClient
+          .callTool({ name: t.name, arguments: input })
+          .then(extractMcpText);
 
-      // callTool returns a union: { content, isError } | { toolResult }
-      if (!("content" in result) || !Array.isArray(result.content)) {
-        return JSON.stringify(result);
+      try {
+        return await attempt();
+      } catch (e) {
+        console.warn(
+          `[mcp] Tool "${t.name}" failed, reconnecting:`,
+          e instanceof Error ? e.message : e,
+        );
+        await reconnect();
+        return await attempt();
       }
-
-      const texts = result.content
-        .filter((c: { type: string }): c is { type: "text"; text: string } => c.type === "text")
-        .map((c) => c.text);
-
-      if (result.isError) {
-        throw new Error(texts.join("\n") || "MCP tool error");
-      }
-
-      return texts.join("\n");
     });
   }
 
-  return { tools, executors, close: close! };
+  return {
+    tools,
+    executors,
+    close: async () => {
+      await currentClient.close();
+    },
+  };
 }
