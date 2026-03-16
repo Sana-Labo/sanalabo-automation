@@ -26,6 +26,11 @@ export const eveningSummary = createJob(
 // urgentMailCheck: per-user timestamp-based deduplication
 const lastUrgentCheckMap = new Map<string, Date>();
 
+/** Clear stale checkpoint so reactivated users don't skip the gap period */
+export function clearUrgentCheckpoint(userId: string): void {
+  lastUrgentCheckMap.delete(userId);
+}
+
 export async function urgentMailCheck(
   registry: ToolRegistry,
   userId: string,

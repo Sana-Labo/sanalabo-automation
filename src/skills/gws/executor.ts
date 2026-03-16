@@ -20,12 +20,13 @@ async function runGws(args: string[]): Promise<GwsCommandResult> {
     stderr: "pipe",
   });
 
-  const timeout = new Promise<never>((_, reject) =>
-    setTimeout(() => {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
       proc.kill();
       reject(new Error("gws command timed out after 30s"));
-    }, 30_000),
-  );
+    }, 30_000);
+  });
 
   try {
     const { stdout, stderr, exitCode } = await Promise.race([
@@ -59,6 +60,8 @@ async function runGws(args: string[]): Promise<GwsCommandResult> {
       data: null,
       error: e instanceof Error ? e.message : String(e),
     };
+  } finally {
+    clearTimeout(timer!);
   }
 }
 

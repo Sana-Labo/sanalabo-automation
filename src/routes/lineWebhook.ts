@@ -1,10 +1,12 @@
 import { Hono } from "hono";
 import { runAgentLoop } from "../agent/loop.js";
+import { clearUrgentCheckpoint } from "../jobs/index.js";
 import {
   verifyLineSignature,
   parseLineEvents,
   extractTextMessage,
   extractPostbackData,
+  extractUserId,
   isFollowEvent,
   isUnfollowEvent,
   isPostbackEvent,
@@ -52,6 +54,12 @@ export function createLineWebhookRoute(
     void processQueue();
   }
 
+  function enqueueAgent(prompt: string, userId: string): void {
+    enqueue(async () => {
+      await runAgentLoop(prompt, registry, userId);
+    });
+  }
+
   // --- Event Handlers ---
 
   function handleFollow(
@@ -87,6 +95,7 @@ export function createLineWebhookRoute(
     if (userStore.isActive(userId)) {
       enqueue(async () => {
         await userStore.deactivate(userId);
+        clearUrgentCheckpoint(userId);
       });
     }
   }
@@ -116,8 +125,7 @@ export function createLineWebhookRoute(
       }
     }
 
-    // Normal message → agent loop
-    enqueue(() => runAgentLoop(text, registry, userId).then(() => {}));
+    enqueueAgent(text, userId);
   }
 
   function handlePostback(
@@ -127,17 +135,14 @@ export function createLineWebhookRoute(
     if (!userStore.isActive(userId)) return;
 
     const data = extractPostbackData(event);
-    enqueue(() =>
-      runAgentLoop(
-        `[ポストバック] ユーザーがボタンを押しました。データ: ${data}`,
-        registry,
-        userId,
-      ).then(() => {}),
+    enqueueAgent(
+      `[ポストバック] ユーザーがボタンを押しました。データ: ${data}`,
+      userId,
     );
   }
 
   function routeEvent(event: LineWebhookEvent): void {
-    const userId = (event as { source?: { userId?: string } }).source?.userId;
+    const userId = extractUserId(event);
     if (!userId) return;
 
     if (isFollowEvent(event)) {

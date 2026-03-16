@@ -1,4 +1,4 @@
-import { rename } from "node:fs/promises";
+import { mkdir, rename } from "node:fs/promises";
 import { dirname } from "node:path";
 import { config } from "../config.js";
 import type { UserRecord } from "../types.js";
@@ -25,9 +25,7 @@ class JsonUserStore implements UserStore {
   }
 
   async load(): Promise<void> {
-    // Ensure data directory exists
-    const dir = dirname(this.path);
-    await Bun.write(Bun.file(dir + "/.keep"), "");
+    await mkdir(dirname(this.path), { recursive: true });
 
     try {
       const file = Bun.file(this.path);
@@ -47,12 +45,21 @@ class JsonUserStore implements UserStore {
   }
 
   private async save(): Promise<void> {
-    this.writeLock = this.writeLock.then(async () => {
+    const prev = this.writeLock;
+    let resolve!: () => void;
+    this.writeLock = new Promise<void>((r) => {
+      resolve = r;
+    });
+    await prev;
+    try {
       const tmp = `${this.path}.tmp.${Date.now()}`;
       await Bun.write(Bun.file(tmp), JSON.stringify(this.data, null, 2) + "\n");
       await rename(tmp, this.path);
-    });
-    await this.writeLock;
+    } catch (err) {
+      console.error("[users] Save failed:", err);
+    } finally {
+      resolve();
+    }
   }
 
   isAdmin(userId: string): boolean {
@@ -109,7 +116,8 @@ class JsonUserStore implements UserStore {
     console.log(`[users] Deactivated ${userId}`);
   }
 
-  private async ensureAdmin(userId: string): Promise<void> {
+  // Caller must call save() after batch operations
+  private ensureAdmin(userId: string): void {
     if (!this.data[userId] || this.data[userId]!.status !== "active") {
       this.data[userId] = {
         status: "active",
@@ -122,7 +130,7 @@ class JsonUserStore implements UserStore {
 
   async registerAdmins(): Promise<void> {
     for (const adminId of config.adminUserIds) {
-      await this.ensureAdmin(adminId);
+      this.ensureAdmin(adminId);
     }
     await this.save();
     console.log(

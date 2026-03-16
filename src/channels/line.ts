@@ -84,3 +84,10 @@ export function isTextMessageEvent(e: LineWebhookEvent): e is LineMessageEvent {
 export function extractPostbackData(e: LinePostbackEvent): string {
   return e.postback.data;
 }
+
+export function extractUserId(event: LineWebhookEvent): string | undefined {
+  if ("source" in event && event.source && typeof event.source === "object") {
+    return (event.source as { userId?: string }).userId;
+  }
+  return undefined;
+}
