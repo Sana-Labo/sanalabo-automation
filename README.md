@@ -1,5 +1,7 @@
 # sanalabo-automation
 
+> **v1.0.0** — Initial release
+
 An agent server that operates Google Workspace through Claude API's tool_use.
 Uses LINE as the user input channel with a workspace-based multi-tenant architecture.
 

@@ -1,4 +1,4 @@
-# sanalabo-automation
+# sanalabo-automation (v1.0.0)
 
 Claude API의 tool_use를 활용하여 Google Workspace를 조작하는 에이전트 서버.
 LINE을 사용자 입력 채널로 사용하며, 워크스페이스 기반 다중 테넌트 아키텍처.
