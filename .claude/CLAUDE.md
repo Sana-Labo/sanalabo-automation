@@ -36,8 +36,9 @@ LINE을 사용자 입력 채널로 사용하며, 추후 채널 및 스킬을 확
 │  └── 관리자 초대 → follow 시 활성화 → unfollow 시 비활성화│
 ├──────────────────────────────────────────────────────┤
 │  Agent Core (Claude API + tool_use loop)               │
-│  ├── 시스템 프롬프트에 userId 주입                       │
-│  │   → Claude가 push 도구 호출 시 user_id 자동 포함     │
+│  ├── user_id 이중 보장:                                   │
+│  │   ├── 시스템 프롬프트에 userId 주입 (Claude 지시)       │
+│  │   └── push_ 도구 실행 전 프로그래밍적 user_id 강제 주입 │
 │  ├── Claude가 보는 도구 목록 (실행 경로를 모름):          │
 │  │   ├── gmail_list, gmail_search, ...   ← Native Tool  │
 │  │   ├── calendar_list, calendar_create  ← Native Tool  │
@@ -102,7 +103,13 @@ Channel input
 | `0 21 * * 1-5` | eveningSummary | 오늘 활동 요약 + 내일 일정 |
 
 Cron 잡도 Agent Core를 호출하여 실행 — 에이전트가 GWS 도구로 정보 수집 후 LINE MCP 도구로 발신.
-실행 시 `getActiveUsers()`로 활성 사용자를 조회하여 순차 실행. 런타임 추가/제거된 사용자 자동 반영.
+실행 시 `getActiveUsers()`로 활성 사용자를 조회하여 `Promise.allSettled`로 병렬 실행. 런타임 추가/제거된 사용자 자동 반영.
+
+### Webhook 동시성
+
+- **사용자별 큐**: 같은 사용자 내 순차 처리 (대화 순서 보장), 다른 사용자 간 병렬 실행
+- JS 단일 스레드 이벤트 루프에서 `Map` 접근 경쟁 없음
+- 큐 드레인 후 자동 정리 (메모리 누수 방지)
 
 ### 사용자 관리
 
@@ -143,6 +150,8 @@ src/
 ├── routes/                # Hono 라우트
 │   ├── lineWebhook.ts     # POST /webhook/line
 │   └── health.ts          # GET /health
+├── utils/                 # 공통 유틸리티
+│   └── error.ts           # toErrorMessage
 ├── scheduler.ts           # Croner 등록
 ├── app.ts                 # Hono 엔트리포인트
 └── types.ts
@@ -158,6 +167,7 @@ src/
 6. **사용자 권한 확인 필수** — 활성(`active`) 사용자만 에이전트 루프 실행. 미초대/비활성 사용자 요청은 무시 또는 안내 메시지
 7. **초대 명령은 결정론적 처리** — `invite U...` 패턴 매칭. Claude 판단에 의존하지 않음
 8. **GWS 데이터는 전체 사용자 공유** — 단일 Google 계정 인증. 사용자별 데이터 격리 없음
+9. **LINE push user_id는 프로그래밍적 보장** — 시스템 프롬프트 지시 + `push_` 도구 실행 전 코드에서 강제 주입. Claude 출력에 의존하지 않음
 
 ## AI Model 사용 규칙
 
@@ -194,6 +204,13 @@ src/
 - Native Tool: `skills/<name>/tools.ts` (도구 정의) + `executor.ts` (실행 구현)
 - MCP Tool: `agent/mcp.ts`에 MCP Server 연결 추가 (도구 정의는 MCP Server가 제공)
 - Agent Core 수정 불필요
+
+### Per-User GWS 확장 포인트
+
+현재 단일 Google 계정(공유)이지만, 사용자별 워크스페이스가 필요할 때의 확장 경로:
+1. `runGws`에 `env` 파라미터 추가 → 사용자별 인증 정보 전달
+2. `UserRecord`에 `gwsWorkspace` 필드 추가 → 사용자별 인증 저장
+3. ToolExecutor에 사용자 컨텍스트 전달 → `ToolExecutor` 시그니처 확장 또는 클로저 바인딩
 
 ## Environment Variables
 
