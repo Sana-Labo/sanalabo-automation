@@ -41,6 +41,14 @@ export const config = {
   workspaceStorePath: process.env["WORKSPACE_STORE_PATH"] ?? "data/workspaces.json",
   pendingActionStorePath: process.env["PENDING_ACTION_STORE_PATH"] ?? "data/pending-actions.json",
   workspaceDataDir: process.env["WORKSPACE_DATA_DIR"] ?? "data/workspaces",
-  mcpPoolSize: process.env["MCP_POOL_SIZE"] ? Number(process.env["MCP_POOL_SIZE"]) : 3,
+  mcpPoolSize: (() => {
+    const raw = process.env["MCP_POOL_SIZE"];
+    if (!raw) return 3;
+    const n = Number(raw);
+    if (!Number.isInteger(n) || n < 1) {
+      throw new Error("MCP_POOL_SIZE must be a positive integer");
+    }
+    return n;
+  })(),
   port: process.env["PORT"] ? Number(process.env["PORT"]) : 3000,
 } as const;

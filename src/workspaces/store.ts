@@ -79,7 +79,10 @@ export class JsonWorkspaceStore implements WorkspaceStore {
   }
 
   async create(name: string, ownerId: string): Promise<WorkspaceRecord> {
-    const id = crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+    let id: string;
+    do {
+      id = crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+    } while (this.data[id]);
     const gwsConfigDir = `${this.dataDir}/${id}/gws-config`;
 
     await mkdir(gwsConfigDir, { recursive: true });
