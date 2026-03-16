@@ -31,6 +31,16 @@ export interface LineWebhookBody {
   events: LineWebhookEvent[];
 }
 
+export interface LineSource {
+  type: string;
+  userId?: string;
+}
+
+interface LineEventBase {
+  source: LineSource;
+  timestamp: number;
+}
+
 export type LineWebhookEvent =
   | LineMessageEvent
   | LineFollowEvent
@@ -38,33 +48,25 @@ export type LineWebhookEvent =
   | LinePostbackEvent
   | LineUnknownEvent;
 
-export interface LineMessageEvent {
+export interface LineMessageEvent extends LineEventBase {
   type: "message";
   message: LineTextMessage;
   replyToken: string;
-  source: { type: string; userId?: string };
-  timestamp: number;
 }
 
-export interface LineFollowEvent {
+export interface LineFollowEvent extends LineEventBase {
   type: "follow";
-  source: { type: string; userId?: string };
   replyToken: string;
-  timestamp: number;
 }
 
-export interface LineUnfollowEvent {
+export interface LineUnfollowEvent extends LineEventBase {
   type: "unfollow";
-  source: { type: string; userId?: string };
-  timestamp: number;
 }
 
-export interface LinePostbackEvent {
+export interface LinePostbackEvent extends LineEventBase {
   type: "postback";
   postback: { data: string };
-  source: { type: string; userId?: string };
   replyToken: string;
-  timestamp: number;
 }
 
 interface LineTextMessage {
