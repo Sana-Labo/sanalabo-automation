@@ -77,11 +77,88 @@ interface LineTextMessage {
 // --- Users ---
 
 export type UserStatus = "invited" | "active" | "inactive";
+export type SystemRole = "admin" | "user";
 
 export interface UserRecord {
   status: UserStatus;
+  systemRole: SystemRole;
   invitedBy: string;
   invitedAt: string;
   activatedAt?: string;
   deactivatedAt?: string;
+  defaultWorkspaceId?: string;
+}
+
+// --- Workspace ---
+
+export type WorkspaceRole = "owner" | "member";
+
+export interface WorkspaceMembership {
+  role: WorkspaceRole;
+  joinedAt: string;
+  invitedBy: string;
+}
+
+export interface WorkspaceRecord {
+  id: string;
+  name: string;
+  ownerId: string;
+  gwsConfigDir: string;
+  createdAt: string;
+  members: Record<string, WorkspaceMembership>;
+}
+
+// --- Pending Action (Write Approval) ---
+
+export type PendingActionStatus = "pending" | "approved" | "rejected" | "expired";
+
+export interface PendingAction {
+  id: string;
+  workspaceId: string;
+  requesterId: string;
+  toolName: string;
+  toolInput: Record<string, unknown>;
+  status: PendingActionStatus;
+  createdAt: string;
+  resolvedAt?: string;
+  resolvedBy?: string;
+  rejectionReason?: string;
+  requestContext: string;
+}
+
+// --- Tool Context ---
+
+export interface ToolContext {
+  userId: string;
+  workspaceId: string;
+  role: WorkspaceRole;
+}
+
+export interface AgentDependencies {
+  registry: ToolRegistry;
+  pendingActionStore: PendingActionStore;
+  workspaceStore: WorkspaceStore;
+}
+
+// --- Store Interfaces (forward declarations) ---
+
+export interface PendingActionStore {
+  create(action: Omit<PendingAction, "id" | "status" | "createdAt">): Promise<PendingAction>;
+  get(actionId: string): PendingAction | undefined;
+  getByWorkspace(workspaceId: string, status?: PendingActionStatus): PendingAction[];
+  approve(actionId: string, approvedBy: string): Promise<PendingAction>;
+  reject(actionId: string, rejectedBy: string, reason?: string): Promise<PendingAction>;
+  expireOlderThan(hours: number): Promise<number>;
+}
+
+export interface WorkspaceStore {
+  getAll(): WorkspaceRecord[];
+  get(workspaceId: string): WorkspaceRecord | undefined;
+  getByOwner(ownerId: string): WorkspaceRecord[];
+  getByMember(userId: string): WorkspaceRecord[];
+  create(name: string, ownerId: string): Promise<WorkspaceRecord>;
+  inviteMember(workspaceId: string, userId: string, invitedBy: string): Promise<void>;
+  removeMember(workspaceId: string, userId: string): Promise<void>;
+  resolveWorkspace(userId: string, defaultWorkspaceId?: string): WorkspaceRecord | undefined;
+  getUserRole(workspaceId: string, userId: string): WorkspaceRole | undefined;
 }
