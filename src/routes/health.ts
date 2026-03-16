@@ -1,9 +1,17 @@
 import { Hono } from "hono";
+import type { McpConnection } from "../agent/mcp.js";
 
-const health = new Hono();
+export function createHealthRoute(mcp: McpConnection) {
+  const route = new Hono();
 
-health.get("/health", (c) => {
-  return c.json({ status: "ok", timestamp: new Date().toISOString() });
-});
+  route.get("/health", (c) => {
+    const pool = mcp.getStatus ? mcp.getStatus() : "not available";
+    return c.json({
+      status: "ok",
+      timestamp: new Date().toISOString(),
+      mcpPool: pool,
+    });
+  });
 
-export { health };
+  return route;
+}

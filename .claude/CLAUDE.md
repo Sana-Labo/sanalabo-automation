@@ -1,7 +1,7 @@
 # sanalabo-automation
 
 Claude API의 tool_use를 활용하여 Google Workspace를 조작하는 에이전트 서버.
-LINE을 사용자 입력 채널로 사용하며, 추후 채널 및 스킬을 확장할 수 있는 구조.
+LINE을 사용자 입력 채널로 사용하며, 워크스페이스 기반 다중 테넌트 아키텍처.
 
 ## Tech Stack
 
@@ -14,6 +14,7 @@ LINE을 사용자 입력 채널로 사용하며, 추후 채널 및 스킬을 확
 | GWS Skill | GWS CLI (`@googleworkspace/cli`) — Native Tool (`Bun.spawn`) |
 | LINE Skill | `@line/line-bot-mcp-server` — MCP Tool (메시지 발신) |
 | LINE Channel | SDK-free (Web Crypto + native fetch) — Webhook 수신 전용 |
+| MCP Transport | Connection Pool (N개 stdio 프로세스, least-inflight 디스패치) |
 | Scheduler | Croner (Bun 공식 지원, 0 의존성) |
 | Deploy | Docker Compose (`oven/bun:alpine`) on MacBook Pro M4 Pro |
 | Tunnel | Cloudflare Tunnel — LINE Webhook 수신용 |
@@ -21,41 +22,48 @@ LINE을 사용자 입력 채널로 사용하며, 추후 채널 및 스킬을 확
 ## Architecture
 
 ```
-[사용자 LINE 앱 (다중 사용자)]
-    ↕ 메시지
-[LINE Platform]
-    ↓ Webhook POST (수신)              ↑ 발신 (MCP 경유)
-┌──────────────────────────────────────────────────────┐
-│  Channel Layer                                        │
-│  ├── LINE Webhook 수신 + signature 검증 (Web Crypto)  │
-│  └── 이벤트 라우팅: follow/unfollow/message/postback   │
-│      → userId 추출 → 권한 확인 → 핸들러 분기            │
-├──────────────────────────────────────────────────────┤
-│  User Management (src/users/)                         │
-│  ├── JSON 파일 기반 사용자 저장소 (data/users.json)     │
-│  └── 관리자 초대 → follow 시 활성화 → unfollow 시 비활성화│
-├──────────────────────────────────────────────────────┤
-│  Agent Core (Claude API + tool_use loop)               │
-│  ├── user_id 이중 보장:                                   │
-│  │   ├── 시스템 프롬프트에 userId 주입 (Claude 지시)       │
-│  │   └── push_ 도구 실행 전 프로그래밍적 user_id 강제 주입 │
-│  ├── Claude가 보는 도구 목록 (실행 경로를 모름):          │
-│  │   ├── gmail_list, gmail_search, ...   ← Native Tool  │
-│  │   ├── calendar_list, calendar_create  ← Native Tool  │
-│  │   ├── push_text_message               ← MCP Tool     │
-│  │   └── push_flex_message               ← MCP Tool     │
-│  └── 도구 실행 라우팅:                                    │
-│      ├── Native Tool → Bun.spawn(["gws", ...])          │
-│      └── MCP Tool    → MCP Client → LINE MCP Server     │
-├──────────────────────────────────────────────────────┤
-│  @line/line-bot-mcp-server (외부 프로세스, stdio)       │
-└──────────────────────────────────────────────────────┘
+[System Admin]──관리 명령──┐
+                            ▼
+[LINE Bot (단일 채널)] ←──→ [Webhook + Event Router]
+                                    │
+                           ┌────────┴────────┐
+                           ▼                  ▼
+                   [Workspace A]       [Workspace B]
+                   Owner: UserA        Owner: UserC
+                   Members: N명        Members: M명
+                   GWS: A's Google     GWS: C's Google
+                           │                  │
+                   ┌───────┴───────┐          │
+                   ▼               ▼          ▼
+              [Agent Loop]    [Agent Loop]  [Agent Loop]
+              context: {      context: {   context: {
+                ws: A,          ws: A,       ws: B,
+                role: owner,    role: member, role: owner,
+                userId: A       userId: B    userId: C
+              }               }            }
+                   │               │          │
+           ┌───────┴───────────────┴──────────┘
+           ▼                               ▼
+    [GWS Executor]                  [MCP Pool (N=3)]
+    (per-workspace                  [Member 0] [Member 1] [Member 2]
+     configDir)                     least-inflight dispatch
+           │                               │
+    [gws CLI + Google API]          [LINE Push API]
 ```
+
+### 역할 체계
+
+| 역할 | 범위 | GWS 접근 | 관리 권한 |
+|------|------|----------|----------|
+| **System Admin** | 전체 시스템 | — (워크스페이스 소속 불필요) | 워크스페이스 프로비저닝 (CLI/LINE), 모니터링 |
+| **Owner** | 1 워크스페이스 | 읽기 + 쓰기 (본인 Google 계정) | LINE에서 멤버 초대/제거 |
+| **Member** | 1+ 워크스페이스 | 읽기 O, 쓰기 → Owner 승인 필요 | — |
 
 ### 핵심 개념
 
 | 용어 | 정의 | 예시 |
 |------|------|------|
+| **Workspace** | GWS 계정 + 멤버 그룹의 단위 | 동아리 A의 Google 계정 |
 | **Skill** | 능력의 묶음 (도메인 단위) | Google Workspace 조작, LINE 메시징 |
 | **Tool** | 스킬 안의 개별 조작 (Claude가 tool_use로 호출하는 단위) | `gmail_search`, `push_text_message` |
 | **Native Tool** | 에이전트가 직접 실행하는 도구 | GWS CLI → `Bun.spawn` |
@@ -67,32 +75,47 @@ Claude는 Native Tool과 MCP Tool의 차이를 모른다. 둘 다 동일한 tool
 
 | Skill | 구현 방식 | Tools | 이유 |
 |-------|----------|-------|------|
-| Google Workspace | Native Tool (`Bun.spawn` → GWS CLI) | `gmail_*`, `calendar_*`, `drive_*` | 외부 재사용 불필요, CLI 래핑으로 충분 |
-| LINE 메시징 | MCP Tool (`@line/line-bot-mcp-server`) | `push_text_message`, `push_flex_message` 등 | 에이전트가 자율적으로 발신 판단 |
+| Google Workspace | Native Tool (`Bun.spawn` → GWS CLI) | `gmail_*`, `calendar_*`, `drive_*` | 워크스페이스별 configDir로 격리 |
+| LINE 메시징 | MCP Tool (`@line/line-bot-mcp-server`) | `push_text_message`, `push_flex_message` 등 | MCP Pool 경유 |
 
 ### LINE 통신의 역할 분리
 
 | 역할 | 위치 | 구현 |
 |------|------|------|
 | **수신** (Webhook) | Channel Layer | Hono + Web Crypto signature 검증 |
-| **발신** (메시지 전송) | Skill Layer (MCP) | 에이전트가 LINE MCP Server 도구로 자율 발신 |
+| **발신** (메시지 전송) | Skill Layer (MCP Pool) | 에이전트가 LINE MCP Server 도구로 자율 발신 |
 
 ### Agent Core 동작 방식
 
 Intent router가 아닌 **에이전트 루프** — Claude가 어떤 도구를 호출할지 자율 판단.
 
 ```
-Channel input
+Webhook event
+  → resolveWorkspace(userId) → ToolContext { userId, workspaceId, role }
+  → createGwsExecutors({ configDir: workspace.gwsConfigDir })
   → Claude API (system prompt + tools 정의 + 사용자 메시지)
   → while stop_reason === 'tool_use':
-      → 도구 실행 (Native Tool 또는 MCP Tool)
+      → interceptWrite() — member의 write 도구 → PendingAction 생성 + Owner 통지
+      → 또는 도구 실행 (GWS executor 또는 MCP Pool)
       → 결과를 대화에 추가
       → Claude API 재호출
   → stop_reason === 'end_turn': 최종 응답
 ```
 
-- Claude가 도구를 체이닝할 수 있음 (예: "메일 확인 → 관련 일정 찾기 → LINE으로 요약 발신")
-- 새 스킬 추가 = 도구 정의 + 실행 구현 추가 (Agent Core 코드 변경 불필요)
+### Write Approval Flow (Member → Owner)
+
+1. Member가 write 도구 호출 → `interceptWrite()` 가로채기
+2. `PendingAction` 생성 → Owner에게 Flex Message (承認/却下 버튼)
+3. Owner가 postback 또는 `approve {id}` 텍스트로 승인
+4. 원래 도구 실행 → 양측에 결과 통지
+
+### MCP Connection Pool
+
+- N개(기본 3) MCP 클라이언트 프로세스 풀
+- **Least-inflight 디스패치**: 가장 여유 있는 멤버에 라우팅
+- **멤버별 격리 재연결**: 한 멤버 장애가 다른 멤버 차단하지 않음
+- **헬스 체크**: 30초 간격 ping, 3회 연속 실패 → unhealthy → 백그라운드 재연결
+- Health 엔드포인트에서 풀 상태 노출
 
 ### Cron 잡 (자동 통지)
 
@@ -101,9 +124,9 @@ Channel input
 | `0 8 * * 1-5` | morningBriefing | 미독 메일 요약 + 오늘 일정 |
 | `*/30 8-22 * * *` | urgentMailCheck | 긴급 메일 LINE 통지 |
 | `0 21 * * 1-5` | eveningSummary | 오늘 활동 요약 + 내일 일정 |
+| `0 * * * *` | pendingActionExpiry | 24시간 경과 PendingAction 만료 |
 
-Cron 잡도 Agent Core를 호출하여 실행 — 에이전트가 GWS 도구로 정보 수집 후 LINE MCP 도구로 발신.
-실행 시 `getActiveUsers()`로 활성 사용자를 조회하여 `Promise.allSettled`로 병렬 실행. 런타임 추가/제거된 사용자 자동 반영.
+Cron 잡은 워크스페이스별 → 멤버별로 순회. 각 멤버의 ToolContext(workspaceId, role)로 Agent Core 호출.
 
 ### Webhook 동시성
 
@@ -111,21 +134,25 @@ Cron 잡도 Agent Core를 호출하여 실행 — 에이전트가 GWS 도구로 
 - JS 단일 스레드 이벤트 루프에서 `Map` 접근 경쟁 없음
 - 큐 드레인 후 자동 정리 (메모리 누수 방지)
 
-### 사용자 관리
+### 사용자 관리 + 워크스페이스
+
+**사용자 상태**:
 
 | 상태 | 설명 | 전이 |
 |------|------|------|
-| `invited` | 관리자가 초대 완료, 미가입 | follow 이벤트 → `active` |
+| `invited` | Owner가 초대 완료, 미가입 | follow 이벤트 → `active` |
 | `active` | 서비스 이용 중 | unfollow 이벤트 → `inactive` |
 | `inactive` | 탈퇴 (블록) | — |
 
 **초대 플로우**:
-1. 관리자가 LINE에서 `invite U[0-9a-f]{32}` 전송
-2. 시스템이 결정론적으로 매칭 → `data/users.json`에 `invited` 등록
+1. Owner가 LINE에서 `invite U[0-9a-f]{32}` 전송
+2. 시스템이 결정론적으로 매칭 → UserStore + WorkspaceStore에 등록
 3. 초대된 사용자가 LINE 공식 계정을 친구 추가 (follow 이벤트)
 4. 시스템이 `invited` → `active` 전환 + 환영 메시지
 
-**관리자**: `ADMIN_USER_IDS` 환경변수로 지정. 시작 시 자동 `active` 등록.
+**워크스페이스 해결**: 단일 소속 → 자동, 복수 → `defaultWorkspaceId` 또는 `use {id}` 명령
+
+**시스템 관리자**: `SYSTEM_ADMIN_IDS` 환경변수로 지정. 시작 시 자동 `active` 등록.
 
 ## Project Structure
 
@@ -134,27 +161,35 @@ src/
 ├── channels/              # 입력 채널 어댑터
 │   └── line.ts            # LINE Webhook 수신 + signature 검증 (Web Crypto)
 ├── agent/                 # 에이전트 코어
-│   ├── loop.ts            # tool_use 에이전트 루프
-│   ├── mcp.ts             # MCP Client (LINE MCP Server 연결)
-│   └── system.ts          # 시스템 프롬프트
+│   ├── loop.ts            # tool_use 에이전트 루프 (AgentDependencies + ToolContext)
+│   ├── mcp.ts             # MCP Client 싱글톤 (폴백용 유지)
+│   ├── mcp-pool.ts        # MCP Connection Pool (least-inflight dispatch)
+│   └── system.ts          # 시스템 프롬프트 (워크스페이스 + 역할 인식)
 ├── users/                 # 사용자 관리
-│   └── store.ts           # JSON 파일 기반 사용자 저장소 (초대/활성화/비활성화)
+│   └── store.ts           # JSON 파일 기반 사용자 저장소
+├── workspaces/            # 워크스페이스 관리
+│   ├── store.ts           # JSON 파일 기반 워크스페이스 저장소
+│   ├── migrate.ts         # flat → workspace 자동 마이그레이션
+│   └── cli.ts             # 프로비저닝 CLI (create/list/status)
+├── approvals/             # Write 승인 플로우
+│   ├── store.ts           # PendingAction 저장소
+│   ├── interceptor.ts     # Write 가로채기 (member 권한 체크)
+│   └── notify.ts          # Owner 통지 (Flex Message)
 ├── skills/                # 스킬 구현
-│   ├── gws/               # Google Workspace 스킬
-│   │   ├── tools.ts       # 도구 정의 (JSON Schema)
-│   │   └── executor.ts    # 실행 (Bun.spawn → GWS CLI)
-│   └── line/              # LINE 메시징 스킬
-│       └── (MCP Server 연결 — 도구 정의는 MCP가 자기 기술)
-├── jobs/                  # Cron 잡 (전체 활성 사용자 순회)
+│   └── gws/               # Google Workspace 스킬
+│       ├── tools.ts       # 도구 정의 (JSON Schema)
+│       ├── executor.ts    # 실행 (Bun.spawn + GwsExecOptions)
+│       └── access.ts      # 접근 제어 (read/write 분류)
+├── jobs/                  # Cron 잡 (워크스페이스별 순회)
 │   └── index.ts           # morningBriefing, urgentMailCheck, eveningSummary
 ├── routes/                # Hono 라우트
-│   ├── lineWebhook.ts     # POST /webhook/line
-│   └── health.ts          # GET /health
+│   ├── lineWebhook.ts     # POST /webhook/line (워크스페이스 해결, 승인 처리)
+│   └── health.ts          # GET /health (MCP Pool 상태 포함)
 ├── utils/                 # 공통 유틸리티
 │   └── error.ts           # toErrorMessage
-├── scheduler.ts           # Croner 등록
-├── app.ts                 # Hono 엔트리포인트
-└── types.ts
+├── scheduler.ts           # Croner 등록 (워크스페이스별 순회 + 만료 cron)
+├── app.ts                 # Hono 엔트리포인트 + 마이그레이션
+└── types.ts               # 공통 타입 + Store 인터페이스
 ```
 
 ## Safety Rules (위반 금지)
@@ -165,8 +200,8 @@ src/
 4. **LINE Webhook은 반드시 signature 검증** — Web Crypto API로 HMAC-SHA256 검증. 미검증 요청 처리 금지
 5. **에이전트 루프 무한 반복 방지** — 도구 호출 최대 횟수 제한 설정 필수
 6. **사용자 권한 확인 필수** — 활성(`active`) 사용자만 에이전트 루프 실행. 미초대/비활성 사용자 요청은 무시 또는 안내 메시지
-7. **초대 명령은 결정론적 처리** — `invite U...` 패턴 매칭. Claude 판단에 의존하지 않음
-8. **GWS 데이터는 전체 사용자 공유** — 단일 Google 계정 인증. 사용자별 데이터 격리 없음
+7. **초대/승인 명령은 결정론적 처리** — 패턴 매칭. Claude 판단에 의존하지 않음
+8. **GWS 데이터는 워크스페이스 단위 격리** — 워크스페이스별 GWS configDir. Member의 write는 Owner 승인 필요
 9. **LINE push user_id는 프로그래밍적 보장** — 시스템 프롬프트 지시 + `push_` 도구 실행 전 코드에서 강제 주입. Claude 출력에 의존하지 않음
 
 ## AI Model 사용 규칙
@@ -184,13 +219,15 @@ src/
 ### TypeScript
 - strict mode + ESM (`"type": "module"`)
 - 공통 타입은 `src/types.ts`에 정의
+- Store 인터페이스도 `src/types.ts`에 선언 (순환 의존 방지)
 
 ### LINE Webhook 수신 (Channel Layer, SDK-free)
 - signature 검증: `crypto.subtle.verify()` (Web Crypto API, timing-safe)
 - raw body 보존: signature 검증 전 body 파싱/변환 금지
 
-### LINE 메시지 발신 (Skill Layer, MCP)
+### LINE 메시지 발신 (Skill Layer, MCP Pool)
 - 에이전트가 LINE MCP Server 도구로 자율 발신
+- MCP Pool 경유 (least-inflight 디스패치)
 - 에이전트 시스템 프롬프트에 메시지 포맷 규칙 포함:
   - 2000자 이내 (간결하게)
   - 줄바꿈으로 가독성 확보
@@ -198,19 +235,18 @@ src/
 ### GWS CLI 호출
 - 모든 명령에 `--format json` 플래그 사용
 - 타임아웃 30초 설정
-- 호스트에서 `gws auth login`으로 사전 인증된 상태 전제
+- `GWS_CONFIG_DIR` 환경변수로 워크스페이스별 인증 경로 전달
+- 워크스페이스별 `gws auth login --config-dir {path}`으로 사전 인증
 
 ### 스킬 추가 규칙
-- Native Tool: `skills/<name>/tools.ts` (도구 정의) + `executor.ts` (실행 구현)
+- Native Tool: `skills/<name>/tools.ts` (도구 정의) + `executor.ts` (실행 구현) + `access.ts` (접근 제어)
 - MCP Tool: `agent/mcp.ts`에 MCP Server 연결 추가 (도구 정의는 MCP Server가 제공)
 - Agent Core 수정 불필요
 
-### Per-User GWS 확장 포인트
-
-현재 단일 Google 계정(공유)이지만, 사용자별 워크스페이스가 필요할 때의 확장 경로:
-1. `runGws`에 `env` 파라미터 추가 → 사용자별 인증 정보 전달
-2. `UserRecord`에 `gwsWorkspace` 필드 추가 → 사용자별 인증 저장
-3. ToolExecutor에 사용자 컨텍스트 전달 → `ToolExecutor` 시그니처 확장 또는 클로저 바인딩
+### 워크스페이스 프로비저닝 (시스템 관리자)
+1. CLI: `bun run src/workspaces/cli.ts create "이름" Uowner...`
+2. 또는 LINE: `create-workspace 이름 Uowner...`
+3. GWS 인증: `docker exec -it assistant gws auth login --config-dir data/workspaces/{id}/gws-config/`
 
 ## Environment Variables
 
@@ -221,9 +257,13 @@ src/
 | `ANTHROPIC_API_KEY` | Claude API |
 | `LINE_CHANNEL_ACCESS_TOKEN` | LINE MCP Server + Webhook 검증용 |
 | `LINE_CHANNEL_SECRET` | LINE signature 검증 |
-| `ADMIN_USER_IDS` | 관리자 LINE userId (콤마 구분, 시작 시 자동 활성화) |
+| `SYSTEM_ADMIN_IDS` | 시스템 관리자 LINE userId (콤마 구분, `ADMIN_USER_IDS` 폴백) |
 | `PORT` | 서버 포트 (기본 3000, optional) |
 | `USER_STORE_PATH` | 사용자 저장소 경로 (기본 `data/users.json`, optional) |
+| `WORKSPACE_STORE_PATH` | 워크스페이스 저장소 경로 (기본 `data/workspaces.json`, optional) |
+| `PENDING_ACTION_STORE_PATH` | 승인 저장소 경로 (기본 `data/pending-actions.json`, optional) |
+| `WORKSPACE_DATA_DIR` | 워크스페이스 데이터 디렉터리 (기본 `data/workspaces`, optional) |
+| `MCP_POOL_SIZE` | MCP 풀 크기 (기본 3, optional) |
 | `CF_TUNNEL_TOKEN` | Cloudflare Tunnel |
 
 ## Verification Commands
@@ -234,6 +274,13 @@ bun run typecheck    # 타입 체크 (tsc --noEmit)
 bun start            # 프로덕션 실행
 bun test             # 테스트 (bun 내장 테스트 러너)
 docker compose up -d # Docker 프로덕션 배포
+```
+
+```bash
+# 워크스페이스 관리 CLI
+bun run src/workspaces/cli.ts create "동아리A" Uowner1234...
+bun run src/workspaces/cli.ts list
+bun run src/workspaces/cli.ts status {id}
 ```
 
 - 코드 변경 후 타입 체크 통과 필수
@@ -247,4 +294,4 @@ docker compose up -d # Docker 프로덕션 배포
 ## Commit Convention
 
 - Conventional Commits: `<type>(<scope>): <제목>`
-- scope: `agent`, `channel`, `skill`, `jobs`, `routes`, `config` 등 계층/모듈 단위
+- scope: `agent`, `channel`, `skill`, `jobs`, `routes`, `config`, `workspaces`, `approvals` 등 계층/모듈 단위

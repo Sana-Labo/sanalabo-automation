@@ -9,6 +9,7 @@ export interface McpConnection {
   tools: Anthropic.Tool[];
   executors: Map<string, ToolExecutor>;
   close: () => Promise<void>;
+  getStatus?: () => unknown;
 }
 
 const MCP_PACKAGE = "@line/line-bot-mcp-server";
@@ -23,10 +24,10 @@ const RUNTIMES: McpRuntime[] = [
   { command: "npx", args: ["-y", MCP_PACKAGE] },
 ];
 
-function buildMcpEnv(): Record<string, string> {
+export function buildMcpEnv(): Record<string, string> {
   return {
     CHANNEL_ACCESS_TOKEN: config.lineChannelAccessToken,
-    DESTINATION_USER_ID: config.adminUserIds[0] ?? "",
+    DESTINATION_USER_ID: config.systemAdminIds[0] ?? "",
     PATH: process.env["PATH"] ?? "",
     HOME: process.env["HOME"] ?? "",
   };
@@ -51,7 +52,7 @@ async function tryConnect(
   return client;
 }
 
-async function connectWithFallback(env: Record<string, string>): Promise<Client> {
+export async function connectWithFallback(env: Record<string, string>): Promise<Client> {
   let lastError: unknown;
 
   for (const runtime of RUNTIMES) {
@@ -74,7 +75,7 @@ async function connectWithFallback(env: Record<string, string>): Promise<Client>
   );
 }
 
-function extractMcpText(result: Awaited<ReturnType<Client["callTool"]>>): string {
+export function extractMcpText(result: Awaited<ReturnType<Client["callTool"]>>): string {
   if (!("content" in result) || !Array.isArray(result.content)) {
     return JSON.stringify(result);
   }
@@ -88,6 +89,22 @@ function extractMcpText(result: Awaited<ReturnType<Client["callTool"]>>): string
   }
 
   return texts.join("\n");
+}
+
+export function mapMcpToAnthropicTools(
+  mcpTools: Awaited<ReturnType<Client["listTools"]>>["tools"],
+): Anthropic.Tool[] {
+  return mcpTools.map((t) => {
+    const { type: _type, ...rest } = t.inputSchema;
+    return {
+      name: t.name,
+      description: t.description ?? "",
+      input_schema: {
+        type: "object" as const,
+        ...rest,
+      },
+    };
+  });
 }
 
 export async function connectMcp(): Promise<McpConnection> {
@@ -122,18 +139,7 @@ export async function connectMcp(): Promise<McpConnection> {
 
   // Discover tools once — LINE MCP Server's tool list is stable
   const { tools: mcpTools } = await currentClient.listTools();
-
-  const tools: Anthropic.Tool[] = mcpTools.map((t) => {
-    const { type: _type, ...rest } = t.inputSchema;
-    return {
-      name: t.name,
-      description: t.description ?? "",
-      input_schema: {
-        type: "object" as const,
-        ...rest,
-      },
-    };
-  });
+  const tools = mapMcpToAnthropicTools(mcpTools);
 
   // Build executors with auto-reconnect: try once, reconnect on failure, retry once
   const executors = new Map<string, ToolExecutor>();

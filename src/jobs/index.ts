@@ -1,24 +1,24 @@
 import { runAgentLoop } from "../agent/loop.js";
-import type { ToolRegistry } from "../types.js";
+import type { AgentDependencies, ToolContext } from "../types.js";
 
 function withJobLogging(
   label: string,
-  fn: (registry: ToolRegistry, userId: string) => Promise<{ toolCalls: number }>,
-): (registry: ToolRegistry, userId: string) => Promise<void> {
-  return async (registry, userId) => {
-    console.log(`[cron] Running ${label} for ${userId}...`);
+  fn: (deps: AgentDependencies, context: ToolContext) => Promise<{ toolCalls: number }>,
+): (deps: AgentDependencies, context: ToolContext) => Promise<void> {
+  return async (deps, context) => {
+    console.log(`[cron] Running ${label} for ${context.userId}...`);
     try {
-      const result = await fn(registry, userId);
-      console.log(`[cron] ${label} done for ${userId} (${result.toolCalls} tool calls)`);
+      const result = await fn(deps, context);
+      console.log(`[cron] ${label} done for ${context.userId} (${result.toolCalls} tool calls)`);
     } catch (err) {
-      console.error(`[cron] ${label} error for ${userId}:`, err);
+      console.error(`[cron] ${label} error for ${context.userId}:`, err);
     }
   };
 }
 
 function createJob(label: string, prompt: string) {
-  return withJobLogging(label, (registry, userId) =>
-    runAgentLoop(prompt, registry, userId),
+  return withJobLogging(label, (deps, context) =>
+    runAgentLoop(prompt, deps, context),
   );
 }
 
@@ -40,15 +40,15 @@ export function clearUrgentCheckpoint(userId: string): void {
   lastUrgentCheckMap.delete(userId);
 }
 
-export const urgentMailCheck = withJobLogging("urgent mail check", async (registry, userId) => {
-  const since = lastUrgentCheckMap.get(userId) ?? new Date(Date.now() - 30 * 60 * 1000);
+export const urgentMailCheck = withJobLogging("urgent mail check", async (deps, context) => {
+  const since = lastUrgentCheckMap.get(context.userId) ?? new Date(Date.now() - 30 * 60 * 1000);
   const checkpoint = new Date();
   const sinceEpoch = Math.floor(since.getTime() / 1000);
 
   const prompt = `Gmailで重要なメールを確認して(クエリ: is:important after:${sinceEpoch})。該当メールがあれば内容をLINEで通知して。なければ何もしないで。`;
 
-  const result = await runAgentLoop(prompt, registry, userId);
+  const result = await runAgentLoop(prompt, deps, context);
   // Only advance checkpoint on success — failure retries same period
-  lastUrgentCheckMap.set(userId, checkpoint);
+  lastUrgentCheckMap.set(context.userId, checkpoint);
   return result;
 });
