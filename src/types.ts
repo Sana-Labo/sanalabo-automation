@@ -45,8 +45,7 @@ export type LineWebhookEvent =
   | LineMessageEvent
   | LineFollowEvent
   | LineUnfollowEvent
-  | LinePostbackEvent
-  | LineUnknownEvent;
+  | LinePostbackEvent;
 
 export interface LineMessageEvent extends LineEventBase {
   type: "message";
@@ -73,11 +72,6 @@ interface LineTextMessage {
   type: "text";
   id: string;
   text: string;
-}
-
-interface LineUnknownEvent {
-  type: string;
-  timestamp: number;
 }
 
 // --- Users ---

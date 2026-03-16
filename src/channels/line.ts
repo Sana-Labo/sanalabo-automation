@@ -42,6 +42,8 @@ export async function verifyLineSignature(
   return crypto.subtle.verify("HMAC", key, signatureBytes, new TextEncoder().encode(body));
 }
 
+const KNOWN_EVENT_TYPES = new Set(["message", "follow", "unfollow", "postback"]);
+
 export function parseLineEvents(body: string): LineWebhookEvent[] {
   try {
     const parsed = JSON.parse(body) as unknown;
@@ -52,7 +54,9 @@ export function parseLineEvents(body: string): LineWebhookEvent[] {
     ) {
       return [];
     }
-    return (parsed as LineWebhookBody).events;
+    return (parsed as LineWebhookBody).events.filter(
+      (e: { type: string }) => KNOWN_EVENT_TYPES.has(e.type),
+    ) as LineWebhookEvent[];
   } catch {
     return [];
   }
@@ -86,8 +90,5 @@ export function extractPostbackData(e: LinePostbackEvent): string {
 }
 
 export function extractUserId(event: LineWebhookEvent): string | undefined {
-  if ("source" in event && event.source && typeof event.source === "object") {
-    return (event.source as { userId?: string }).userId;
-  }
-  return undefined;
+  return event.source.userId;
 }
