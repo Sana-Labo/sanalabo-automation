@@ -1,10 +1,12 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { config } from "../config.js";
 import type { AgentResult, ToolExecutor, ToolRegistry } from "../types.js";
+import { toErrorMessage } from "../utils/error.js";
 import { buildSystemPrompt } from "./system.js";
 
 const MAX_TURNS = 15;
 const MODEL = "claude-haiku-4-5-20251001";
+const LINE_PUSH_PREFIX = "push_";
 
 const client = new Anthropic({ apiKey: config.anthropicApiKey });
 
@@ -67,7 +69,15 @@ export async function runAgentLoop(
         }
 
         try {
-          const result = await executor(block.input as Record<string, unknown>);
+          const toolInput = block.input as Record<string, unknown>;
+
+          // Belt-and-suspenders: system prompt instructs Claude to include user_id,
+          // but we enforce it programmatically to guarantee correct routing
+          if (block.name.startsWith(LINE_PUSH_PREFIX)) {
+            toolInput.user_id = userId;
+          }
+
+          const result = await executor(toolInput);
           return {
             type: "tool_result" as const,
             tool_use_id: block.id,
@@ -77,7 +87,7 @@ export async function runAgentLoop(
           return {
             type: "tool_result" as const,
             tool_use_id: block.id,
-            content: `Error: ${e instanceof Error ? e.message : String(e)}`,
+            content: `Error: ${toErrorMessage(e)}`,
             is_error: true,
           };
         }

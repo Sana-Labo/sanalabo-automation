@@ -1,4 +1,5 @@
 import type { GwsCommandResult, ToolExecutor } from "../../types.js";
+import { toErrorMessage } from "../../utils/error.js";
 
 function getString(input: Record<string, unknown>, key: string): string {
   const val = input[key];
@@ -58,7 +59,7 @@ async function runGws(args: string[]): Promise<GwsCommandResult> {
     return {
       success: false,
       data: null,
-      error: e instanceof Error ? e.message : String(e),
+      error: toErrorMessage(e),
     };
   } finally {
     clearTimeout(timer!);

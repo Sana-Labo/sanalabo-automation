@@ -3,14 +3,20 @@ import { morningBriefing, urgentMailCheck, eveningSummary } from "./jobs/index.j
 import type { ToolRegistry } from "./types.js";
 import type { UserStore } from "./users/store.js";
 
-async function forEachActiveUser(
+async function forAllActiveUsers(
   userStore: UserStore,
   jobFn: (registry: ToolRegistry, userId: string) => Promise<void>,
   registry: ToolRegistry,
 ): Promise<void> {
   const users = userStore.getActiveUsers();
-  for (const userId of users) {
-    await jobFn(registry, userId);
+  const results = await Promise.allSettled(
+    users.map((userId) => jobFn(registry, userId)),
+  );
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i]!;
+    if (r.status === "rejected") {
+      console.error(`[scheduler] Unexpected job failure for ${users[i]}:`, r.reason);
+    }
   }
 }
 
@@ -22,13 +28,13 @@ export function startScheduler(
 
   const jobs = [
     new Cron("0 8 * * 1-5", { timezone: tz, protect: true }, async () => {
-      await forEachActiveUser(userStore, morningBriefing, registry);
+      await forAllActiveUsers(userStore, morningBriefing, registry);
     }),
     new Cron("*/30 8-22 * * *", { timezone: tz, protect: true }, async () => {
-      await forEachActiveUser(userStore, urgentMailCheck, registry);
+      await forAllActiveUsers(userStore, urgentMailCheck, registry);
     }),
     new Cron("0 21 * * 1-5", { timezone: tz, protect: true }, async () => {
-      await forEachActiveUser(userStore, eveningSummary, registry);
+      await forAllActiveUsers(userStore, eveningSummary, registry);
     }),
   ];
 
