@@ -77,7 +77,7 @@ export function createLineWebhookRoute(
     userId: string,
   ): void {
     // Admin re-follow: reactivate without invitation check
-    if (userStore.isAdmin(userId) && !userStore.isActive(userId)) {
+    if (userStore.isSystemAdmin(userId) && !userStore.isActive(userId)) {
       enqueue(userId, async () => {
         await userStore.activate(userId);
         await runAgentLoop(
@@ -119,7 +119,7 @@ export function createLineWebhookRoute(
     const text = extractTextMessage(event);
 
     // Admin invite command — deterministic, not Claude-dependent
-    if (userStore.isAdmin(userId)) {
+    if (userStore.isSystemAdmin(userId)) {
       const match = INVITE_PATTERN.exec(text);
       if (match) {
         const targetId = match[1]!;

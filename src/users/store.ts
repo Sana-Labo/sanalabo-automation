@@ -4,10 +4,12 @@ import { config } from "../config.js";
 import type { UserRecord } from "../types.js";
 
 export interface UserStore {
-  isAdmin(userId: string): boolean;
+  isSystemAdmin(userId: string): boolean;
   isActive(userId: string): boolean;
   isInvited(userId: string): boolean;
   getActiveUsers(): string[];
+  getDefaultWorkspaceId(userId: string): string | undefined;
+  setDefaultWorkspaceId(userId: string, workspaceId: string): Promise<void>;
   invite(userId: string, invitedBy: string): Promise<void>;
   activate(userId: string): Promise<void>;
   deactivate(userId: string): Promise<void>;
@@ -62,8 +64,8 @@ class JsonUserStore implements UserStore {
     }
   }
 
-  isAdmin(userId: string): boolean {
-    return config.adminUserIds.includes(userId);
+  isSystemAdmin(userId: string): boolean {
+    return config.systemAdminIds.includes(userId);
   }
 
   isActive(userId: string): boolean {
@@ -80,6 +82,17 @@ class JsonUserStore implements UserStore {
       .map(([id]) => id);
   }
 
+  getDefaultWorkspaceId(userId: string): string | undefined {
+    return this.data[userId]?.defaultWorkspaceId;
+  }
+
+  async setDefaultWorkspaceId(userId: string, workspaceId: string): Promise<void> {
+    const record = this.data[userId];
+    if (!record) return;
+    record.defaultWorkspaceId = workspaceId;
+    await this.save();
+  }
+
   async invite(userId: string, invitedBy: string): Promise<void> {
     const existing = this.data[userId];
     if (existing && existing.status === "active") {
@@ -88,6 +101,7 @@ class JsonUserStore implements UserStore {
 
     this.data[userId] = {
       status: "invited",
+      systemRole: "user",
       invitedBy,
       invitedAt: new Date().toISOString(),
     };
@@ -117,24 +131,28 @@ class JsonUserStore implements UserStore {
   }
 
   // Caller must call save() after batch operations
-  private ensureAdmin(userId: string): void {
-    if (!this.data[userId] || this.data[userId]!.status !== "active") {
+  private ensureSystemAdmin(userId: string): void {
+    const existing = this.data[userId];
+    if (!existing || existing.status !== "active") {
       this.data[userId] = {
         status: "active",
+        systemRole: "admin",
         invitedBy: "system",
         invitedAt: new Date().toISOString(),
         activatedAt: new Date().toISOString(),
       };
+    } else {
+      existing.systemRole = "admin";
     }
   }
 
-  async registerAdmins(): Promise<void> {
-    for (const adminId of config.adminUserIds) {
-      this.ensureAdmin(adminId);
+  async registerSystemAdmins(): Promise<void> {
+    for (const adminId of config.systemAdminIds) {
+      this.ensureSystemAdmin(adminId);
     }
     await this.save();
     console.log(
-      `[users] Admins registered: ${config.adminUserIds.length} user(s)`,
+      `[users] System admins registered: ${config.systemAdminIds.length} user(s)`,
     );
   }
 }
@@ -142,6 +160,6 @@ class JsonUserStore implements UserStore {
 export async function createUserStore(): Promise<UserStore> {
   const store = new JsonUserStore(config.userStorePath);
   await store.load();
-  await store.registerAdmins();
+  await store.registerSystemAdmins();
   return store;
 }
