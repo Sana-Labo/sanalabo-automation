@@ -195,6 +195,70 @@ Tests are co-located with source files (`*.test.ts`). The project follows TDD me
 8. **Workspace data isolation** — per-workspace GWS configDir
 9. **LINE push user_id enforcement** — programmatically injected, not Claude-dependent
 
+## Contributing
+
+### Branch Strategy
+
+All work is done on **feature branches** — direct commits to `main` are prohibited.
+
+```
+main (protected)
+ ├── feature/description   — new features
+ ├── fix/description       — bug fixes
+ ├── docs/description      — documentation
+ ├── chore/description     — maintenance tasks
+ ├── test/description      — test additions/changes
+ └── refactor/description  — code refactoring
+```
+
+**Rules**:
+- Branch from `main`, merge back to `main`
+- Use `--no-ff` merges (explicit merge commits): `git merge --no-ff feature/branch`
+- Delete feature branches after merge
+- Keep branches short-lived (one task per branch)
+
+### Commit Convention
+
+[Conventional Commits](https://www.conventionalcommits.org/) format:
+
+```
+<type>(<scope>): <description>
+```
+
+**Types**: `feat`, `fix`, `docs`, `chore`, `test`, `refactor`, `style`, `perf`, `ci`
+
+**Scopes**: `agent`, `channel`, `skill`, `jobs`, `routes`, `config`, `workspaces`, `approvals`, `docker`
+
+**Examples**:
+```
+feat(agent): add retry logic to agent loop
+fix(channel): handle empty webhook body
+docs(readme): add contributing guidelines
+test(approvals): add interceptor edge case tests
+refactor(skill): extract common GWS error handling
+```
+
+**Rules**:
+- 1 task = 1 commit (each commit should be independently cherry-pickable)
+- Never commit secrets (`.env`, credentials)
+- Never use `git add -A` or `git add .` — stage specific files
+
+### Pull Request Workflow
+
+1. Create a feature branch from `main`
+2. Make changes and commit
+3. Push and create a PR
+4. PR review + approval required
+5. Merge with `--no-ff` into `main`
+6. Delete the feature branch
+
+### Verification Before Merge
+
+```bash
+bun run typecheck    # Must pass
+bun test             # Must pass (all 130+ tests)
+```
+
 ## Claude Code Integration
 
 This project includes `.claude/CLAUDE.md` with project-specific instructions for [Claude Code](https://claude.com/claude-code) collaboration. Contributors using Claude Code will automatically receive project context, coding conventions, and safety rules.
