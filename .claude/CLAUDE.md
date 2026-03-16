@@ -306,7 +306,7 @@ bun run src/workspaces/cli.ts status {id}
 ## Branch Strategy
 
 - `main` 브랜치 보호: 직접 커밋/force push 금지 (GitHub Rulesets로 강제)
-- 모든 작업은 feature branch에서 수행 → PR 리뷰 후 `--no-ff` 병합
+- 모든 작업은 feature branch에서 수행 → PR 리뷰 후 squash and merge (linear history)
 - 브랜치 네이밍: `feature/*`, `fix/*`, `docs/*`, `chore/*`, `test/*`, `refactor/*`
 - 병합 완료 후 feature branch 삭제
 - 글로벌 `rules/github-vc.md` 기본값 적용

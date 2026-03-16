@@ -213,7 +213,7 @@ main (protected)
 
 **Rules**:
 - Branch from `main`, merge back to `main`
-- Use `--no-ff` merges (explicit merge commits): `git merge --no-ff feature/branch`
+- Use **squash and merge** via GitHub PR (linear history)
 - Delete feature branches after merge
 - Keep branches short-lived (one task per branch)
 
@@ -249,7 +249,7 @@ refactor(skill): extract common GWS error handling
 2. Make changes and commit
 3. Push and create a PR
 4. PR review + approval required
-5. Merge with `--no-ff` into `main`
+5. Squash and merge into `main` (linear history)
 6. Delete the feature branch
 
 ### Verification Before Merge
