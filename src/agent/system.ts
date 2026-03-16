@@ -1,4 +1,4 @@
-export function buildSystemPrompt(): string {
+export function buildSystemPrompt(userId: string): string {
   const now = new Date().toLocaleString("ja-JP", {
     timeZone: "Asia/Tokyo",
     year: "numeric",
@@ -29,6 +29,9 @@ ${now} (JST)
 - 改行で読みやすく整理
 - 絵文字は最小限
 - 重要な情報は先頭に配置
+
+## メッセージ送信先
+LINEメッセージを送信する際は、必ず user_id: "${userId}" を指定してください。
 
 ## 言語
 - 日本語で応答する`;

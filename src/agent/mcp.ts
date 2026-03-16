@@ -25,7 +25,7 @@ const RUNTIMES: McpRuntime[] = [
 function buildMcpEnv(): Record<string, string> {
   return {
     CHANNEL_ACCESS_TOKEN: config.lineChannelAccessToken,
-    DESTINATION_USER_ID: config.lineUserId,
+    DESTINATION_USER_ID: config.adminUserIds[0] ?? "",
     PATH: process.env["PATH"] ?? "",
     HOME: process.env["HOME"] ?? "",
   };

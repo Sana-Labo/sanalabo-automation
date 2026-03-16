@@ -18,8 +18,9 @@ function extractText(content: Anthropic.ContentBlock[]): string {
 export async function runAgentLoop(
   userMessage: string,
   registry: ToolRegistry,
+  userId: string,
 ): Promise<AgentResult> {
-  const systemPrompt = buildSystemPrompt();
+  const systemPrompt = buildSystemPrompt(userId);
   const messages: Anthropic.MessageParam[] = [
     { role: "user", content: userMessage },
   ];
