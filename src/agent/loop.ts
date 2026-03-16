@@ -1,6 +1,15 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { interceptWrite } from "../approvals/interceptor.js";
+import { notifyOwnerOfPending } from "../approvals/notify.js";
 import { config } from "../config.js";
-import type { AgentResult, ToolExecutor, ToolRegistry } from "../types.js";
+import { createGwsExecutors } from "../skills/gws/executor.js";
+import type {
+  AgentDependencies,
+  AgentResult,
+  ToolContext,
+  ToolExecutor,
+  ToolRegistry,
+} from "../types.js";
 import { toErrorMessage } from "../utils/error.js";
 import { buildSystemPrompt } from "./system.js";
 
@@ -19,10 +28,21 @@ function extractText(content: Anthropic.ContentBlock[]): string {
 
 export async function runAgentLoop(
   userMessage: string,
-  registry: ToolRegistry,
-  userId: string,
+  deps: AgentDependencies,
+  context: ToolContext,
 ): Promise<AgentResult> {
-  const systemPrompt = buildSystemPrompt(userId);
+  const workspace = deps.workspaceStore.get(context.workspaceId);
+  const systemPrompt = buildSystemPrompt(context, workspace);
+
+  // Build per-request executors: base registry + workspace-specific GWS executors
+  const executors = new Map(deps.registry.executors);
+  if (workspace) {
+    const gwsExecs = createGwsExecutors({ configDir: workspace.gwsConfigDir });
+    for (const [name, exec] of gwsExecs) {
+      executors.set(name, exec);
+    }
+  }
+
   const messages: Anthropic.MessageParam[] = [
     { role: "user", content: userMessage },
   ];
@@ -37,7 +57,7 @@ export async function runAgentLoop(
       model: MODEL,
       max_tokens: 4096,
       system: systemPrompt,
-      tools: registry.tools,
+      tools: deps.registry.tools,
       messages,
     });
 
@@ -57,7 +77,33 @@ export async function runAgentLoop(
     const toolResults = await Promise.all(
       toolUseBlocks.map(async (block) => {
         toolCalls++;
-        const executor = registry.executors.get(block.name);
+        const toolInput = block.input as Record<string, unknown>;
+
+        // Write interception for non-owner members
+        const interception = await interceptWrite(
+          block.name,
+          toolInput,
+          context,
+          deps.pendingActionStore,
+          userMessage,
+        );
+
+        if (interception.intercepted) {
+          // Notify owner asynchronously
+          void notifyOwnerOfPending(
+            interception.pendingAction,
+            deps.registry,
+            deps.workspaceStore,
+          );
+
+          return {
+            type: "tool_result" as const,
+            tool_use_id: block.id,
+            content: "この操作はオーナーの承認が必要です。承認リクエストを送信しました。",
+          };
+        }
+
+        const executor = executors.get(block.name);
 
         if (!executor) {
           return {
@@ -69,12 +115,9 @@ export async function runAgentLoop(
         }
 
         try {
-          const toolInput = block.input as Record<string, unknown>;
-
-          // Belt-and-suspenders: system prompt instructs Claude to include user_id,
-          // but we enforce it programmatically to guarantee correct routing
+          // Belt-and-suspenders: enforce user_id for LINE push tools
           if (block.name.startsWith(LINE_PUSH_PREFIX)) {
-            toolInput.user_id = userId;
+            toolInput.user_id = context.userId;
           }
 
           const result = await executor(toolInput);

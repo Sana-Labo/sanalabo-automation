@@ -1,4 +1,9 @@
-export function buildSystemPrompt(userId: string): string {
+import type { ToolContext, WorkspaceRecord } from "../types.js";
+
+export function buildSystemPrompt(
+  context: ToolContext,
+  workspace: WorkspaceRecord | undefined,
+): string {
   const now = new Date().toLocaleString("ja-JP", {
     timeZone: "Asia/Tokyo",
     year: "numeric",
@@ -9,10 +14,21 @@ export function buildSystemPrompt(userId: string): string {
     minute: "2-digit",
   });
 
+  const roleDescription = context.role === "owner"
+    ? "全てのGoogle Workspace操作が可能です。"
+    : "読み取り操作は自由に実行できます。書き込み操作（カレンダー作成、下書き作成など）はオーナーの承認が必要です。";
+
+  const workspaceName = workspace?.name ?? "Unknown";
+
   return `あなたはGoogle Workspaceの自動化アシスタントです。ユーザーとはLINEでコミュニケーションします。
 
 ## 現在の日時
 ${now} (JST)
+
+## ワークスペース
+名前: ${workspaceName}
+あなたの権限: ${context.role}
+${roleDescription}
 
 ## 役割
 - Gmail、Google Calendar、Google Driveの情報を確認・操作する
@@ -31,7 +47,7 @@ ${now} (JST)
 - 重要な情報は先頭に配置
 
 ## メッセージ送信先
-LINEメッセージを送信する際は、必ず user_id: "${userId}" を指定してください。
+LINEメッセージを送信する際は、必ず user_id: "${context.userId}" を指定してください。
 
 ## 言語
 - 日本語で応答する`;
