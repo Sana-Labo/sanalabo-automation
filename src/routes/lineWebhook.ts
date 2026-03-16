@@ -30,32 +30,42 @@ export function createLineWebhookRoute(
 ) {
   const route = new Hono();
 
-  // Sequential queue: prevents concurrent agent loops from racing
-  // over shared MCP client and avoids API rate limit spikes
-  const queue: Array<() => Promise<void>> = [];
-  let processing = false;
+  // Per-user queues: sequential within same user (conversation order),
+  // parallel across different users (no cross-user blocking)
+  interface UserQueue {
+    tasks: Array<() => Promise<void>>;
+    processing: boolean;
+  }
+  const userQueues = new Map<string, UserQueue>();
 
-  async function processQueue() {
-    if (processing) return;
-    processing = true;
-    while (queue.length > 0) {
-      const task = queue.shift()!;
+  async function processUserQueue(userId: string): Promise<void> {
+    const uq = userQueues.get(userId);
+    if (!uq || uq.processing) return;
+    uq.processing = true;
+    while (uq.tasks.length > 0) {
+      const task = uq.tasks.shift()!;
       try {
         await task();
       } catch (err) {
-        console.error("[webhook] Agent loop error:", err);
+        console.error(`[webhook] Agent loop error for ${userId}:`, err);
       }
     }
-    processing = false;
+    uq.processing = false;
+    if (uq.tasks.length === 0) userQueues.delete(userId);
   }
 
-  function enqueue(fn: () => Promise<void>): void {
-    queue.push(fn);
-    void processQueue();
+  function enqueue(userId: string, fn: () => Promise<void>): void {
+    let uq = userQueues.get(userId);
+    if (!uq) {
+      uq = { tasks: [], processing: false };
+      userQueues.set(userId, uq);
+    }
+    uq.tasks.push(fn);
+    void processUserQueue(userId);
   }
 
   function enqueueAgent(prompt: string, userId: string): void {
-    enqueue(async () => {
+    enqueue(userId, async () => {
       await runAgentLoop(prompt, registry, userId);
     });
   }
@@ -68,7 +78,7 @@ export function createLineWebhookRoute(
   ): void {
     // Admin re-follow: reactivate without invitation check
     if (userStore.isAdmin(userId) && !userStore.isActive(userId)) {
-      enqueue(async () => {
+      enqueue(userId, async () => {
         await userStore.activate(userId);
         await runAgentLoop(
           "管理者ユーザーが再参加しました。おかえりなさいとLINEで伝えてください。",
@@ -77,7 +87,7 @@ export function createLineWebhookRoute(
         );
       });
     } else if (userStore.isInvited(userId)) {
-      enqueue(async () => {
+      enqueue(userId, async () => {
         await userStore.activate(userId);
         await runAgentLoop(
           "新しいユーザーが参加しました。簡単な挨拶と使い方をLINEで案内してください。",
@@ -93,7 +103,7 @@ export function createLineWebhookRoute(
 
   function handleUnfollow(userId: string): void {
     if (userStore.isActive(userId)) {
-      enqueue(async () => {
+      enqueue(userId, async () => {
         await userStore.deactivate(userId);
         clearUrgentCheckpoint(userId);
       });
@@ -113,7 +123,7 @@ export function createLineWebhookRoute(
       const match = INVITE_PATTERN.exec(text);
       if (match) {
         const targetId = match[1]!;
-        enqueue(async () => {
+        enqueue(userId, async () => {
           await userStore.invite(targetId, userId);
           await runAgentLoop(
             `ユーザー ${targetId} を招待しました。招待完了をLINEで報告してください。`,
