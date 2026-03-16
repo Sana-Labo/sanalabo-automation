@@ -11,6 +11,9 @@ async function forAllWorkspaceUsers(
   const workspaces = deps.workspaceStore.getAll();
 
   for (const ws of workspaces) {
+    // W3: Skip workspaces without GWS authentication
+    if (!ws.gwsAuthenticated) continue;
+
     const activeMembers = Object.entries(ws.members)
       .filter(([userId]) => userStore.isActive(userId));
 

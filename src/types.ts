@@ -104,6 +104,7 @@ export interface WorkspaceRecord {
   name: string;
   ownerId: string;
   gwsConfigDir: string;
+  gwsAuthenticated: boolean;
   createdAt: string;
   members: Record<string, WorkspaceMembership>;
 }
@@ -161,4 +162,5 @@ export interface WorkspaceStore {
   removeMember(workspaceId: string, userId: string): Promise<void>;
   resolveWorkspace(userId: string, defaultWorkspaceId?: string): WorkspaceRecord | undefined;
   getUserRole(workspaceId: string, userId: string): WorkspaceRole | undefined;
+  setGwsAuthenticated(workspaceId: string, authenticated: boolean): Promise<void>;
 }

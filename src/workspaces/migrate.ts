@@ -24,6 +24,9 @@ export async function migrateFromFlatModel(
 
   const workspace = await workspaceStore.create("Default", ownerId);
 
+  // Migrated workspace inherits existing host GWS authentication
+  await workspaceStore.setGwsAuthenticated(workspace.id, true);
+
   // Add existing active users as members
   const activeUsers = userStore.getActiveUsers();
   for (const userId of activeUsers) {

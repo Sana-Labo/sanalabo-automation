@@ -49,11 +49,12 @@ export class JsonWorkspaceStore implements WorkspaceStore {
     });
     await prev;
     try {
-      const tmp = `${this.path}.tmp.${Date.now()}`;
+      const tmp = `${this.path}.tmp.${crypto.randomUUID()}`;
       await Bun.write(Bun.file(tmp), JSON.stringify(this.data, null, 2) + "\n");
       await rename(tmp, this.path);
     } catch (err) {
       console.error("[workspaces] Save failed:", err);
+      throw err;
     } finally {
       resolve();
     }
@@ -94,6 +95,7 @@ export class JsonWorkspaceStore implements WorkspaceStore {
       name,
       ownerId,
       gwsConfigDir,
+      gwsAuthenticated: false,
       createdAt: new Date().toISOString(),
       members: { [ownerId]: membership },
     };
@@ -147,6 +149,14 @@ export class JsonWorkspaceStore implements WorkspaceStore {
     const ws = this.data[workspaceId];
     if (!ws) return undefined;
     return ws.members[userId]?.role;
+  }
+
+  async setGwsAuthenticated(workspaceId: string, authenticated: boolean): Promise<void> {
+    const ws = this.data[workspaceId];
+    if (!ws) throw new Error(`Workspace not found: ${workspaceId}`);
+    ws.gwsAuthenticated = authenticated;
+    await this.save();
+    console.log(`[workspaces] Set gwsAuthenticated=${authenticated} for workspace ${workspaceId}`);
   }
 }
 

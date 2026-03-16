@@ -54,11 +54,12 @@ class JsonUserStore implements UserStore {
     });
     await prev;
     try {
-      const tmp = `${this.path}.tmp.${Date.now()}`;
+      const tmp = `${this.path}.tmp.${crypto.randomUUID()}`;
       await Bun.write(Bun.file(tmp), JSON.stringify(this.data, null, 2) + "\n");
       await rename(tmp, this.path);
     } catch (err) {
       console.error("[users] Save failed:", err);
+      throw err;
     } finally {
       resolve();
     }
