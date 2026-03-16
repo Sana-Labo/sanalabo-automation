@@ -14,7 +14,7 @@ import {
   isTextMessageEvent,
 } from "../channels/line.js";
 import { config } from "../config.js";
-import { createGwsExecutors } from "../skills/gws/executor.js";
+import { getGwsExecutors } from "../skills/gws/executor.js";
 import { toErrorMessage } from "../utils/error.js";
 import type {
   AgentDependencies,
@@ -281,7 +281,7 @@ export function createLineWebhookRoute(
       const workspace = deps.workspaceStore.get(resolved.workspaceId);
       let executionError: string | undefined;
       if (workspace) {
-        const gwsExecs = createGwsExecutors({ configDir: workspace.gwsConfigDir });
+        const gwsExecs = getGwsExecutors(workspace.id, workspace.gwsConfigDir);
         const executor = gwsExecs.get(resolved.toolName) ?? deps.registry.executors.get(resolved.toolName);
         if (executor) {
           try {

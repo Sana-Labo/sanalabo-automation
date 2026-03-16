@@ -89,6 +89,21 @@ function gwsExecutor(
   };
 }
 
+const executorCache = new Map<string, Map<string, ToolExecutor>>();
+
+export function getGwsExecutors(workspaceId: string, configDir: string): Map<string, ToolExecutor> {
+  let cached = executorCache.get(workspaceId);
+  if (!cached) {
+    cached = createGwsExecutors({ configDir });
+    executorCache.set(workspaceId, cached);
+  }
+  return cached;
+}
+
+export function invalidateGwsExecutors(workspaceId: string): void {
+  executorCache.delete(workspaceId);
+}
+
 export function createGwsExecutors(options: GwsExecOptions): Map<string, ToolExecutor> {
   const executors = new Map<string, ToolExecutor>();
 

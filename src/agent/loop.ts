@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { interceptWrite } from "../approvals/interceptor.js";
 import { notifyOwnerOfPending } from "../approvals/notify.js";
 import { config } from "../config.js";
-import { createGwsExecutors } from "../skills/gws/executor.js";
+import { getGwsExecutors } from "../skills/gws/executor.js";
 import type {
   AgentDependencies,
   AgentResult,
@@ -37,7 +37,7 @@ export async function runAgentLoop(
   // Build per-request executors: base registry + workspace-specific GWS executors
   const executors = new Map(deps.registry.executors);
   if (workspace) {
-    const gwsExecs = createGwsExecutors({ configDir: workspace.gwsConfigDir });
+    const gwsExecs = getGwsExecutors(workspace.id, workspace.gwsConfigDir);
     for (const [name, exec] of gwsExecs) {
       executors.set(name, exec);
     }
