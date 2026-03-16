@@ -150,6 +150,7 @@ export interface PendingActionStore {
   approve(actionId: string, approvedBy: string): Promise<PendingAction>;
   reject(actionId: string, rejectedBy: string, reason?: string): Promise<PendingAction>;
   expireOlderThan(hours: number): Promise<number>;
+  purgeResolved(days: number): Promise<number>;
 }
 
 export interface WorkspaceStore {

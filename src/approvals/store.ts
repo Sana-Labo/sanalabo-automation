@@ -117,6 +117,25 @@ export class JsonPendingActionStore implements PendingActionStore {
     return action;
   }
 
+  async purgeResolved(days: number): Promise<number> {
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+    let purged = 0;
+
+    for (const [id, action] of Object.entries(this.data)) {
+      if (
+        action.status !== "pending" &&
+        action.resolvedAt &&
+        new Date(action.resolvedAt).getTime() < cutoff
+      ) {
+        delete this.data[id];
+        purged++;
+      }
+    }
+
+    if (purged > 0) await this.save();
+    return purged;
+  }
+
   async expireOlderThan(hours: number): Promise<number> {
     const cutoff = Date.now() - hours * 60 * 60 * 1000;
     let expired = 0;

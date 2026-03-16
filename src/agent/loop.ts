@@ -89,12 +89,14 @@ export async function runAgentLoop(
         );
 
         if (interception.intercepted) {
-          // Notify owner asynchronously
-          void notifyOwnerOfPending(
+          // Notify owner asynchronously (W8: log failures instead of silent drop)
+          notifyOwnerOfPending(
             interception.pendingAction,
             deps.registry,
             deps.workspaceStore,
-          );
+          ).catch((e) => {
+            console.error(`[approvals] Failed to notify owner of pending action ${interception.pendingAction.id}:`, toErrorMessage(e));
+          });
 
           return {
             type: "tool_result" as const,

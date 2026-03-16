@@ -51,12 +51,12 @@ export function startScheduler(
     new Cron("0 21 * * 1-5", { timezone: tz, protect: true }, async () => {
       await forAllWorkspaceUsers(deps, userStore, eveningSummary);
     }),
-    // Expire stale pending actions every hour
+    // Expire stale pending actions and purge old resolved ones every hour
     new Cron("0 * * * *", { timezone: tz }, async () => {
       const expired = await deps.pendingActionStore.expireOlderThan(24);
-      if (expired > 0) {
-        console.log(`[approvals] Expired ${expired} pending actions`);
-      }
+      if (expired > 0) console.log(`[approvals] Expired ${expired} pending actions`);
+      const purged = await deps.pendingActionStore.purgeResolved(7);
+      if (purged > 0) console.log(`[approvals] Purged ${purged} resolved actions older than 7 days`);
     }),
   ];
 
