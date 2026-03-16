@@ -1,10 +1,31 @@
 import { Hono } from "hono";
 import { runAgentLoop } from "../agent/loop.js";
-import { verifyLineSignature, parseLineEvents, extractTextMessage } from "../channels/line.js";
+import {
+  verifyLineSignature,
+  parseLineEvents,
+  extractTextMessage,
+  extractPostbackData,
+  isFollowEvent,
+  isUnfollowEvent,
+  isPostbackEvent,
+  isTextMessageEvent,
+} from "../channels/line.js";
 import { config } from "../config.js";
-import type { LineMessageEvent, ToolRegistry } from "../types.js";
+import type {
+  LineFollowEvent,
+  LinePostbackEvent,
+  LineMessageEvent,
+  LineWebhookEvent,
+  ToolRegistry,
+} from "../types.js";
+import type { UserStore } from "../users/store.js";
 
-export function createLineWebhookRoute(registry: ToolRegistry) {
+const INVITE_PATTERN = /^invite\s+(U[0-9a-f]{32})$/i;
+
+export function createLineWebhookRoute(
+  registry: ToolRegistry,
+  userStore: UserStore,
+) {
   const route = new Hono();
 
   // Sequential queue: prevents concurrent agent loops from racing
@@ -26,6 +47,107 @@ export function createLineWebhookRoute(registry: ToolRegistry) {
     processing = false;
   }
 
+  function enqueue(fn: () => Promise<void>): void {
+    queue.push(fn);
+    void processQueue();
+  }
+
+  // --- Event Handlers ---
+
+  function handleFollow(
+    event: LineFollowEvent,
+    userId: string,
+  ): void {
+    if (userStore.isInvited(userId)) {
+      enqueue(async () => {
+        await userStore.activate(userId);
+        await runAgentLoop(
+          "新しいユーザーが参加しました。簡単な挨拶と使い方をLINEで案内してください。",
+          registry,
+          userId,
+        );
+      });
+    } else if (!userStore.isActive(userId)) {
+      enqueue(async () => {
+        await runAgentLoop(
+          "このユーザーは招待されていません。利用には管理者の招待が必要である旨をLINEで案内してください。",
+          registry,
+          userId,
+        );
+      });
+    }
+  }
+
+  function handleUnfollow(userId: string): void {
+    if (userStore.isActive(userId)) {
+      enqueue(async () => {
+        await userStore.deactivate(userId);
+      });
+    }
+  }
+
+  function handleTextMessage(
+    event: LineMessageEvent,
+    userId: string,
+  ): void {
+    if (!userStore.isActive(userId)) return;
+
+    const text = extractTextMessage(event);
+
+    // Admin invite command — deterministic, not Claude-dependent
+    if (userStore.isAdmin(userId)) {
+      const match = INVITE_PATTERN.exec(text);
+      if (match) {
+        const targetId = match[1]!;
+        enqueue(async () => {
+          await userStore.invite(targetId, userId);
+          await runAgentLoop(
+            `ユーザー ${targetId} を招待しました。招待完了をLINEで報告してください。`,
+            registry,
+            userId,
+          );
+        });
+        return;
+      }
+    }
+
+    // Normal message → agent loop
+    enqueue(() => runAgentLoop(text, registry, userId).then(() => {}));
+  }
+
+  function handlePostback(
+    event: LinePostbackEvent,
+    userId: string,
+  ): void {
+    if (!userStore.isActive(userId)) return;
+
+    const data = extractPostbackData(event);
+    enqueue(() =>
+      runAgentLoop(
+        `[ポストバック] ユーザーがボタンを押しました。データ: ${data}`,
+        registry,
+        userId,
+      ).then(() => {}),
+    );
+  }
+
+  function routeEvent(event: LineWebhookEvent): void {
+    const userId = (event as { source?: { userId?: string } }).source?.userId;
+    if (!userId) return;
+
+    if (isFollowEvent(event)) {
+      handleFollow(event, userId);
+    } else if (isUnfollowEvent(event)) {
+      handleUnfollow(userId);
+    } else if (isTextMessageEvent(event)) {
+      handleTextMessage(event, userId);
+    } else if (isPostbackEvent(event)) {
+      handlePostback(event, userId);
+    }
+  }
+
+  // --- Route ---
+
   route.post("/webhook/line", async (c) => {
     const body = await c.req.text();
     const signature = c.req.header("x-line-signature");
@@ -34,24 +156,21 @@ export function createLineWebhookRoute(registry: ToolRegistry) {
       return c.json({ error: "Missing signature" }, 401);
     }
 
-    const valid = await verifyLineSignature(body, signature, config.lineChannelSecret);
+    const valid = await verifyLineSignature(
+      body,
+      signature,
+      config.lineChannelSecret,
+    );
     if (!valid) {
       return c.json({ error: "Invalid signature" }, 401);
     }
 
     const events = parseLineEvents(body);
-    const textEvents = events.filter(
-      (e): e is LineMessageEvent => e.type === "message" && (e as LineMessageEvent).message?.type === "text",
-    );
-
-    for (const event of textEvents) {
-      const text = extractTextMessage(event);
-      queue.push(() => runAgentLoop(text, registry).then(() => {}));
+    for (const event of events) {
+      routeEvent(event);
     }
 
     // Fire-and-forget: LINE requires response within 1 second
-    void processQueue();
-
     return c.json({ status: "ok" }, 200);
   });
 

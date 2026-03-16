@@ -1,4 +1,11 @@
-import type { LineMessageEvent, LineWebhookBody, LineWebhookEvent } from "../types.js";
+import type {
+  LineFollowEvent,
+  LineMessageEvent,
+  LinePostbackEvent,
+  LineUnfollowEvent,
+  LineWebhookBody,
+  LineWebhookEvent,
+} from "../types.js";
 
 let cachedKey: CryptoKey | null = null;
 let cachedSecret: string | null = null;
@@ -53,4 +60,27 @@ export function parseLineEvents(body: string): LineWebhookEvent[] {
 
 export function extractTextMessage(event: LineMessageEvent): string {
   return event.message.text;
+}
+
+export function isFollowEvent(e: LineWebhookEvent): e is LineFollowEvent {
+  return e.type === "follow";
+}
+
+export function isUnfollowEvent(e: LineWebhookEvent): e is LineUnfollowEvent {
+  return e.type === "unfollow";
+}
+
+export function isPostbackEvent(e: LineWebhookEvent): e is LinePostbackEvent {
+  return e.type === "postback";
+}
+
+export function isTextMessageEvent(e: LineWebhookEvent): e is LineMessageEvent {
+  return (
+    e.type === "message" &&
+    (e as LineMessageEvent).message?.type === "text"
+  );
+}
+
+export function extractPostbackData(e: LinePostbackEvent): string {
+  return e.postback.data;
 }
