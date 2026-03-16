@@ -23,7 +23,7 @@ const RUNTIMES: McpRuntime[] = [
   { command: "npx", args: ["-y", MCP_PACKAGE] },
 ];
 
-function buildMcpEnv(): Record<string, string> {
+export function buildMcpEnv(): Record<string, string> {
   return {
     CHANNEL_ACCESS_TOKEN: config.lineChannelAccessToken,
     DESTINATION_USER_ID: config.systemAdminIds[0] ?? "",
@@ -51,7 +51,7 @@ async function tryConnect(
   return client;
 }
 
-async function connectWithFallback(env: Record<string, string>): Promise<Client> {
+export async function connectWithFallback(env: Record<string, string>): Promise<Client> {
   let lastError: unknown;
 
   for (const runtime of RUNTIMES) {
@@ -74,7 +74,7 @@ async function connectWithFallback(env: Record<string, string>): Promise<Client>
   );
 }
 
-function extractMcpText(result: Awaited<ReturnType<Client["callTool"]>>): string {
+export function extractMcpText(result: Awaited<ReturnType<Client["callTool"]>>): string {
   if (!("content" in result) || !Array.isArray(result.content)) {
     return JSON.stringify(result);
   }
