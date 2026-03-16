@@ -11,9 +11,8 @@ const EXPECTED_TOOLS = [
 ];
 
 afterEach(() => {
-  // Clean up executor cache between tests to avoid cross-test state leaks
-  invalidateGwsExecutors("ws_test_1");
-  invalidateGwsExecutors("ws_test_2");
+  // Clear all cached executors to prevent cross-test state leaks
+  invalidateGwsExecutors();
 });
 
 describe("createGwsExecutors", () => {

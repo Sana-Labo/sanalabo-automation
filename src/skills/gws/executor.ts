@@ -100,8 +100,12 @@ export function getGwsExecutors(workspaceId: string, configDir: string): Map<str
   return cached;
 }
 
-export function invalidateGwsExecutors(workspaceId: string): void {
-  executorCache.delete(workspaceId);
+export function invalidateGwsExecutors(workspaceId?: string): void {
+  if (workspaceId) {
+    executorCache.delete(workspaceId);
+  } else {
+    executorCache.clear();
+  }
 }
 
 export function createGwsExecutors(options: GwsExecOptions): Map<string, ToolExecutor> {

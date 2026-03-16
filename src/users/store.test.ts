@@ -1,34 +1,18 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { tmpdir } from "node:os";
-import { rm } from "node:fs/promises";
-import { join } from "node:path";
-
-// Set environment variables before importing modules that depend on config
-process.env.ANTHROPIC_API_KEY = "test-key";
-process.env.LINE_CHANNEL_ACCESS_TOKEN = "test-token";
-process.env.LINE_CHANNEL_SECRET = "test-secret";
-process.env.SYSTEM_ADMIN_IDS = "Uadmin00000000000000000000000001";
+import "../test-utils/setup-env.js";
+import { createTestDir } from "../test-utils/tmpdir.js";
 
 const { JsonUserStore } = await import("./store.js");
 
-const testDir = join(tmpdir(), `user-store-test-${crypto.randomUUID()}`);
-let testCounter = 0;
-
-function testPath(): string {
-  return join(testDir, `store-${++testCounter}`, "users.json");
-}
-
+const td = createTestDir("user-store");
 let store: InstanceType<typeof JsonUserStore>;
 
 beforeEach(async () => {
-  store = new JsonUserStore(testPath());
+  store = new JsonUserStore(td.path("users.json"));
   await store.load();
 });
 
-afterEach(async () => {
-  await rm(testDir, { recursive: true, force: true });
-  testCounter = 0;
-});
+afterEach(() => td.cleanup());
 
 describe("JsonUserStore", () => {
   test("invite: new user gets status 'invited'", async () => {

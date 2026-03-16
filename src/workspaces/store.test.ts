@@ -1,40 +1,19 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { tmpdir } from "node:os";
-import { rm } from "node:fs/promises";
-import { join } from "node:path";
-
-// Set environment variables before importing modules that depend on config
-process.env.ANTHROPIC_API_KEY = "test-key";
-process.env.LINE_CHANNEL_ACCESS_TOKEN = "test-token";
-process.env.LINE_CHANNEL_SECRET = "test-secret";
-process.env.SYSTEM_ADMIN_IDS = "Uadmin00000000000000000000000001";
+import "../test-utils/setup-env.js";
+import { createTestDir } from "../test-utils/tmpdir.js";
 
 const { JsonWorkspaceStore } = await import("./store.js");
 
-const testDir = join(tmpdir(), `workspace-store-test-${crypto.randomUUID()}`);
-let testCounter = 0;
-
-function testPaths(): { storePath: string; dataDir: string } {
-  const id = ++testCounter;
-  return {
-    storePath: join(testDir, `instance-${id}`, "workspaces.json"),
-    dataDir: join(testDir, `instance-${id}`, "workspaces"),
-  };
-}
-
+const td = createTestDir("workspace-store");
 let store: InstanceType<typeof JsonWorkspaceStore>;
-let paths: ReturnType<typeof testPaths>;
 
 beforeEach(async () => {
-  paths = testPaths();
-  store = new JsonWorkspaceStore(paths.storePath, paths.dataDir);
+  const base = td.path();
+  store = new JsonWorkspaceStore(`${base}/workspaces.json`, `${base}/workspaces`);
   await store.load();
 });
 
-afterEach(async () => {
-  await rm(testDir, { recursive: true, force: true });
-  testCounter = 0;
-});
+afterEach(() => td.cleanup());
 
 describe("JsonWorkspaceStore", () => {
   test("create: workspace has id, name, ownerId, gwsConfigDir", async () => {
@@ -116,7 +95,7 @@ describe("JsonWorkspaceStore", () => {
   });
 
   test("inviteMember: nonexistent workspace throws", async () => {
-    expect(
+    await expect(
       store.inviteMember("nonexistent", "Umember01", "Uowner01"),
     ).rejects.toThrow("Workspace not found");
   });
@@ -133,13 +112,13 @@ describe("JsonWorkspaceStore", () => {
   test("removeMember: removing owner throws", async () => {
     const ws = await store.create("WS1", "Uowner01");
 
-    expect(store.removeMember(ws.id, "Uowner01")).rejects.toThrow(
+    await expect(store.removeMember(ws.id, "Uowner01")).rejects.toThrow(
       "Cannot remove workspace owner",
     );
   });
 
   test("removeMember: nonexistent workspace throws", async () => {
-    expect(store.removeMember("nonexistent", "Umember01")).rejects.toThrow(
+    await expect(store.removeMember("nonexistent", "Umember01")).rejects.toThrow(
       "Workspace not found",
     );
   });
@@ -199,17 +178,23 @@ describe("JsonWorkspaceStore", () => {
   });
 
   test("setGwsAuthenticated: nonexistent workspace throws", async () => {
-    expect(store.setGwsAuthenticated("nonexistent", true)).rejects.toThrow(
+    await expect(store.setGwsAuthenticated("nonexistent", true)).rejects.toThrow(
       "Workspace not found",
     );
   });
 
   test("persistence: data survives reload", async () => {
-    const ws = await store.create("WS1", "Uowner01");
-    await store.inviteMember(ws.id, "Umember01", "Uowner01");
+    const base = td.path();
+    const storePath = `${base}/workspaces.json`;
+    const dataDir = `${base}/workspaces`;
+
+    const store1 = new JsonWorkspaceStore(storePath, dataDir);
+    await store1.load();
+    const ws = await store1.create("WS1", "Uowner01");
+    await store1.inviteMember(ws.id, "Umember01", "Uowner01");
 
     // Reload into fresh instance
-    const store2 = new JsonWorkspaceStore(paths.storePath, paths.dataDir);
+    const store2 = new JsonWorkspaceStore(storePath, dataDir);
     await store2.load();
 
     const reloaded = store2.get(ws.id);
