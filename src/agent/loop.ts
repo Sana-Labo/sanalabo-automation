@@ -50,9 +50,12 @@ export async function runAgentLoop(
   let turns = 0;
   let toolCalls = 0;
 
+  console.log(`[agent] Starting agent loop for ${context.userId} (workspace=${context.workspaceId}, role=${context.role})`);
+
   while (turns < MAX_TURNS) {
     turns++;
 
+    console.log(`[agent] Turn ${turns}: calling Claude API (model=${MODEL})...`);
     const response = await client.messages.create({
       model: MODEL,
       max_tokens: 4096,
@@ -60,6 +63,7 @@ export async function runAgentLoop(
       tools: deps.registry.tools,
       messages,
     });
+    console.log(`[agent] Turn ${turns}: response received (stop_reason=${response.stop_reason})`);
 
     if (response.stop_reason === "max_tokens") {
       const text = extractText(response.content);
@@ -122,6 +126,7 @@ export async function runAgentLoop(
             toolInput.user_id = context.userId;
           }
 
+          console.log(`[agent] Executing tool: ${block.name}`);
           const result = await executor(toolInput);
           return {
             type: "tool_result" as const,
