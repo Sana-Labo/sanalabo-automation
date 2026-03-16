@@ -1,5 +1,23 @@
+# Dependencies
 node_modules/
+
+# Build
 dist/
+
+# Runtime data
 data/
+
+# Environment
 .env
+.env.local
+.env.*.local
+
+# Logs
 *.log
+
+# OS
+.DS_Store
+
+# Claude Code — share project config, exclude personal state
+.claude/settings.local.json
+.claude/projects/
