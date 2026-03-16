@@ -21,25 +21,31 @@ LINE을 사용자 입력 채널로 사용하며, 추후 채널 및 스킬을 확
 ## Architecture
 
 ```
-[사용자 LINE 앱]
+[사용자 LINE 앱 (다중 사용자)]
     ↕ 메시지
 [LINE Platform]
     ↓ Webhook POST (수신)              ↑ 발신 (MCP 경유)
 ┌──────────────────────────────────────────────────────┐
 │  Channel Layer                                        │
-│  └── LINE Webhook 수신 + signature 검증 (Web Crypto)  │
+│  ├── LINE Webhook 수신 + signature 검증 (Web Crypto)  │
+│  └── 이벤트 라우팅: follow/unfollow/message/postback   │
+│      → userId 추출 → 권한 확인 → 핸들러 분기            │
+├──────────────────────────────────────────────────────┤
+│  User Management (src/users/)                         │
+│  ├── JSON 파일 기반 사용자 저장소 (data/users.json)     │
+│  └── 관리자 초대 → follow 시 활성화 → unfollow 시 비활성화│
 ├──────────────────────────────────────────────────────┤
 │  Agent Core (Claude API + tool_use loop)               │
-│                                                        │
-│  Claude가 보는 도구 목록 (실행 경로를 모름):              │
-│  ├── gmail_list, gmail_search, ...    ← Native Tool    │
-│  ├── calendar_list, calendar_create   ← Native Tool    │
-│  ├── push_text_message                ← MCP Tool       │
-│  └── push_flex_message                ← MCP Tool       │
-│                                                        │
-│  도구 실행 라우팅:                                       │
-│  ├── Native Tool → Bun.spawn(["gws", ...])             │
-│  └── MCP Tool    → MCP Client → LINE MCP Server        │
+│  ├── 시스템 프롬프트에 userId 주입                       │
+│  │   → Claude가 push 도구 호출 시 user_id 자동 포함     │
+│  ├── Claude가 보는 도구 목록 (실행 경로를 모름):          │
+│  │   ├── gmail_list, gmail_search, ...   ← Native Tool  │
+│  │   ├── calendar_list, calendar_create  ← Native Tool  │
+│  │   ├── push_text_message               ← MCP Tool     │
+│  │   └── push_flex_message               ← MCP Tool     │
+│  └── 도구 실행 라우팅:                                    │
+│      ├── Native Tool → Bun.spawn(["gws", ...])          │
+│      └── MCP Tool    → MCP Client → LINE MCP Server     │
 ├──────────────────────────────────────────────────────┤
 │  @line/line-bot-mcp-server (외부 프로세스, stdio)       │
 └──────────────────────────────────────────────────────┘
@@ -96,6 +102,23 @@ Channel input
 | `0 21 * * 1-5` | eveningSummary | 오늘 활동 요약 + 내일 일정 |
 
 Cron 잡도 Agent Core를 호출하여 실행 — 에이전트가 GWS 도구로 정보 수집 후 LINE MCP 도구로 발신.
+실행 시 `getActiveUsers()`로 활성 사용자를 조회하여 순차 실행. 런타임 추가/제거된 사용자 자동 반영.
+
+### 사용자 관리
+
+| 상태 | 설명 | 전이 |
+|------|------|------|
+| `invited` | 관리자가 초대 완료, 미가입 | follow 이벤트 → `active` |
+| `active` | 서비스 이용 중 | unfollow 이벤트 → `inactive` |
+| `inactive` | 탈퇴 (블록) | — |
+
+**초대 플로우**:
+1. 관리자가 LINE에서 `invite U[0-9a-f]{32}` 전송
+2. 시스템이 결정론적으로 매칭 → `data/users.json`에 `invited` 등록
+3. 초대된 사용자가 LINE 공식 계정을 친구 추가 (follow 이벤트)
+4. 시스템이 `invited` → `active` 전환 + 환영 메시지
+
+**관리자**: `ADMIN_USER_IDS` 환경변수로 지정. 시작 시 자동 `active` 등록.
 
 ## Project Structure
 
@@ -107,16 +130,16 @@ src/
 │   ├── loop.ts            # tool_use 에이전트 루프
 │   ├── mcp.ts             # MCP Client (LINE MCP Server 연결)
 │   └── system.ts          # 시스템 프롬프트
+├── users/                 # 사용자 관리
+│   └── store.ts           # JSON 파일 기반 사용자 저장소 (초대/활성화/비활성화)
 ├── skills/                # 스킬 구현
 │   ├── gws/               # Google Workspace 스킬
 │   │   ├── tools.ts       # 도구 정의 (JSON Schema)
 │   │   └── executor.ts    # 실행 (Bun.spawn → GWS CLI)
 │   └── line/              # LINE 메시징 스킬
 │       └── (MCP Server 연결 — 도구 정의는 MCP가 자기 기술)
-├── jobs/                  # Cron 잡
-│   ├── morningBriefing.ts
-│   ├── urgentMailCheck.ts
-│   └── eveningSummary.ts
+├── jobs/                  # Cron 잡 (전체 활성 사용자 순회)
+│   └── index.ts           # morningBriefing, urgentMailCheck, eveningSummary
 ├── routes/                # Hono 라우트
 │   ├── lineWebhook.ts     # POST /webhook/line
 │   └── health.ts          # GET /health
@@ -127,11 +150,14 @@ src/
 
 ## Safety Rules (위반 금지)
 
-1. **메일 자동 발송 절대 금지** — 하서 작성만 허용. 발송은 사용자가 Gmail에서 직접 수행
+1. **메일 자동 발송 절대 금지** — 초안(draft) 작성만 허용. 발송은 사용자가 Gmail에서 직접 수행
 2. **캘린더 추가 시 확인 필수** — 추가 내용을 LINE으로 제시한 후 실행
 3. **GWS CLI는 `Bun.spawn` (shell: false)만 사용** — shell injection 방지
 4. **LINE Webhook은 반드시 signature 검증** — Web Crypto API로 HMAC-SHA256 검증. 미검증 요청 처리 금지
 5. **에이전트 루프 무한 반복 방지** — 도구 호출 최대 횟수 제한 설정 필수
+6. **사용자 권한 확인 필수** — 활성(`active`) 사용자만 에이전트 루프 실행. 미초대/비활성 사용자 요청은 무시 또는 안내 메시지
+7. **초대 명령은 결정론적 처리** — `invite U...` 패턴 매칭. Claude 판단에 의존하지 않음
+8. **GWS 데이터는 전체 사용자 공유** — 단일 Google 계정 인증. 사용자별 데이터 격리 없음
 
 ## AI Model 사용 규칙
 
@@ -178,15 +204,16 @@ src/
 | `ANTHROPIC_API_KEY` | Claude API |
 | `LINE_CHANNEL_ACCESS_TOKEN` | LINE MCP Server + Webhook 검증용 |
 | `LINE_CHANNEL_SECRET` | LINE signature 검증 |
-| `LINE_USER_ID` | Push 메시지 대상 |
-| `PORT` | 서버 포트 (기본 3000) |
+| `ADMIN_USER_IDS` | 관리자 LINE userId (콤마 구분, 시작 시 자동 활성화) |
+| `PORT` | 서버 포트 (기본 3000, optional) |
+| `USER_STORE_PATH` | 사용자 저장소 경로 (기본 `data/users.json`, optional) |
 | `CF_TUNNEL_TOKEN` | Cloudflare Tunnel |
 
 ## Verification Commands
 
 ```bash
 bun run dev          # 개발 서버 (HMR)
-bun run build        # 타입 체크 (bun build)
+bun run typecheck    # 타입 체크 (tsc --noEmit)
 bun start            # 프로덕션 실행
 bun test             # 테스트 (bun 내장 테스트 러너)
 docker compose up -d # Docker 프로덕션 배포
