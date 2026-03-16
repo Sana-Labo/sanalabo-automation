@@ -14,7 +14,7 @@ export interface UserStore {
   deactivate(userId: string): Promise<void>;
 }
 
-class JsonUserStore extends JsonFileStore<UserRecord> implements UserStore {
+export class JsonUserStore extends JsonFileStore<UserRecord> implements UserStore {
   constructor(path: string) {
     super(path, "users");
   }
