@@ -9,6 +9,7 @@ import { startScheduler } from "./scheduler.js";
 import { gwsTools } from "./skills/gws/tools.js";
 import type { AgentDependencies, ToolRegistry } from "./types.js";
 import { createUserStore } from "./users/store.js";
+import { migrateFromFlatModel } from "./workspaces/migrate.js";
 import { createWorkspaceStore } from "./workspaces/store.js";
 
 let mcpClose: (() => Promise<void>) | undefined;
@@ -25,6 +26,9 @@ async function main() {
 
   const workspaceStore = await createWorkspaceStore();
   console.log("[app] Workspace store initialized");
+
+  // Auto-migrate from flat user model if no workspaces exist
+  await migrateFromFlatModel(userStore, workspaceStore, config.systemAdminIds);
 
   const pendingActionStore = await createPendingActionStore();
   console.log("[app] Pending action store initialized");
