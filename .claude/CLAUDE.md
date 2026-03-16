@@ -38,16 +38,14 @@ LINE을 사용자 입력 채널로 사용하며, 추후 채널 및 스킬을 확
 │  Agent Core (Claude API + tool_use loop)               │
 │  ├── 시스템 프롬프트에 userId 주입                       │
 │  │   → Claude가 push 도구 호출 시 user_id 자동 포함     │
-│  │                                                      │
-│  │  Claude가 보는 도구 목록 (실행 경로를 모름):            │
-│  │  ├── gmail_list, gmail_search, ...    ← Native Tool  │
-│  │  ├── calendar_list, calendar_create   ← Native Tool  │
-│  │  ├── push_text_message                ← MCP Tool     │
-│  │  └── push_flex_message                ← MCP Tool     │
-│  │                                                      │
-│  │  도구 실행 라우팅:                                     │
-│  │  ├── Native Tool → Bun.spawn(["gws", ...])           │
-│  │  └── MCP Tool    → MCP Client → LINE MCP Server      │
+│  ├── Claude가 보는 도구 목록 (실행 경로를 모름):          │
+│  │   ├── gmail_list, gmail_search, ...   ← Native Tool  │
+│  │   ├── calendar_list, calendar_create  ← Native Tool  │
+│  │   ├── push_text_message               ← MCP Tool     │
+│  │   └── push_flex_message               ← MCP Tool     │
+│  └── 도구 실행 라우팅:                                    │
+│      ├── Native Tool → Bun.spawn(["gws", ...])          │
+│      └── MCP Tool    → MCP Client → LINE MCP Server     │
 ├──────────────────────────────────────────────────────┤
 │  @line/line-bot-mcp-server (외부 프로세스, stdio)       │
 └──────────────────────────────────────────────────────┘
@@ -152,13 +150,14 @@ src/
 
 ## Safety Rules (위반 금지)
 
-1. **메일 자동 발송 절대 금지** — 하서 작성만 허용. 발송은 사용자가 Gmail에서 직접 수행
+1. **메일 자동 발송 절대 금지** — 초안(draft) 작성만 허용. 발송은 사용자가 Gmail에서 직접 수행
 2. **캘린더 추가 시 확인 필수** — 추가 내용을 LINE으로 제시한 후 실행
 3. **GWS CLI는 `Bun.spawn` (shell: false)만 사용** — shell injection 방지
 4. **LINE Webhook은 반드시 signature 검증** — Web Crypto API로 HMAC-SHA256 검증. 미검증 요청 처리 금지
 5. **에이전트 루프 무한 반복 방지** — 도구 호출 최대 횟수 제한 설정 필수
 6. **사용자 권한 확인 필수** — 활성(`active`) 사용자만 에이전트 루프 실행. 미초대/비활성 사용자 요청은 무시 또는 안내 메시지
 7. **초대 명령은 결정론적 처리** — `invite U...` 패턴 매칭. Claude 판단에 의존하지 않음
+8. **GWS 데이터는 전체 사용자 공유** — 단일 Google 계정 인증. 사용자별 데이터 격리 없음
 
 ## AI Model 사용 규칙
 
@@ -206,15 +205,15 @@ src/
 | `LINE_CHANNEL_ACCESS_TOKEN` | LINE MCP Server + Webhook 검증용 |
 | `LINE_CHANNEL_SECRET` | LINE signature 검증 |
 | `ADMIN_USER_IDS` | 관리자 LINE userId (콤마 구분, 시작 시 자동 활성화) |
-| `PORT` | 서버 포트 (기본 3000) |
-| `USER_STORE_PATH` | 사용자 저장소 경로 (기본 `data/users.json`) |
+| `PORT` | 서버 포트 (기본 3000, optional) |
+| `USER_STORE_PATH` | 사용자 저장소 경로 (기본 `data/users.json`, optional) |
 | `CF_TUNNEL_TOKEN` | Cloudflare Tunnel |
 
 ## Verification Commands
 
 ```bash
 bun run dev          # 개발 서버 (HMR)
-bun run build        # 타입 체크 (bun build)
+bun run typecheck    # 타입 체크 (tsc --noEmit)
 bun start            # 프로덕션 실행
 bun test             # 테스트 (bun 내장 테스트 러너)
 docker compose up -d # Docker 프로덕션 배포
