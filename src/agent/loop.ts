@@ -6,6 +6,7 @@ import { buildSystemPrompt } from "./system.js";
 
 const MAX_TURNS = 15;
 const MODEL = "claude-haiku-4-5-20251001";
+const LINE_PUSH_PREFIX = "push_";
 
 const client = new Anthropic({ apiKey: config.anthropicApiKey });
 
@@ -68,7 +69,15 @@ export async function runAgentLoop(
         }
 
         try {
-          const result = await executor(block.input as Record<string, unknown>);
+          const toolInput = block.input as Record<string, unknown>;
+
+          // Belt-and-suspenders: system prompt instructs Claude to include user_id,
+          // but we enforce it programmatically to guarantee correct routing
+          if (block.name.startsWith(LINE_PUSH_PREFIX)) {
+            toolInput.user_id = userId;
+          }
+
+          const result = await executor(toolInput);
           return {
             type: "tool_result" as const,
             tool_use_id: block.id,
