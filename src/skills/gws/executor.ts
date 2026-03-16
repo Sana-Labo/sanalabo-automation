@@ -1,7 +1,11 @@
 import type { GwsCommandResult, ToolExecutor } from "../../types.js";
 import { toErrorMessage } from "../../utils/error.js";
 
-function getString(input: Record<string, unknown>, key: string): string {
+export interface GwsExecOptions {
+  configDir: string;
+}
+
+export function getString(input: Record<string, unknown>, key: string): string {
   const val = input[key];
   if (typeof val !== "string" || val === "") {
     throw new Error(`Missing or invalid parameter: ${key}`);
@@ -9,16 +13,20 @@ function getString(input: Record<string, unknown>, key: string): string {
   return val;
 }
 
-function optString(input: Record<string, unknown>, key: string): string | undefined {
+export function optString(input: Record<string, unknown>, key: string): string | undefined {
   const val = input[key];
   if (val == null) return undefined;
   return String(val);
 }
 
-async function runGws(args: string[]): Promise<GwsCommandResult> {
+async function runGws(args: string[], options: GwsExecOptions): Promise<GwsCommandResult> {
   const proc = Bun.spawn(["gws", ...args, "--format", "json"], {
     stdout: "pipe",
     stderr: "pipe",
+    env: {
+      ...process.env,
+      GWS_CONFIG_DIR: options.configDir,
+    },
   });
 
   let timer: ReturnType<typeof setTimeout>;
@@ -66,9 +74,12 @@ async function runGws(args: string[]): Promise<GwsCommandResult> {
   }
 }
 
-function gwsExecutor(buildArgs: (input: Record<string, unknown>) => string[]): ToolExecutor {
+function gwsExecutor(
+  buildArgs: (input: Record<string, unknown>) => string[],
+  options: GwsExecOptions,
+): ToolExecutor {
   return async (input) => {
-    const result = await runGws(buildArgs(input));
+    const result = await runGws(buildArgs(input), options);
     if (!result.success) {
       return `Error: ${result.error}`;
     }
@@ -78,7 +89,7 @@ function gwsExecutor(buildArgs: (input: Record<string, unknown>) => string[]): T
   };
 }
 
-export function createGwsExecutors(): Map<string, ToolExecutor> {
+export function createGwsExecutors(options: GwsExecOptions): Map<string, ToolExecutor> {
   const executors = new Map<string, ToolExecutor>();
 
   executors.set(
@@ -90,12 +101,12 @@ export function createGwsExecutors(): Map<string, ToolExecutor> {
       const maxResults = optString(input, "maxResults");
       if (maxResults) args.push("--max-results", maxResults);
       return args;
-    }),
+    }, options),
   );
 
   executors.set(
     "gmail_get",
-    gwsExecutor((input) => ["gmail", "messages", "get", getString(input, "messageId")]),
+    gwsExecutor((input) => ["gmail", "messages", "get", getString(input, "messageId")], options),
   );
 
   executors.set(
@@ -110,7 +121,7 @@ export function createGwsExecutors(): Map<string, ToolExecutor> {
       getString(input, "subject"),
       "--body",
       getString(input, "body"),
-    ]),
+    ], options),
   );
 
   executors.set(
@@ -122,7 +133,7 @@ export function createGwsExecutors(): Map<string, ToolExecutor> {
       const timeMax = optString(input, "timeMax");
       if (timeMax) args.push("--time-max", timeMax);
       return args;
-    }),
+    }, options),
   );
 
   executors.set(
@@ -142,12 +153,12 @@ export function createGwsExecutors(): Map<string, ToolExecutor> {
       const description = optString(input, "description");
       if (description) args.push("--description", description);
       return args;
-    }),
+    }, options),
   );
 
   executors.set(
     "drive_search",
-    gwsExecutor((input) => ["drive", "files", "list", "--query", getString(input, "query")]),
+    gwsExecutor((input) => ["drive", "files", "list", "--query", getString(input, "query")], options),
   );
 
   return executors;
