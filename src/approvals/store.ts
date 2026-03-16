@@ -1,60 +1,14 @@
-import { mkdir, rename } from "node:fs/promises";
-import { dirname } from "node:path";
 import { config } from "../config.js";
 import type {
   PendingAction,
   PendingActionStatus,
   PendingActionStore,
 } from "../types.js";
+import { JsonFileStore } from "../utils/json-file-store.js";
 
-type StoreData = Record<string, PendingAction>;
-
-export class JsonPendingActionStore implements PendingActionStore {
-  private data: StoreData = {};
-  private readonly path: string;
-  private writeLock: Promise<void> = Promise.resolve();
-
+export class JsonPendingActionStore extends JsonFileStore<PendingAction> implements PendingActionStore {
   constructor(path: string) {
-    this.path = path;
-  }
-
-  async load(): Promise<void> {
-    await mkdir(dirname(this.path), { recursive: true });
-
-    try {
-      const file = Bun.file(this.path);
-      if (await file.exists()) {
-        this.data = (await file.json()) as StoreData;
-      }
-    } catch (e) {
-      console.error("[approvals] Failed to load store:", e);
-      try {
-        await rename(this.path, `${this.path}.corrupt.${Date.now()}`);
-        console.warn("[approvals] Corrupted file backed up");
-      } catch {
-        // Backup failed — file may not exist
-      }
-      this.data = {};
-    }
-  }
-
-  private async save(): Promise<void> {
-    const prev = this.writeLock;
-    let resolve!: () => void;
-    this.writeLock = new Promise<void>((r) => {
-      resolve = r;
-    });
-    await prev;
-    try {
-      const tmp = `${this.path}.tmp.${crypto.randomUUID()}`;
-      await Bun.write(Bun.file(tmp), JSON.stringify(this.data, null, 2) + "\n");
-      await rename(tmp, this.path);
-    } catch (err) {
-      console.error("[approvals] Save failed:", err);
-      throw err;
-    } finally {
-      resolve();
-    }
+    super(path, "approvals");
   }
 
   async create(
