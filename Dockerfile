@@ -1,7 +1,8 @@
 FROM oven/bun:1-alpine
 
-# Node.js: fallback for npx when bunx cannot run the LINE MCP Server
-RUN apk add --no-cache nodejs npm
+# Node.js (npx fallback for LINE MCP Server) + GWS CLI (Google Workspace operations)
+RUN apk add --no-cache nodejs npm \
+    && npm install -g @googleworkspace/cli
 
 WORKDIR /app
 
