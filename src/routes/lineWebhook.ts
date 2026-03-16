@@ -13,19 +13,22 @@ import {
   isTextMessageEvent,
 } from "../channels/line.js";
 import { config } from "../config.js";
+import { createGwsExecutors } from "../skills/gws/executor.js";
 import type {
+  AgentDependencies,
   LineFollowEvent,
   LinePostbackEvent,
   LineMessageEvent,
   LineWebhookEvent,
-  ToolRegistry,
+  ToolContext,
 } from "../types.js";
 import type { UserStore } from "../users/store.js";
 
 const INVITE_PATTERN = /^invite\s+(U[0-9a-f]{32})$/i;
+const APPROVAL_PATTERN = /^(approve|reject)\s+(\S+)(?:\s+(.*))?$/i;
 
 export function createLineWebhookRoute(
-  registry: ToolRegistry,
+  deps: AgentDependencies,
   userStore: UserStore,
 ) {
   const route = new Hono();
@@ -64,9 +67,36 @@ export function createLineWebhookRoute(
     void processUserQueue(userId);
   }
 
+  function resolveContext(userId: string): ToolContext | undefined {
+    const defaultWsId = userStore.getDefaultWorkspaceId(userId);
+    const workspace = deps.workspaceStore.resolveWorkspace(userId, defaultWsId);
+    if (!workspace) return undefined;
+
+    const role = deps.workspaceStore.getUserRole(workspace.id, userId);
+    if (!role) return undefined;
+
+    return { userId, workspaceId: workspace.id, role };
+  }
+
   function enqueueAgent(prompt: string, userId: string): void {
     enqueue(userId, async () => {
-      await runAgentLoop(prompt, registry, userId);
+      const context = resolveContext(userId);
+      if (!context) {
+        // Multiple workspaces without default — notify user to select
+        const workspaces = deps.workspaceStore.getByMember(userId);
+        if (workspaces.length > 1) {
+          const textExec = deps.registry.executors.get("push_text_message");
+          if (textExec) {
+            const list = workspaces.map((ws) => `・${ws.name} (${ws.id})`).join("\n");
+            await textExec({
+              user_id: userId,
+              text: `複数のワークスペースに所属しています。デフォルトを設定してください:\n${list}\n\n「use <ID>」と送信してください。`,
+            });
+          }
+        }
+        return;
+      }
+      await runAgentLoop(prompt, deps, context);
     });
   }
 
@@ -76,24 +106,30 @@ export function createLineWebhookRoute(
     event: LineFollowEvent,
     userId: string,
   ): void {
-    // Admin re-follow: reactivate without invitation check
+    // System admin re-follow: reactivate without invitation check
     if (userStore.isSystemAdmin(userId) && !userStore.isActive(userId)) {
       enqueue(userId, async () => {
         await userStore.activate(userId);
-        await runAgentLoop(
-          "管理者ユーザーが再参加しました。おかえりなさいとLINEで伝えてください。",
-          registry,
-          userId,
-        );
+        const context = resolveContext(userId);
+        if (context) {
+          await runAgentLoop(
+            "管理者ユーザーが再参加しました。おかえりなさいとLINEで伝えてください。",
+            deps,
+            context,
+          );
+        }
       });
     } else if (userStore.isInvited(userId)) {
       enqueue(userId, async () => {
         await userStore.activate(userId);
-        await runAgentLoop(
-          "新しいユーザーが参加しました。簡単な挨拶と使い方をLINEで案内してください。",
-          registry,
-          userId,
-        );
+        const context = resolveContext(userId);
+        if (context) {
+          await runAgentLoop(
+            "新しいユーザーが参加しました。簡単な挨拶と使い方をLINEで案内してください。",
+            deps,
+            context,
+          );
+        }
       });
     } else if (!userStore.isActive(userId)) {
       // Uninvited user — log only, no agent loop (prevents cost attacks)
@@ -118,24 +154,156 @@ export function createLineWebhookRoute(
 
     const text = extractTextMessage(event);
 
-    // Admin invite command — deterministic, not Claude-dependent
-    if (userStore.isSystemAdmin(userId)) {
-      const match = INVITE_PATTERN.exec(text);
-      if (match) {
-        const targetId = match[1]!;
-        enqueue(userId, async () => {
-          await userStore.invite(targetId, userId);
+    // System admin: workspace creation command
+    const createWsMatch = /^create-workspace\s+(.+?)\s+(U[0-9a-f]{32})$/i.exec(text);
+    if (userStore.isSystemAdmin(userId) && createWsMatch) {
+      const [, wsName, ownerId] = createWsMatch;
+      enqueue(userId, async () => {
+        const ws = await deps.workspaceStore.create(wsName!, ownerId!);
+        const textExec = deps.registry.executors.get("push_text_message");
+        if (textExec) {
+          await textExec({
+            user_id: userId,
+            text: `ワークスペース「${ws.name}」(${ws.id})を作成しました。\nオーナー: ${ownerId}\nGWS認証: docker exec -it assistant gws auth login --config-dir ${ws.gwsConfigDir}`,
+          });
+        }
+      });
+      return;
+    }
+
+    // Owner invite command — deterministic, not Claude-dependent
+    const inviteMatch = INVITE_PATTERN.exec(text);
+    if (inviteMatch) {
+      const targetId = inviteMatch[1]!;
+      enqueue(userId, async () => {
+        // Find workspace where this user is owner
+        const ownerWs = deps.workspaceStore.getByOwner(userId);
+        const context = resolveContext(userId);
+
+        if (ownerWs.length === 0) {
+          // Not an owner — check if system admin for backwards compat
+          if (userStore.isSystemAdmin(userId)) {
+            await userStore.invite(targetId, userId);
+            if (context) {
+              await runAgentLoop(
+                `ユーザー ${targetId} を招待しました。招待完了をLINEで報告してください。`,
+                deps,
+                context,
+              );
+            }
+          }
+          return;
+        }
+
+        // Owner: invite to their workspace
+        const ws = ownerWs.length === 1 ? ownerWs[0]! : ownerWs.find((w) => w.id === userStore.getDefaultWorkspaceId(userId)) ?? ownerWs[0]!;
+        await userStore.invite(targetId, userId);
+        await deps.workspaceStore.inviteMember(ws.id, targetId, userId);
+
+        if (context) {
           await runAgentLoop(
-            `ユーザー ${targetId} を招待しました。招待完了をLINEで報告してください。`,
-            registry,
-            userId,
+            `ユーザー ${targetId} をワークスペース「${ws.name}」に招待しました。招待完了をLINEで報告してください。`,
+            deps,
+            context,
           );
-        });
-        return;
-      }
+        }
+      });
+      return;
+    }
+
+    // Approval commands (approve/reject)
+    const approvalMatch = APPROVAL_PATTERN.exec(text);
+    if (approvalMatch) {
+      const [, action, actionId, reason] = approvalMatch;
+      enqueue(userId, async () => {
+        await handleApprovalCommand(userId, action!.toLowerCase(), actionId!, reason);
+      });
+      return;
+    }
+
+    // Workspace selection command
+    const useMatch = /^use\s+(\S+)$/i.exec(text);
+    if (useMatch) {
+      const wsId = useMatch[1]!;
+      enqueue(userId, async () => {
+        const ws = deps.workspaceStore.get(wsId);
+        if (!ws || !deps.workspaceStore.getUserRole(wsId, userId)) {
+          const textExec = deps.registry.executors.get("push_text_message");
+          if (textExec) {
+            await textExec({
+              user_id: userId,
+              text: "指定されたワークスペースが見つからないか、アクセス権がありません。",
+            });
+          }
+          return;
+        }
+        await userStore.setDefaultWorkspaceId(userId, wsId);
+        const textExec = deps.registry.executors.get("push_text_message");
+        if (textExec) {
+          await textExec({
+            user_id: userId,
+            text: `デフォルトワークスペースを「${ws.name}」に設定しました。`,
+          });
+        }
+      });
+      return;
     }
 
     enqueueAgent(text, userId);
+  }
+
+  async function handleApprovalCommand(
+    userId: string,
+    action: string,
+    actionId: string,
+    reason?: string,
+  ): Promise<void> {
+    const pendingAction = deps.pendingActionStore.get(actionId);
+    if (!pendingAction) {
+      const textExec = deps.registry.executors.get("push_text_message");
+      if (textExec) {
+        await textExec({ user_id: userId, text: `承認リクエスト ${actionId} が見つかりません。` });
+      }
+      return;
+    }
+
+    // Only workspace owner can approve/reject
+    const role = deps.workspaceStore.getUserRole(pendingAction.workspaceId, userId);
+    if (role !== "owner") {
+      const textExec = deps.registry.executors.get("push_text_message");
+      if (textExec) {
+        await textExec({ user_id: userId, text: "この操作はワークスペースオーナーのみ実行できます。" });
+      }
+      return;
+    }
+
+    const { notifyActionResult } = await import("../approvals/notify.js");
+
+    if (action === "approve") {
+      const resolved = await deps.pendingActionStore.approve(actionId, userId);
+
+      // Execute the originally requested tool
+      const workspace = deps.workspaceStore.get(resolved.workspaceId);
+      if (workspace) {
+        const gwsExecs = createGwsExecutors({ configDir: workspace.gwsConfigDir });
+        const executor = gwsExecs.get(resolved.toolName) ?? deps.registry.executors.get(resolved.toolName);
+        if (executor) {
+          try {
+            await executor(resolved.toolInput);
+          } catch (e) {
+            console.error(`[approvals] Execution after approval failed:`, e);
+          }
+        }
+      }
+
+      // Notify both parties
+      await notifyActionResult(resolved, deps.registry, userId);
+      await notifyActionResult(resolved, deps.registry, resolved.requesterId);
+    } else {
+      const resolved = await deps.pendingActionStore.reject(actionId, userId, reason);
+      await notifyActionResult(resolved, deps.registry, userId);
+      await notifyActionResult(resolved, deps.registry, resolved.requesterId);
+    }
   }
 
   function handlePostback(
@@ -145,6 +313,18 @@ export function createLineWebhookRoute(
     if (!userStore.isActive(userId)) return;
 
     const data = extractPostbackData(event);
+
+    // Handle approval postbacks from Flex Message buttons
+    const params = new URLSearchParams(data);
+    const action = params.get("action");
+    const actionId = params.get("id");
+    if ((action === "approve" || action === "reject") && actionId) {
+      enqueue(userId, async () => {
+        await handleApprovalCommand(userId, action, actionId);
+      });
+      return;
+    }
+
     enqueueAgent(
       `[ポストバック] ユーザーがボタンを押しました。データ: ${data}`,
       userId,
