@@ -305,10 +305,22 @@ bun run src/workspaces/cli.ts status {id}
 
 ## Branch Strategy
 
+- `main` 브랜치 보호: 직접 커밋/force push 금지 (GitHub Rulesets로 강제)
+- 모든 작업은 feature branch에서 수행 → PR 리뷰 후 squash and merge (linear history)
+- 브랜치 네이밍: `feature/*`, `fix/*`, `docs/*`, `chore/*`, `test/*`, `refactor/*`
+- 병합 완료 후 feature branch 삭제
 - 글로벌 `rules/github-vc.md` 기본값 적용
-- 작업 브랜치: `feature/*`, `fix/*`, `docs/*`
 
 ## Commit Convention
 
-- Conventional Commits: `<type>(<scope>): <제목>`
-- scope: `agent`, `channel`, `skill`, `jobs`, `routes`, `config`, `workspaces`, `approvals` 등 계층/모듈 단위
+- Conventional Commits: `<type>(<scope>): <description>`
+- **type**: `feat`, `fix`, `docs`, `chore`, `test`, `refactor`, `style`, `perf`, `ci`
+- **scope**: `agent`, `channel`, `skill`, `jobs`, `routes`, `config`, `workspaces`, `approvals`, `docker` 등 계층/모듈 단위
+- 1 태스크 = 1 커밋 (독립 cherry-pick 가능)
+- `git add -A`/`.` 금지 — 파일명 명시로 스테이징
+
+## Pull Request Rules
+
+- PR 생성 필수 — main에 직접 push 불가
+- 최소 1명의 리뷰 승인 후 병합
+- 병합 전 `bun run typecheck` + `bun test` 통과 필수
