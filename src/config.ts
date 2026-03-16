@@ -10,6 +10,10 @@ export const config = {
   anthropicApiKey: required("ANTHROPIC_API_KEY"),
   lineChannelAccessToken: required("LINE_CHANNEL_ACCESS_TOKEN"),
   lineChannelSecret: required("LINE_CHANNEL_SECRET"),
-  lineUserId: required("LINE_USER_ID"),
+  adminUserIds: required("ADMIN_USER_IDS")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean),
+  userStorePath: process.env["USER_STORE_PATH"] ?? "data/users.json",
   port: process.env["PORT"] ? Number(process.env["PORT"]) : 3000,
 } as const;
