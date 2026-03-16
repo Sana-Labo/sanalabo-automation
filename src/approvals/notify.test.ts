@@ -10,7 +10,7 @@ function makePendingAction(overrides: Partial<PendingAction> = {}): PendingActio
     toolName: "gmail_create_draft",
     toolInput: { to: "a@b.com", subject: "hi", body: "hello" },
     status: "pending",
-    createdAt: new Date().toISOString(),
+    createdAt: "2024-01-01T00:00:00.000Z",
     requestContext: "メール下書きを作成して",
     ...overrides,
   };
@@ -23,10 +23,10 @@ function makeWorkspace(overrides: Partial<WorkspaceRecord> = {}): WorkspaceRecor
     ownerId: "U_owner_1",
     gwsConfigDir: "/data/workspaces/ws_001/gws-config",
     gwsAuthenticated: true,
-    createdAt: new Date().toISOString(),
+    createdAt: "2024-01-01T00:00:00.000Z",
     members: {
-      U_owner_1: { role: "owner", joinedAt: new Date().toISOString(), invitedBy: "system" },
-      U_member_1: { role: "member", joinedAt: new Date().toISOString(), invitedBy: "U_owner_1" },
+      U_owner_1: { role: "owner", joinedAt: "2024-01-01T00:00:00.000Z", invitedBy: "system" },
+      U_member_1: { role: "member", joinedAt: "2024-01-01T00:00:00.000Z", invitedBy: "U_owner_1" },
     },
     ...overrides,
   };

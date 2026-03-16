@@ -1,23 +1,10 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { tmpdir } from "node:os";
-import { rm } from "node:fs/promises";
-import { join } from "node:path";
-
-// Set environment variables before importing modules that depend on config
-process.env.ANTHROPIC_API_KEY = "test-key";
-process.env.LINE_CHANNEL_ACCESS_TOKEN = "test-token";
-process.env.LINE_CHANNEL_SECRET = "test-secret";
-process.env.SYSTEM_ADMIN_IDS = "Uadmin00000000000000000000000001";
+import "../test-utils/setup-env.js";
+import { createTestDir } from "../test-utils/tmpdir.js";
 
 const { JsonPendingActionStore } = await import("./store.js");
 
-const testDir = join(tmpdir(), `approval-store-test-${crypto.randomUUID()}`);
-let testCounter = 0;
-
-function testPath(): string {
-  return join(testDir, `store-${++testCounter}`, "pending-actions.json");
-}
-
+const td = createTestDir("approval-store");
 let store: InstanceType<typeof JsonPendingActionStore>;
 
 const sampleAction = {
@@ -29,14 +16,11 @@ const sampleAction = {
 };
 
 beforeEach(async () => {
-  store = new JsonPendingActionStore(testPath());
+  store = new JsonPendingActionStore(td.path("pending-actions.json"));
   await store.load();
 });
 
-afterEach(async () => {
-  await rm(testDir, { recursive: true, force: true });
-  testCounter = 0;
-});
+afterEach(() => td.cleanup());
 
 describe("JsonPendingActionStore", () => {
   test("create: pending action gets status 'pending'", async () => {
@@ -119,7 +103,7 @@ describe("JsonPendingActionStore", () => {
     const action = await store.create(sampleAction);
     await store.approve(action.id, "Uowner01");
 
-    expect(store.approve(action.id, "Uowner02")).rejects.toThrow(
+    await expect(store.approve(action.id, "Uowner02")).rejects.toThrow(
       "already approved",
     );
   });
@@ -128,19 +112,19 @@ describe("JsonPendingActionStore", () => {
     const action = await store.create(sampleAction);
     await store.reject(action.id, "Uowner01");
 
-    expect(store.reject(action.id, "Uowner02")).rejects.toThrow(
+    await expect(store.reject(action.id, "Uowner02")).rejects.toThrow(
       "already rejected",
     );
   });
 
   test("approve: nonexistent action throws", async () => {
-    expect(store.approve("nonexistent", "Uowner01")).rejects.toThrow(
+    await expect(store.approve("nonexistent", "Uowner01")).rejects.toThrow(
       "Pending action not found",
     );
   });
 
   test("reject: nonexistent action throws", async () => {
-    expect(store.reject("nonexistent", "Uowner01")).rejects.toThrow(
+    await expect(store.reject("nonexistent", "Uowner01")).rejects.toThrow(
       "Pending action not found",
     );
   });
@@ -148,7 +132,8 @@ describe("JsonPendingActionStore", () => {
   test("expireOlderThan: expires pending actions older than threshold", async () => {
     const action = await store.create(sampleAction);
 
-    // Manually backdate createdAt to 25 hours ago
+    // Intentional direct mutation: get() returns a live reference to internal data.
+    // This couples the test to that implementation detail but is the simplest way to backdate.
     const actionRecord = store.get(action.id)!;
     actionRecord.createdAt = new Date(
       Date.now() - 25 * 60 * 60 * 1000,
@@ -173,7 +158,7 @@ describe("JsonPendingActionStore", () => {
     const action = await store.create(sampleAction);
     await store.approve(action.id, "Uowner01");
 
-    // Backdate
+    // Intentional direct mutation of internal state (see expireOlderThan test above)
     const actionRecord = store.get(action.id)!;
     actionRecord.createdAt = new Date(
       Date.now() - 25 * 60 * 60 * 1000,
@@ -187,7 +172,7 @@ describe("JsonPendingActionStore", () => {
     const action = await store.create(sampleAction);
     await store.approve(action.id, "Uowner01");
 
-    // Backdate resolvedAt to 8 days ago
+    // Intentional direct mutation of internal state (see expireOlderThan test above)
     const actionRecord = store.get(action.id)!;
     actionRecord.resolvedAt = new Date(
       Date.now() - 8 * 24 * 60 * 60 * 1000,
@@ -215,7 +200,7 @@ describe("JsonPendingActionStore", () => {
   });
 
   test("persistence: data survives reload", async () => {
-    const path = join(testDir, "persist-test", "pending-actions.json");
+    const path = td.path("pending-actions.json");
     const store1 = new JsonPendingActionStore(path);
     await store1.load();
     const action = await store1.create(sampleAction);

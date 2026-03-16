@@ -1,8 +1,8 @@
 import { describe, test, expect, afterEach } from "bun:test";
-import { tmpdir } from "node:os";
-import { rm } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readdir } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { JsonFileStore } from "./json-file-store.js";
+import { createTestDir } from "../test-utils/tmpdir.js";
 
 // Concrete subclass for testing the abstract JsonFileStore
 class TestStore extends JsonFileStore<{ value: string }> {
@@ -24,35 +24,23 @@ class TestStore extends JsonFileStore<{ value: string }> {
   }
 }
 
-// Unique temp directory per test run
-const testDir = join(tmpdir(), `json-file-store-test-${crypto.randomUUID()}`);
-let testCounter = 0;
+const td = createTestDir("json-file-store");
 
-function testPath(): string {
-  return join(testDir, `store-${++testCounter}`, "data.json");
-}
-
-afterEach(async () => {
-  await rm(testDir, { recursive: true, force: true });
-  testCounter = 0;
-});
+afterEach(() => td.cleanup());
 
 describe("JsonFileStore", () => {
   test("load: no file starts with empty state", async () => {
-    const store = new TestStore(testPath());
+    const store = new TestStore(td.path("data.json"));
     await store.load();
 
     expect(store.getAll()).toEqual({});
   });
 
   test("load: existing file loads data", async () => {
-    const path = testPath();
+    const path = td.path("data.json");
     const existing = { key1: { value: "hello" }, key2: { value: "world" } };
 
-    // Write a valid JSON file first
-    const { mkdir: mkdirFs } = await import("node:fs/promises");
-    const { dirname } = await import("node:path");
-    await mkdirFs(dirname(path), { recursive: true });
+    await mkdir(dirname(path), { recursive: true });
     await Bun.write(Bun.file(path), JSON.stringify(existing, null, 2) + "\n");
 
     const store = new TestStore(path);
@@ -63,7 +51,7 @@ describe("JsonFileStore", () => {
   });
 
   test("save + load: roundtrip preserves data", async () => {
-    const path = testPath();
+    const path = td.path("data.json");
 
     // Save with first instance
     const store1 = new TestStore(path);
@@ -80,12 +68,9 @@ describe("JsonFileStore", () => {
   });
 
   test("corruption recovery: invalid JSON backs up and starts empty", async () => {
-    const path = testPath();
+    const path = td.path("data.json");
 
-    // Write corrupted JSON
-    const { mkdir: mkdirFs } = await import("node:fs/promises");
-    const { dirname } = await import("node:path");
-    await mkdirFs(dirname(path), { recursive: true });
+    await mkdir(dirname(path), { recursive: true });
     await Bun.write(Bun.file(path), "{invalid json content!!!");
 
     const store = new TestStore(path);
@@ -95,7 +80,6 @@ describe("JsonFileStore", () => {
     expect(store.getAll()).toEqual({});
 
     // .corrupt backup file should exist
-    const { readdir } = await import("node:fs/promises");
     const dir = dirname(path);
     const files = await readdir(dir);
     const corruptFiles = files.filter((f) => f.includes(".corrupt."));
@@ -103,7 +87,7 @@ describe("JsonFileStore", () => {
   });
 
   test("concurrent save: multiple save() calls serialize without data loss", async () => {
-    const path = testPath();
+    const path = td.path("data.json");
     const store = new TestStore(path);
     await store.load();
 
@@ -129,7 +113,7 @@ describe("JsonFileStore", () => {
   });
 
   test("directory auto-creation: nested non-existent path is created", async () => {
-    const path = join(testDir, "deep", "nested", "dir", "store.json");
+    const path = join(td.dir, "deep", "nested", "dir", "store.json");
     const store = new TestStore(path);
     await store.load();
     await store.set("x", "y");
