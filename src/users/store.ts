@@ -1,6 +1,7 @@
+import { rename } from "node:fs/promises";
 import { dirname } from "node:path";
 import { config } from "../config.js";
-import type { UserRecord, UserStatus } from "../types.js";
+import type { UserRecord } from "../types.js";
 
 export interface UserStore {
   isAdmin(userId: string): boolean;
@@ -17,33 +18,41 @@ type StoreData = Record<string, UserRecord>;
 class JsonUserStore implements UserStore {
   private data: StoreData = {};
   private readonly path: string;
+  private writeLock: Promise<void> = Promise.resolve();
 
   constructor(path: string) {
     this.path = path;
   }
 
   async load(): Promise<void> {
+    // Ensure data directory exists
+    const dir = dirname(this.path);
+    await Bun.write(Bun.file(dir + "/.keep"), "");
+
     try {
       const file = Bun.file(this.path);
       if (await file.exists()) {
         this.data = (await file.json()) as StoreData;
       }
-    } catch {
-      console.warn("[users] Failed to load store, starting fresh");
+    } catch (e) {
+      console.error("[users] Failed to load store:", e);
+      try {
+        await rename(this.path, `${this.path}.corrupt.${Date.now()}`);
+        console.warn("[users] Corrupted file backed up");
+      } catch {
+        // Backup failed — file may not exist
+      }
       this.data = {};
     }
   }
 
   private async save(): Promise<void> {
-    const dir = dirname(this.path);
-    const tmp = `${this.path}.tmp`;
-
-    await Bun.write(Bun.file(dir + "/.keep"), "");
-    await Bun.write(Bun.file(tmp), JSON.stringify(this.data, null, 2) + "\n");
-
-    // Atomic rename (Bun uses libuv rename under the hood — POSIX atomic)
-    const fs = await import("node:fs/promises");
-    await fs.rename(tmp, this.path);
+    this.writeLock = this.writeLock.then(async () => {
+      const tmp = `${this.path}.tmp.${Date.now()}`;
+      await Bun.write(Bun.file(tmp), JSON.stringify(this.data, null, 2) + "\n");
+      await rename(tmp, this.path);
+    });
+    await this.writeLock;
   }
 
   isAdmin(userId: string): boolean {

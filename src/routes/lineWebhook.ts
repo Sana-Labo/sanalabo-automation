@@ -58,7 +58,17 @@ export function createLineWebhookRoute(
     event: LineFollowEvent,
     userId: string,
   ): void {
-    if (userStore.isInvited(userId)) {
+    // Admin re-follow: reactivate without invitation check
+    if (userStore.isAdmin(userId) && !userStore.isActive(userId)) {
+      enqueue(async () => {
+        await userStore.activate(userId);
+        await runAgentLoop(
+          "管理者ユーザーが再参加しました。おかえりなさいとLINEで伝えてください。",
+          registry,
+          userId,
+        );
+      });
+    } else if (userStore.isInvited(userId)) {
       enqueue(async () => {
         await userStore.activate(userId);
         await runAgentLoop(
@@ -68,13 +78,8 @@ export function createLineWebhookRoute(
         );
       });
     } else if (!userStore.isActive(userId)) {
-      enqueue(async () => {
-        await runAgentLoop(
-          "このユーザーは招待されていません。利用には管理者の招待が必要である旨をLINEで案内してください。",
-          registry,
-          userId,
-        );
-      });
+      // Uninvited user — log only, no agent loop (prevents cost attacks)
+      console.log(`[webhook] Uninvited follow from ${userId}, ignoring`);
     }
   }
 
