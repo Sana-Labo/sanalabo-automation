@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { buildToolRegistry } from "./agent/loop.js";
-import { connectMcp } from "./agent/mcp.js";
+import { connectMcpPool } from "./agent/mcp-pool.js";
 import { config } from "./config.js";
 import { health } from "./routes/health.js";
 import { createLineWebhookRoute } from "./routes/lineWebhook.js";
@@ -22,11 +22,11 @@ async function main() {
   const userStore = await createUserStore();
   console.log("[app] User store initialized");
 
-  // 3. Connect MCP (LINE MCP Server)
-  console.log("[app] Connecting to LINE MCP Server...");
-  const mcp = await connectMcp();
+  // 3. Connect MCP Pool (LINE MCP Server)
+  console.log("[app] Connecting MCP pool...");
+  const mcp = await connectMcpPool({ size: config.mcpPoolSize });
   mcpClose = mcp.close;
-  console.log(`[app] LINE MCP Server connected (${mcp.tools.length} tools)`);
+  console.log(`[app] MCP pool connected (${mcp.tools.length} tools, ${config.mcpPoolSize} members)`);
 
   // 4. Build tool registry (Native + MCP)
   const gwsExecutors = createGwsExecutors();
