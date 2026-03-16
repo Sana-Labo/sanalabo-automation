@@ -8,6 +8,7 @@ import { startScheduler } from "./scheduler.js";
 import { createGwsExecutors } from "./skills/gws/executor.js";
 import { gwsTools } from "./skills/gws/tools.js";
 import type { ToolRegistry } from "./types.js";
+import { createUserStore } from "./users/store.js";
 
 let mcpClose: (() => Promise<void>) | undefined;
 let cronJobs: { stop: () => void }[] = [];
@@ -17,13 +18,17 @@ async function main() {
   const port = config.port;
   console.log("[app] Environment validated");
 
-  // 2. Connect MCP (LINE MCP Server)
+  // 2. Initialize user store
+  const userStore = await createUserStore();
+  console.log("[app] User store initialized");
+
+  // 3. Connect MCP (LINE MCP Server)
   console.log("[app] Connecting to LINE MCP Server...");
   const mcp = await connectMcp();
   mcpClose = mcp.close;
   console.log(`[app] LINE MCP Server connected (${mcp.tools.length} tools)`);
 
-  // 3. Build tool registry (Native + MCP)
+  // 4. Build tool registry (Native + MCP)
   const gwsExecutors = createGwsExecutors();
   const registry: ToolRegistry = buildToolRegistry(
     { tools: gwsTools, executors: gwsExecutors },
@@ -31,17 +36,17 @@ async function main() {
   );
   console.log(`[app] Tool registry built (${registry.tools.length} tools total)`);
 
-  // 4. Create Hono app
+  // 5. Create Hono app
   const app = new Hono();
   app.route("/", health);
-  app.route("/", createLineWebhookRoute(registry));
+  app.route("/", createLineWebhookRoute(registry, userStore));
 
-  // 5. Start scheduler
-  cronJobs = startScheduler(registry);
+  // 6. Start scheduler
+  cronJobs = startScheduler(registry, userStore);
 
   console.log(`[app] Server starting on port ${port}`);
 
-  // 6. Export for Bun serve
+  // 7. Export for Bun serve
   return { port, fetch: app.fetch };
 }
 

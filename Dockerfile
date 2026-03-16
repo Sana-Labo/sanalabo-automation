@@ -14,7 +14,9 @@ COPY src/ ./src/
 RUN addgroup -S app && adduser -S app -G app \
     && chown -R app:app /app \
     && mkdir -p /home/app/.config/gws \
-    && chown -R app:app /home/app
+    && chown -R app:app /home/app \
+    && mkdir -p /app/data \
+    && chown -R app:app /app/data
 USER app
 
 CMD ["bun", "run", "src/app.ts"]

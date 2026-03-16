@@ -4,6 +4,7 @@ services:
     env_file: .env
     volumes:
       - gws-config:/home/app/.config/gws
+      - user-data:/app/data
     healthcheck:
       test: ["CMD", "bun", "-e", "fetch('http://localhost:3000/health').then(r=>{if(!r.ok)process.exit(1)})"]
       interval: 10s
@@ -24,3 +25,4 @@ services:
 
 volumes:
   gws-config:
+  user-data:

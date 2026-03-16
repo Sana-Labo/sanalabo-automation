@@ -2,13 +2,13 @@ import { runAgentLoop } from "../agent/loop.js";
 import type { ToolRegistry } from "../types.js";
 
 function createJob(label: string, prompt: string) {
-  return async (registry: ToolRegistry): Promise<void> => {
-    console.log(`[cron] Running ${label}...`);
+  return async (registry: ToolRegistry, userId: string): Promise<void> => {
+    console.log(`[cron] Running ${label} for ${userId}...`);
     try {
-      const result = await runAgentLoop(prompt, registry);
-      console.log(`[cron] ${label} done (${result.toolCalls} tool calls)`);
+      const result = await runAgentLoop(prompt, registry, userId);
+      console.log(`[cron] ${label} done for ${userId} (${result.toolCalls} tool calls)`);
     } catch (err) {
-      console.error(`[cron] ${label} error:`, err);
+      console.error(`[cron] ${label} error for ${userId}:`, err);
     }
   };
 }
@@ -23,25 +23,28 @@ export const eveningSummary = createJob(
   "今日の活動をまとめて、明日の予定と一緒にLINEで送って",
 );
 
-// urgentMailCheck: timestamp-based deduplication to prevent re-notification
-let lastUrgentCheck: Date | null = null;
+// urgentMailCheck: per-user timestamp-based deduplication
+const lastUrgentCheckMap = new Map<string, Date>();
 
-export async function urgentMailCheck(registry: ToolRegistry): Promise<void> {
+export async function urgentMailCheck(
+  registry: ToolRegistry,
+  userId: string,
+): Promise<void> {
   const label = "urgent mail check";
-  console.log(`[cron] Running ${label}...`);
+  console.log(`[cron] Running ${label} for ${userId}...`);
 
-  const since = lastUrgentCheck ?? new Date(Date.now() - 30 * 60 * 1000);
+  const since = lastUrgentCheckMap.get(userId) ?? new Date(Date.now() - 30 * 60 * 1000);
   const checkpoint = new Date();
   const sinceEpoch = Math.floor(since.getTime() / 1000);
 
   const prompt = `Gmailで重要なメールを確認して(クエリ: is:important after:${sinceEpoch})。該当メールがあれば内容をLINEで通知して。なければ何もしないで。`;
 
   try {
-    const result = await runAgentLoop(prompt, registry);
+    const result = await runAgentLoop(prompt, registry, userId);
     // Only advance checkpoint on success — failure retries same period
-    lastUrgentCheck = checkpoint;
-    console.log(`[cron] ${label} done (${result.toolCalls} tool calls)`);
+    lastUrgentCheckMap.set(userId, checkpoint);
+    console.log(`[cron] ${label} done for ${userId} (${result.toolCalls} tool calls)`);
   } catch (err) {
-    console.error(`[cron] ${label} error:`, err);
+    console.error(`[cron] ${label} error for ${userId}:`, err);
   }
 }

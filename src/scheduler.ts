@@ -1,19 +1,34 @@
 import { Cron } from "croner";
 import { morningBriefing, urgentMailCheck, eveningSummary } from "./jobs/index.js";
 import type { ToolRegistry } from "./types.js";
+import type { UserStore } from "./users/store.js";
 
-export function startScheduler(registry: ToolRegistry): Cron[] {
+async function forEachActiveUser(
+  userStore: UserStore,
+  jobFn: (registry: ToolRegistry, userId: string) => Promise<void>,
+  registry: ToolRegistry,
+): Promise<void> {
+  const users = userStore.getActiveUsers();
+  for (const userId of users) {
+    await jobFn(registry, userId);
+  }
+}
+
+export function startScheduler(
+  registry: ToolRegistry,
+  userStore: UserStore,
+): Cron[] {
   const tz = "Asia/Tokyo";
 
   const jobs = [
     new Cron("0 8 * * 1-5", { timezone: tz, protect: true }, async () => {
-      await morningBriefing(registry);
+      await forEachActiveUser(userStore, morningBriefing, registry);
     }),
     new Cron("*/30 8-22 * * *", { timezone: tz, protect: true }, async () => {
-      await urgentMailCheck(registry);
+      await forEachActiveUser(userStore, urgentMailCheck, registry);
     }),
     new Cron("0 21 * * 1-5", { timezone: tz, protect: true }, async () => {
-      await eveningSummary(registry);
+      await forEachActiveUser(userStore, eveningSummary, registry);
     }),
   ];
 
