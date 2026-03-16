@@ -3,7 +3,7 @@ import { buildToolRegistry } from "./agent/loop.js";
 import { connectMcpPool } from "./agent/mcp-pool.js";
 import { createPendingActionStore } from "./approvals/store.js";
 import { config } from "./config.js";
-import { health } from "./routes/health.js";
+import { createHealthRoute } from "./routes/health.js";
 import { createLineWebhookRoute } from "./routes/lineWebhook.js";
 import { startScheduler } from "./scheduler.js";
 import { gwsTools } from "./skills/gws/tools.js";
@@ -56,7 +56,7 @@ async function main() {
 
   // 6. Create Hono app
   const app = new Hono();
-  app.route("/", health);
+  app.route("/", createHealthRoute(mcp));
   app.route("/", createLineWebhookRoute(deps, userStore));
 
   // 7. Start scheduler

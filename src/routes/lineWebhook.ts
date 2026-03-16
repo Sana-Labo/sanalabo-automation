@@ -14,6 +14,7 @@ import {
 } from "../channels/line.js";
 import { config } from "../config.js";
 import { createGwsExecutors } from "../skills/gws/executor.js";
+import { toErrorMessage } from "../utils/error.js";
 import type {
   AgentDependencies,
   LineFollowEvent,
@@ -280,10 +281,25 @@ export function createLineWebhookRoute(
     const { notifyActionResult } = await import("../approvals/notify.js");
 
     if (action === "approve") {
+      // C1: Verify requester is still a member before executing
+      const requesterRole = deps.workspaceStore.getUserRole(pendingAction.workspaceId, pendingAction.requesterId);
+      if (!requesterRole || !userStore.isActive(pendingAction.requesterId)) {
+        const textExec = deps.registry.executors.get("push_text_message");
+        if (textExec) {
+          await textExec({
+            user_id: userId,
+            text: `リクエスト元ユーザーはすでにワークスペースのメンバーではありません。操作をキャンセルしました。`,
+          });
+        }
+        await deps.pendingActionStore.reject(actionId, userId, "Requester no longer a member");
+        return;
+      }
+
       const resolved = await deps.pendingActionStore.approve(actionId, userId);
 
       // Execute the originally requested tool
       const workspace = deps.workspaceStore.get(resolved.workspaceId);
+      let executionError: string | undefined;
       if (workspace) {
         const gwsExecs = createGwsExecutors({ configDir: workspace.gwsConfigDir });
         const executor = gwsExecs.get(resolved.toolName) ?? deps.registry.executors.get(resolved.toolName);
@@ -291,14 +307,16 @@ export function createLineWebhookRoute(
           try {
             await executor(resolved.toolInput);
           } catch (e) {
+            // W5: Capture execution failure for notification
+            executionError = toErrorMessage(e);
             console.error(`[approvals] Execution after approval failed:`, e);
           }
         }
       }
 
-      // Notify both parties
-      await notifyActionResult(resolved, deps.registry, userId);
-      await notifyActionResult(resolved, deps.registry, resolved.requesterId);
+      // Notify both parties (W5: include failure info if any)
+      await notifyActionResult(resolved, deps.registry, userId, executionError);
+      await notifyActionResult(resolved, deps.registry, resolved.requesterId, executionError);
     } else {
       const resolved = await deps.pendingActionStore.reject(actionId, userId, reason);
       await notifyActionResult(resolved, deps.registry, userId);

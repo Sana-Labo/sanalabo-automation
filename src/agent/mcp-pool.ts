@@ -39,12 +39,7 @@ export interface McpPoolStatus {
   totalInflight: number;
 }
 
-// Module-level pool status accessor (set after pool creation)
-let poolStatusFn: (() => McpPoolStatus) | null = null;
-
-export function getPoolStatus(): McpPoolStatus | null {
-  return poolStatusFn ? poolStatusFn() : null;
-}
+// Pool status is exposed via McpConnection.getStatus() — no module singleton
 
 export async function connectMcpPool(
   overrides?: Partial<McpPoolConfig>,
@@ -173,19 +168,21 @@ export async function connectMcpPool(
     input: Record<string, unknown>,
   ): Promise<string> {
     member.inflight++;
+    let timer: ReturnType<typeof setTimeout>;
     try {
       const result = await Promise.race([
         member.client.callTool({ name: toolName, arguments: input }),
-        new Promise<never>((_, reject) =>
-          setTimeout(
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
             () => reject(new Error(`MCP call timeout (${cfg.callTimeoutMs}ms)`)),
             cfg.callTimeoutMs,
-          ),
-        ),
+          );
+        }),
       ]);
       member.consecutiveFailures = 0;
       return extractMcpText(result);
     } finally {
+      clearTimeout(timer!);
       member.inflight--;
     }
   }
@@ -217,25 +214,26 @@ export async function connectMcpPool(
     }
   }, cfg.healthCheckIntervalMs);
 
-  // 8. Pool status accessor
-  poolStatusFn = () => ({
-    members: members.map((m) => ({
-      id: m.id,
-      state: m.state,
-      inflight: m.inflight,
-    })),
-    totalInflight: members.reduce((sum, m) => sum + m.inflight, 0),
-  });
+  // 8. Pool status accessor (returned via McpConnection.getStatus)
+  function getStatus(): McpPoolStatus {
+    return {
+      members: members.map((m) => ({
+        id: m.id,
+        state: m.state,
+        inflight: m.inflight,
+      })),
+      totalInflight: members.reduce((sum, m) => sum + m.inflight, 0),
+    };
+  }
 
   // 9. Close all members
   async function closePool(): Promise<void> {
     clearInterval(healthInterval);
-    poolStatusFn = null;
     await Promise.allSettled(members.map((m) => m.client.close()));
     console.log("[mcp-pool] All members closed");
   }
 
   console.log(`[mcp-pool] Pool ready (${cfg.size} members, ${tools.length} tools)`);
 
-  return { tools, executors, close: closePool };
+  return { tools, executors, close: closePool, getStatus };
 }

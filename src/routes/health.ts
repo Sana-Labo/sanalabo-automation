@@ -1,15 +1,17 @@
 import { Hono } from "hono";
-import { getPoolStatus } from "../agent/mcp-pool.js";
+import type { McpConnection } from "../agent/mcp.js";
 
-const health = new Hono();
+export function createHealthRoute(mcp: McpConnection) {
+  const route = new Hono();
 
-health.get("/health", (c) => {
-  const pool = getPoolStatus();
-  return c.json({
-    status: "ok",
-    timestamp: new Date().toISOString(),
-    mcpPool: pool ?? "not initialized",
+  route.get("/health", (c) => {
+    const pool = mcp.getStatus ? mcp.getStatus() : "not available";
+    return c.json({
+      status: "ok",
+      timestamp: new Date().toISOString(),
+      mcpPool: pool,
+    });
   });
-});
 
-export { health };
+  return route;
+}

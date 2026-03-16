@@ -9,6 +9,7 @@ export interface McpConnection {
   tools: Anthropic.Tool[];
   executors: Map<string, ToolExecutor>;
   close: () => Promise<void>;
+  getStatus?: () => unknown;
 }
 
 const MCP_PACKAGE = "@line/line-bot-mcp-server";

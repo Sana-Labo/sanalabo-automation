@@ -31,16 +31,18 @@ export async function notifyActionResult(
   action: PendingAction,
   registry: ToolRegistry,
   targetUserId: string,
+  executionError?: string,
 ): Promise<void> {
   const executor = registry.executors.get("push_text_message");
   if (!executor) return;
 
   const statusText = action.status === "approved" ? "承認" : "却下";
   const reason = action.rejectionReason ? `\n理由: ${action.rejectionReason}` : "";
+  const errorNote = executionError ? `\n⚠ 実行エラー: ${executionError}` : "";
 
   await executor({
     user_id: targetUserId,
-    text: `[${statusText}] ${action.toolName}\n${action.requestContext}${reason}`,
+    text: `[${statusText}] ${action.toolName}\n${action.requestContext}${reason}${errorNote}`,
   });
 }
 
