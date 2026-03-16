@@ -3,6 +3,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { config } from "../config.js";
 import type { ToolExecutor } from "../types.js";
+import { toErrorMessage } from "../utils/error.js";
 
 export interface McpConnection {
   tools: Anthropic.Tool[];
@@ -63,13 +64,13 @@ async function connectWithFallback(env: Record<string, string>): Promise<Client>
       lastError = e;
       console.warn(
         `[mcp] ${runtime.command} failed:`,
-        e instanceof Error ? e.message : e,
+        toErrorMessage(e),
       );
     }
   }
 
   throw new Error(
-    `Failed to connect to LINE MCP Server: ${lastError instanceof Error ? lastError.message : lastError}`,
+    `Failed to connect to LINE MCP Server: ${toErrorMessage(lastError)}`,
   );
 }
 
@@ -149,7 +150,7 @@ export async function connectMcp(): Promise<McpConnection> {
       } catch (e) {
         console.warn(
           `[mcp] Tool "${t.name}" failed, reconnecting:`,
-          e instanceof Error ? e.message : e,
+          toErrorMessage(e),
         );
         await reconnect();
         return await attempt();

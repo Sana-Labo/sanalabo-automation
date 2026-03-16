@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { config } from "../config.js";
 import type { AgentResult, ToolExecutor, ToolRegistry } from "../types.js";
+import { toErrorMessage } from "../utils/error.js";
 import { buildSystemPrompt } from "./system.js";
 
 const MAX_TURNS = 15;
@@ -77,7 +78,7 @@ export async function runAgentLoop(
           return {
             type: "tool_result" as const,
             tool_use_id: block.id,
-            content: `Error: ${e instanceof Error ? e.message : String(e)}`,
+            content: `Error: ${toErrorMessage(e)}`,
             is_error: true,
           };
         }
