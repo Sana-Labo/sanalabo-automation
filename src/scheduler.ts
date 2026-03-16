@@ -8,31 +8,31 @@ async function forAllWorkspaceUsers(
   userStore: UserStore,
   jobFn: (deps: AgentDependencies, context: ToolContext) => Promise<void>,
 ): Promise<void> {
-  const workspaces = deps.workspaceStore.getAll();
+  const workspaces = deps.workspaceStore.getAll()
+    .filter((ws) => ws.gwsAuthenticated);
 
-  for (const ws of workspaces) {
-    // W3: Skip workspaces without GWS authentication
-    if (!ws.gwsAuthenticated) continue;
+  await Promise.allSettled(
+    workspaces.map(async (ws) => {
+      const activeMembers = Object.entries(ws.members)
+        .filter(([userId]) => userStore.isActive(userId));
 
-    const activeMembers = Object.entries(ws.members)
-      .filter(([userId]) => userStore.isActive(userId));
+      const results = await Promise.allSettled(
+        activeMembers.map(([userId, m]) =>
+          jobFn(deps, { userId, workspaceId: ws.id, role: m.role }),
+        ),
+      );
 
-    const results = await Promise.allSettled(
-      activeMembers.map(([userId, m]) =>
-        jobFn(deps, { userId, workspaceId: ws.id, role: m.role }),
-      ),
-    );
-
-    for (let i = 0; i < results.length; i++) {
-      const r = results[i]!;
-      if (r.status === "rejected") {
-        console.error(
-          `[scheduler] Job failure for ${activeMembers[i]![0]} in workspace ${ws.id}:`,
-          r.reason,
-        );
+      for (let i = 0; i < results.length; i++) {
+        const r = results[i]!;
+        if (r.status === "rejected") {
+          console.error(
+            `[scheduler] Job failure for ${activeMembers[i]![0]} in workspace ${ws.id}:`,
+            r.reason,
+          );
+        }
       }
-    }
-  }
+    }),
+  );
 }
 
 export function startScheduler(

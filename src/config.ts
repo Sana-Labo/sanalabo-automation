@@ -18,18 +18,8 @@ function requiredList(name: string): string[] {
 }
 
 function requiredListWithFallback(name: string, fallback: string): string[] {
-  const value = process.env[name] ?? process.env[fallback];
-  if (!value) {
-    throw new Error(`Missing required environment variable: ${name} (or ${fallback})`);
-  }
-  const ids = value
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  if (ids.length === 0) {
-    throw new Error(`${name} must contain at least one valid ID`);
-  }
-  return ids;
+  const envName = process.env[name] ? name : fallback;
+  return requiredList(envName);
 }
 
 export const config = {

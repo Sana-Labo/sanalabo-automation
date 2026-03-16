@@ -5,7 +5,7 @@ export interface GwsExecOptions {
   configDir: string;
 }
 
-export function getString(input: Record<string, unknown>, key: string): string {
+function getString(input: Record<string, unknown>, key: string): string {
   const val = input[key];
   if (typeof val !== "string" || val === "") {
     throw new Error(`Missing or invalid parameter: ${key}`);
@@ -13,7 +13,7 @@ export function getString(input: Record<string, unknown>, key: string): string {
   return val;
 }
 
-export function optString(input: Record<string, unknown>, key: string): string | undefined {
+function optString(input: Record<string, unknown>, key: string): string | undefined {
   const val = input[key];
   if (val == null) return undefined;
   return String(val);

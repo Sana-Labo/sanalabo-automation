@@ -91,6 +91,22 @@ export function extractMcpText(result: Awaited<ReturnType<Client["callTool"]>>):
   return texts.join("\n");
 }
 
+export function mapMcpToAnthropicTools(
+  mcpTools: Awaited<ReturnType<Client["listTools"]>>["tools"],
+): Anthropic.Tool[] {
+  return mcpTools.map((t) => {
+    const { type: _type, ...rest } = t.inputSchema;
+    return {
+      name: t.name,
+      description: t.description ?? "",
+      input_schema: {
+        type: "object" as const,
+        ...rest,
+      },
+    };
+  });
+}
+
 export async function connectMcp(): Promise<McpConnection> {
   const env = buildMcpEnv();
 
@@ -123,18 +139,7 @@ export async function connectMcp(): Promise<McpConnection> {
 
   // Discover tools once — LINE MCP Server's tool list is stable
   const { tools: mcpTools } = await currentClient.listTools();
-
-  const tools: Anthropic.Tool[] = mcpTools.map((t) => {
-    const { type: _type, ...rest } = t.inputSchema;
-    return {
-      name: t.name,
-      description: t.description ?? "",
-      input_schema: {
-        type: "object" as const,
-        ...rest,
-      },
-    };
-  });
+  const tools = mapMcpToAnthropicTools(mcpTools);
 
   // Build executors with auto-reconnect: try once, reconnect on failure, retry once
   const executors = new Map<string, ToolExecutor>();

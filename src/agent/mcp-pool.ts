@@ -1,8 +1,7 @@
-import type Anthropic from "@anthropic-ai/sdk";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type { ToolExecutor } from "../types.js";
 import { toErrorMessage } from "../utils/error.js";
-import { buildMcpEnv, connectWithFallback, extractMcpText } from "./mcp.js";
+import { buildMcpEnv, connectWithFallback, extractMcpText, mapMcpToAnthropicTools } from "./mcp.js";
 import type { McpConnection } from "./mcp.js";
 
 export interface McpPoolConfig {
@@ -66,18 +65,7 @@ export async function connectMcpPool(
 
   // 2. Discover tools from the first member (all members serve the same tools)
   const { tools: mcpTools } = await members[0]!.client.listTools();
-
-  const tools: Anthropic.Tool[] = mcpTools.map((t) => {
-    const { type: _type, ...rest } = t.inputSchema;
-    return {
-      name: t.name,
-      description: t.description ?? "",
-      input_schema: {
-        type: "object" as const,
-        ...rest,
-      },
-    };
-  });
+  const tools = mapMcpToAnthropicTools(mcpTools);
 
   // 3. Member selection: least-inflight among healthy members
   function selectMember(): PoolMember | undefined {
@@ -193,25 +181,27 @@ export async function connectMcpPool(
     executors.set(t.name, (input) => dispatchCall(t.name, input));
   }
 
-  // 7. Health check interval
+  // 7. Health check interval (parallel across members)
   const healthInterval = setInterval(async () => {
-    for (const member of members) {
-      if (member.state === "reconnecting") continue;
-      try {
-        await member.client.ping();
-        if (member.state === "unhealthy") {
-          member.state = "healthy";
-          member.consecutiveFailures = 0;
-          console.log(`[mcp-pool] Member ${member.id} recovered`);
+    await Promise.allSettled(
+      members.map(async (member) => {
+        if (member.state === "reconnecting") return;
+        try {
+          await member.client.ping();
+          if (member.state === "unhealthy") {
+            member.state = "healthy";
+            member.consecutiveFailures = 0;
+            console.log(`[mcp-pool] Member ${member.id} recovered`);
+          }
+        } catch {
+          member.consecutiveFailures++;
+          if (member.consecutiveFailures >= 3) {
+            member.state = "unhealthy";
+            void reconnectMember(member);
+          }
         }
-      } catch {
-        member.consecutiveFailures++;
-        if (member.consecutiveFailures >= 3) {
-          member.state = "unhealthy";
-          void reconnectMember(member);
-        }
-      }
-    }
+      }),
+    );
   }, cfg.healthCheckIntervalMs);
 
   // 8. Pool status accessor (returned via McpConnection.getStatus)

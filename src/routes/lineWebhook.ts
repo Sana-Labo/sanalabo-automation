@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { runAgentLoop } from "../agent/loop.js";
+import { notifyActionResult } from "../approvals/notify.js";
 import { clearUrgentCheckpoint } from "../jobs/index.js";
 import {
   verifyLineSignature,
@@ -33,6 +34,13 @@ export function createLineWebhookRoute(
   userStore: UserStore,
 ) {
   const route = new Hono();
+
+  // --- Shared helpers ---
+
+  async function sendText(userId: string, text: string): Promise<void> {
+    const exec = deps.registry.executors.get("push_text_message");
+    if (exec) await exec({ user_id: userId, text });
+  }
 
   // Per-user queues: sequential within same user (conversation order),
   // parallel across different users (no cross-user blocking)
@@ -82,13 +90,11 @@ export function createLineWebhookRoute(
   async function sendWorkspaceSelectionPrompt(userId: string): Promise<void> {
     const workspaces = deps.workspaceStore.getByMember(userId);
     if (workspaces.length === 0) return;
-    const textExec = deps.registry.executors.get("push_text_message");
-    if (!textExec) return;
     const list = workspaces.map((ws) => `・${ws.name} (${ws.id})`).join("\n");
-    await textExec({
-      user_id: userId,
-      text: `複数のワークスペースに所属しています。デフォルトを設定してください:\n${list}\n\n「use <ID>」と送信してください。`,
-    });
+    await sendText(
+      userId,
+      `複数のワークスペースに所属しています。デフォルトを設定してください:\n${list}\n\n「use <ID>」と送信してください。`,
+    );
   }
 
   function enqueueAgent(prompt: string, userId: string): void {
@@ -120,7 +126,6 @@ export function createLineWebhookRoute(
             context,
           );
         } else {
-          // S5: Admin re-follow without workspace — log and send selection prompt
           console.warn(`[webhook] System admin ${userId} re-followed but has no resolvable workspace`);
           await sendWorkspaceSelectionPrompt(userId);
         }
@@ -136,12 +141,10 @@ export function createLineWebhookRoute(
             context,
           );
         } else {
-          // W1: Multi-workspace without default — send selection prompt
           await sendWorkspaceSelectionPrompt(userId);
         }
       });
     } else if (!userStore.isActive(userId)) {
-      // Uninvited user — log only, no agent loop (prevents cost attacks)
       console.log(`[webhook] Uninvited follow from ${userId}, ignoring`);
     }
   }
@@ -169,13 +172,10 @@ export function createLineWebhookRoute(
       const [, wsName, ownerId] = createWsMatch;
       enqueue(userId, async () => {
         const ws = await deps.workspaceStore.create(wsName!, ownerId!);
-        const textExec = deps.registry.executors.get("push_text_message");
-        if (textExec) {
-          await textExec({
-            user_id: userId,
-            text: `ワークスペース「${ws.name}」(${ws.id})を作成しました。\nオーナー: ${ownerId}\nGWS認証: docker exec -it assistant gws auth login --config-dir ${ws.gwsConfigDir}`,
-          });
-        }
+        await sendText(
+          userId,
+          `ワークスペース「${ws.name}」(${ws.id})を作成しました。\nオーナー: ${ownerId}\nGWS認証: docker exec -it assistant gws auth login --config-dir ${ws.gwsConfigDir}`,
+        );
       });
       return;
     }
@@ -185,12 +185,10 @@ export function createLineWebhookRoute(
     if (inviteMatch) {
       const targetId = inviteMatch[1]!;
       enqueue(userId, async () => {
-        // Find workspace where this user is owner
         const ownerWs = deps.workspaceStore.getByOwner(userId);
         const context = resolveContext(userId);
 
         if (ownerWs.length === 0) {
-          // Not an owner — check if system admin for backwards compat
           if (userStore.isSystemAdmin(userId)) {
             await userStore.invite(targetId, userId);
             if (context) {
@@ -204,12 +202,10 @@ export function createLineWebhookRoute(
           return;
         }
 
-        // Owner: invite to their workspace
         const ws = ownerWs.length === 1 ? ownerWs[0]! : ownerWs.find((w) => w.id === userStore.getDefaultWorkspaceId(userId)) ?? ownerWs[0]!;
         await userStore.invite(targetId, userId);
         await deps.workspaceStore.inviteMember(ws.id, targetId, userId);
 
-        // W2: Auto-set defaultWorkspaceId if this is the user's first workspace
         if (!userStore.getDefaultWorkspaceId(targetId)) {
           await userStore.setDefaultWorkspaceId(targetId, ws.id);
         }
@@ -242,23 +238,11 @@ export function createLineWebhookRoute(
       enqueue(userId, async () => {
         const ws = deps.workspaceStore.get(wsId);
         if (!ws || !deps.workspaceStore.getUserRole(wsId, userId)) {
-          const textExec = deps.registry.executors.get("push_text_message");
-          if (textExec) {
-            await textExec({
-              user_id: userId,
-              text: "指定されたワークスペースが見つからないか、アクセス権がありません。",
-            });
-          }
+          await sendText(userId, "指定されたワークスペースが見つからないか、アクセス権がありません。");
           return;
         }
         await userStore.setDefaultWorkspaceId(userId, wsId);
-        const textExec = deps.registry.executors.get("push_text_message");
-        if (textExec) {
-          await textExec({
-            user_id: userId,
-            text: `デフォルトワークスペースを「${ws.name}」に設定しました。`,
-          });
-        }
+        await sendText(userId, `デフォルトワークスペースを「${ws.name}」に設定しました。`);
       });
       return;
     }
@@ -274,43 +258,26 @@ export function createLineWebhookRoute(
   ): Promise<void> {
     const pendingAction = deps.pendingActionStore.get(actionId);
     if (!pendingAction) {
-      const textExec = deps.registry.executors.get("push_text_message");
-      if (textExec) {
-        await textExec({ user_id: userId, text: `承認リクエスト ${actionId} が見つかりません。` });
-      }
+      await sendText(userId, `承認リクエスト ${actionId} が見つかりません。`);
       return;
     }
 
-    // Only workspace owner can approve/reject
     const role = deps.workspaceStore.getUserRole(pendingAction.workspaceId, userId);
     if (role !== "owner") {
-      const textExec = deps.registry.executors.get("push_text_message");
-      if (textExec) {
-        await textExec({ user_id: userId, text: "この操作はワークスペースオーナーのみ実行できます。" });
-      }
+      await sendText(userId, "この操作はワークスペースオーナーのみ実行できます。");
       return;
     }
 
-    const { notifyActionResult } = await import("../approvals/notify.js");
-
     if (action === "approve") {
-      // C1: Verify requester is still a member before executing
       const requesterRole = deps.workspaceStore.getUserRole(pendingAction.workspaceId, pendingAction.requesterId);
       if (!requesterRole || !userStore.isActive(pendingAction.requesterId)) {
-        const textExec = deps.registry.executors.get("push_text_message");
-        if (textExec) {
-          await textExec({
-            user_id: userId,
-            text: `リクエスト元ユーザーはすでにワークスペースのメンバーではありません。操作をキャンセルしました。`,
-          });
-        }
+        await sendText(userId, "リクエスト元ユーザーはすでにワークスペースのメンバーではありません。操作をキャンセルしました。");
         await deps.pendingActionStore.reject(actionId, userId, "Requester no longer a member");
         return;
       }
 
       const resolved = await deps.pendingActionStore.approve(actionId, userId);
 
-      // Execute the originally requested tool
       const workspace = deps.workspaceStore.get(resolved.workspaceId);
       let executionError: string | undefined;
       if (workspace) {
@@ -320,20 +287,22 @@ export function createLineWebhookRoute(
           try {
             await executor(resolved.toolInput);
           } catch (e) {
-            // W5: Capture execution failure for notification
             executionError = toErrorMessage(e);
             console.error(`[approvals] Execution after approval failed:`, e);
           }
         }
       }
 
-      // Notify both parties (W5: include failure info if any)
-      await notifyActionResult(resolved, deps.registry, userId, executionError);
-      await notifyActionResult(resolved, deps.registry, resolved.requesterId, executionError);
+      await Promise.all([
+        notifyActionResult(resolved, deps.registry, userId, executionError),
+        notifyActionResult(resolved, deps.registry, resolved.requesterId, executionError),
+      ]);
     } else {
       const resolved = await deps.pendingActionStore.reject(actionId, userId, reason);
-      await notifyActionResult(resolved, deps.registry, userId);
-      await notifyActionResult(resolved, deps.registry, resolved.requesterId);
+      await Promise.all([
+        notifyActionResult(resolved, deps.registry, userId),
+        notifyActionResult(resolved, deps.registry, resolved.requesterId),
+      ]);
     }
   }
 
@@ -345,7 +314,6 @@ export function createLineWebhookRoute(
 
     const data = extractPostbackData(event);
 
-    // Handle approval postbacks from Flex Message buttons
     const params = new URLSearchParams(data);
     const action = params.get("action");
     const actionId = params.get("id");
@@ -401,7 +369,6 @@ export function createLineWebhookRoute(
       routeEvent(event);
     }
 
-    // Fire-and-forget: LINE requires response within 1 second
     return c.json({ status: "ok" }, 200);
   });
 
