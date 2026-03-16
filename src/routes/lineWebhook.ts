@@ -79,22 +79,23 @@ export function createLineWebhookRoute(
     return { userId, workspaceId: workspace.id, role };
   }
 
+  async function sendWorkspaceSelectionPrompt(userId: string): Promise<void> {
+    const workspaces = deps.workspaceStore.getByMember(userId);
+    if (workspaces.length === 0) return;
+    const textExec = deps.registry.executors.get("push_text_message");
+    if (!textExec) return;
+    const list = workspaces.map((ws) => `・${ws.name} (${ws.id})`).join("\n");
+    await textExec({
+      user_id: userId,
+      text: `複数のワークスペースに所属しています。デフォルトを設定してください:\n${list}\n\n「use <ID>」と送信してください。`,
+    });
+  }
+
   function enqueueAgent(prompt: string, userId: string): void {
     enqueue(userId, async () => {
       const context = resolveContext(userId);
       if (!context) {
-        // Multiple workspaces without default — notify user to select
-        const workspaces = deps.workspaceStore.getByMember(userId);
-        if (workspaces.length > 1) {
-          const textExec = deps.registry.executors.get("push_text_message");
-          if (textExec) {
-            const list = workspaces.map((ws) => `・${ws.name} (${ws.id})`).join("\n");
-            await textExec({
-              user_id: userId,
-              text: `複数のワークスペースに所属しています。デフォルトを設定してください:\n${list}\n\n「use <ID>」と送信してください。`,
-            });
-          }
-        }
+        await sendWorkspaceSelectionPrompt(userId);
         return;
       }
       await runAgentLoop(prompt, deps, context);
@@ -118,6 +119,10 @@ export function createLineWebhookRoute(
             deps,
             context,
           );
+        } else {
+          // S5: Admin re-follow without workspace — log and send selection prompt
+          console.warn(`[webhook] System admin ${userId} re-followed but has no resolvable workspace`);
+          await sendWorkspaceSelectionPrompt(userId);
         }
       });
     } else if (userStore.isInvited(userId)) {
@@ -130,6 +135,9 @@ export function createLineWebhookRoute(
             deps,
             context,
           );
+        } else {
+          // W1: Multi-workspace without default — send selection prompt
+          await sendWorkspaceSelectionPrompt(userId);
         }
       });
     } else if (!userStore.isActive(userId)) {
@@ -200,6 +208,11 @@ export function createLineWebhookRoute(
         const ws = ownerWs.length === 1 ? ownerWs[0]! : ownerWs.find((w) => w.id === userStore.getDefaultWorkspaceId(userId)) ?? ownerWs[0]!;
         await userStore.invite(targetId, userId);
         await deps.workspaceStore.inviteMember(ws.id, targetId, userId);
+
+        // W2: Auto-set defaultWorkspaceId if this is the user's first workspace
+        if (!userStore.getDefaultWorkspaceId(targetId)) {
+          await userStore.setDefaultWorkspaceId(targetId, ws.id);
+        }
 
         if (context) {
           await runAgentLoop(
