@@ -49,6 +49,7 @@ export async function runAgentLoop(
 
   let turns = 0;
   let toolCalls = 0;
+  let pushedToLine = false;
 
   while (turns < MAX_TURNS) {
     turns++;
@@ -63,11 +64,11 @@ export async function runAgentLoop(
 
     if (response.stop_reason === "max_tokens") {
       const text = extractText(response.content);
-      return { text: text || "応答が長すぎて切り詰められました。", toolCalls };
+      return { text: text || "応答が長すぎて切り詰められました。", toolCalls, pushedToLine };
     }
 
     if (response.stop_reason !== "tool_use") {
-      return { text: extractText(response.content), toolCalls };
+      return { text: extractText(response.content), toolCalls, pushedToLine };
     }
 
     const toolUseBlocks = response.content.filter(
@@ -123,6 +124,9 @@ export async function runAgentLoop(
           }
 
           const result = await executor(toolInput);
+          if (block.name.startsWith(LINE_PUSH_PREFIX)) {
+            pushedToLine = true;
+          }
           return {
             type: "tool_result" as const,
             tool_use_id: block.id,
@@ -146,6 +150,7 @@ export async function runAgentLoop(
   return {
     text: "ツール呼び出しの上限に達しました。処理を中断します。",
     toolCalls,
+    pushedToLine,
   };
 }
 
