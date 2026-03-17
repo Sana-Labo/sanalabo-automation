@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { notifyOwnerOfPending, notifyActionResult } from "./notify.js";
-import { LINE_PUSH_TEXT_TOOL, type PendingAction, type ToolRegistry, type WorkspaceStore, type WorkspaceRecord } from "../types.js";
+import { LINE_PUSH_FLEX_TOOL, LINE_PUSH_TEXT_TOOL, type PendingAction, type ToolRegistry, type WorkspaceStore, type WorkspaceRecord } from "../types.js";
 
 function makePendingAction(overrides: Partial<PendingAction> = {}): PendingAction {
   return {
@@ -45,7 +45,7 @@ function makeRegistry(options: {
   const executors = new Map<string, (input: Record<string, unknown>) => Promise<string>>();
 
   if (options.hasFlex !== false) {
-    executors.set("push_flex_message", async (input) => {
+    executors.set(LINE_PUSH_FLEX_TOOL, async (input) => {
       flexCalls.push({ input });
       return "ok";
     });

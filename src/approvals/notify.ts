@@ -1,4 +1,4 @@
-import { LINE_PUSH_TEXT_TOOL, type PendingAction, type ToolRegistry, type WorkspaceStore } from "../types.js";
+import { LINE_PUSH_FLEX_TOOL, LINE_PUSH_TEXT_TOOL, type PendingAction, type ToolRegistry, type WorkspaceStore } from "../types.js";
 
 export async function notifyOwnerOfPending(
   action: PendingAction,
@@ -8,7 +8,7 @@ export async function notifyOwnerOfPending(
   const workspace = workspaceStore.get(action.workspaceId);
   if (!workspace) return;
 
-  const executor = registry.executors.get("push_flex_message");
+  const executor = registry.executors.get(LINE_PUSH_FLEX_TOOL);
   if (!executor) {
     // Fallback to text message
     const textExecutor = registry.executors.get(LINE_PUSH_TEXT_TOOL);

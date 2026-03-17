@@ -68,6 +68,7 @@ export async function runAgentLoop(
   let turns = 0;
   let toolCalls = 0;
   let delivery: "pending" | "pushed" | "no_action" = "pending";
+  const allTools = [...deps.registry.tools, noActionToolDef];
 
   while (turns < MAX_TURNS) {
     turns++;
@@ -76,7 +77,7 @@ export async function runAgentLoop(
       model: MODEL,
       max_tokens: 4096,
       system: systemPrompt,
-      tools: [...deps.registry.tools, noActionToolDef],
+      tools: allTools,
       messages,
     });
 
@@ -96,21 +97,19 @@ export async function runAgentLoop(
       (b): b is Anthropic.ToolUseBlock => b.type === "tool_use",
     );
 
+    // no_action: short-circuit before executing any other tools
+    const noActionBlock = toolUseBlocks.find((b) => b.name === NO_ACTION_TOOL);
+    if (noActionBlock) {
+      const reason = ((noActionBlock.input as Record<string, unknown>).reason as string) ?? "";
+      console.log(`[agent] no_action: ${reason}`);
+      delivery = "no_action";
+      return { text: "", toolCalls: toolCalls + 1 };
+    }
+
     const toolResults = await Promise.all(
       toolUseBlocks.map(async (block) => {
         toolCalls++;
         const toolInput = block.input as Record<string, unknown>;
-
-        // no_action: agent explicitly declares "nothing to report"
-        if (block.name === NO_ACTION_TOOL) {
-          const reason = (toolInput as { reason?: string }).reason ?? "";
-          console.log(`[agent] no_action: ${reason}`);
-          return {
-            type: "tool_result" as const,
-            tool_use_id: block.id,
-            content: "OK",
-          };
-        }
 
         // Write interception for non-owner members
         const interception = await interceptWrite(
@@ -179,12 +178,6 @@ export async function runAgentLoop(
 
     messages.push({ role: "assistant", content: response.content });
     messages.push({ role: "user", content: toolResults });
-
-    // no_action called — update delivery state and exit early
-    if (toolUseBlocks.some((b) => b.name === NO_ACTION_TOOL)) {
-      delivery = "no_action";
-      return { text: "", toolCalls };
-    }
   }
 
   const text = "ツール呼び出しの上限に達しました。処理を中断します。";
@@ -195,10 +188,15 @@ export async function runAgentLoop(
   async function ensureDelivery(text: string): Promise<void> {
     if (delivery !== "pending" || !text) return;
     const exec = executors.get(LINE_PUSH_TEXT_TOOL);
-    if (exec) {
-      await exec({ user_id: context.userId, text });
-    } else {
+    if (!exec) {
       console.warn("[agent] push_text_message executor not found — response not delivered");
+      return;
+    }
+    try {
+      await exec({ user_id: context.userId, text });
+      delivery = "pushed";
+    } catch (e) {
+      console.error("[agent] ensureDelivery failed:", toErrorMessage(e));
     }
   }
 }

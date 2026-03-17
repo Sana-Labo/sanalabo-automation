@@ -2,8 +2,9 @@ import type Anthropic from "@anthropic-ai/sdk";
 
 // --- Tool System ---
 
-/** MCP tool name for LINE text push — used in executor lookups and fallback delivery */
+/** MCP tool names for LINE push — used in executor lookups and fallback delivery */
 export const LINE_PUSH_TEXT_TOOL = "push_text_message";
+export const LINE_PUSH_FLEX_TOOL = "push_flex_message";
 
 export type ToolExecutor = (
   input: Record<string, unknown>,
