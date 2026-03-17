@@ -98,4 +98,10 @@ describe("buildSystemPrompt", () => {
     const prompt = buildSystemPrompt(makeContext(), makeWorkspace());
     expect(prompt).toContain("2000文字以内");
   });
+
+  test("prompt requires push_text_message for responses", () => {
+    const prompt = buildSystemPrompt(makeContext(), makeWorkspace());
+    expect(prompt).toContain("push_text_message");
+    expect(prompt).toContain("応答ルール");
+  });
 });
