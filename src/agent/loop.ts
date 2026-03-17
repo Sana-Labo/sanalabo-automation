@@ -17,6 +17,23 @@ import { buildSystemPrompt } from "./system.js";
 const MAX_TURNS = 15;
 const MODEL = "claude-haiku-4-5-20251001";
 const LINE_PUSH_PREFIX = "push_";
+const NO_ACTION_TOOL = "no_action";
+
+const noActionToolDef: Anthropic.Tool = {
+  name: NO_ACTION_TOOL,
+  description:
+    "報告すべき内容がない場合に呼び出してください。このツールを呼ぶと、ユーザーへのメッセージ送信なしでタスクを終了します。",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      reason: {
+        type: "string",
+        description: "通知不要の理由（ログ用）",
+      },
+    },
+    required: ["reason"],
+  },
+};
 
 const client = new Anthropic({ apiKey: config.anthropicApiKey });
 
@@ -50,7 +67,7 @@ export async function runAgentLoop(
 
   let turns = 0;
   let toolCalls = 0;
-  let pushedToLine = false;
+  let delivery: "pending" | "pushed" | "no_action" = "pending";
 
   while (turns < MAX_TURNS) {
     turns++;
@@ -59,7 +76,7 @@ export async function runAgentLoop(
       model: MODEL,
       max_tokens: 4096,
       system: systemPrompt,
-      tools: deps.registry.tools,
+      tools: [...deps.registry.tools, noActionToolDef],
       messages,
     });
 
@@ -83,6 +100,18 @@ export async function runAgentLoop(
       toolUseBlocks.map(async (block) => {
         toolCalls++;
         const toolInput = block.input as Record<string, unknown>;
+
+        // no_action: agent explicitly declares "nothing to report"
+        if (block.name === NO_ACTION_TOOL) {
+          const reason = (toolInput as { reason?: string }).reason ?? "";
+          console.log(`[agent] no_action: ${reason}`);
+          if (delivery === "pending") delivery = "no_action";
+          return {
+            type: "tool_result" as const,
+            tool_use_id: block.id,
+            content: "OK",
+          };
+        }
 
         // Write interception for non-owner members
         const interception = await interceptWrite(
@@ -131,7 +160,7 @@ export async function runAgentLoop(
           const result = await executor(toolInput);
           // Set only on success — if push fails, ensureDelivery fallback may retry
           if (isLinePush) {
-            pushedToLine = true;
+            delivery = "pushed";
           }
           return {
             type: "tool_result" as const,
@@ -151,6 +180,11 @@ export async function runAgentLoop(
 
     messages.push({ role: "assistant", content: response.content });
     messages.push({ role: "user", content: toolResults });
+
+    // no_action called — no further API calls needed
+    if (delivery === "no_action") {
+      return { text: "", toolCalls };
+    }
   }
 
   const text = "ツール呼び出しの上限に達しました。処理を中断します。";
@@ -159,7 +193,7 @@ export async function runAgentLoop(
 
   /** Send response via LINE if the agent did not push itself */
   async function ensureDelivery(text: string): Promise<void> {
-    if (pushedToLine || !text) return;
+    if (delivery !== "pending" || !text) return;
     const exec = executors.get(LINE_PUSH_TEXT_TOOL);
     if (exec) {
       await exec({ user_id: context.userId, text });
