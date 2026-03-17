@@ -162,7 +162,12 @@ export function createLineWebhookRoute(
     event: LineMessageEvent,
     userId: string,
   ): void {
-    if (!userStore.isActive(userId)) return;
+    if (!userStore.isActive(userId)) {
+      console.log(`[webhook] Ignoring message from inactive user ${userId}`);
+      return;
+    }
+    console.log(`[webhook] Processing text message from ${userId}: "${extractTextMessage(event).slice(0, 50)}"`);
+
 
     const text = extractTextMessage(event);
 
@@ -247,6 +252,7 @@ export function createLineWebhookRoute(
       return;
     }
 
+    console.log(`[webhook] Enqueuing agent for ${userId}`);
     enqueueAgent(text, userId);
   }
 
@@ -365,7 +371,9 @@ export function createLineWebhookRoute(
     }
 
     const events = parseLineEvents(body);
+    console.log(`[webhook] Received ${events.length} event(s)`);
     for (const event of events) {
+      console.log(`[webhook] Event type=${event.type}, userId=${extractUserId(event)}`);
       routeEvent(event);
     }
 
