@@ -105,7 +105,6 @@ export async function runAgentLoop(
         if (block.name === NO_ACTION_TOOL) {
           const reason = (toolInput as { reason?: string }).reason ?? "";
           console.log(`[agent] no_action: ${reason}`);
-          if (delivery === "pending") delivery = "no_action";
           return {
             type: "tool_result" as const,
             tool_use_id: block.id,
@@ -181,8 +180,9 @@ export async function runAgentLoop(
     messages.push({ role: "assistant", content: response.content });
     messages.push({ role: "user", content: toolResults });
 
-    // no_action called — no further API calls needed
-    if (delivery === "no_action") {
+    // no_action called — update delivery state and exit early
+    if (toolUseBlocks.some((b) => b.name === NO_ACTION_TOOL)) {
+      delivery = "no_action";
       return { text: "", toolCalls };
     }
   }
