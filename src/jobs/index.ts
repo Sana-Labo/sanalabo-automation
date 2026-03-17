@@ -16,23 +16,10 @@ function withJobLogging(
   };
 }
 
-async function fallbackPush(
-  deps: AgentDependencies,
-  context: ToolContext,
-  result: { text: string; pushedToLine: boolean },
-): Promise<void> {
-  if (!result.pushedToLine && result.text) {
-    const exec = deps.registry.executors.get("push_text_message");
-    if (exec) await exec({ user_id: context.userId, text: result.text });
-  }
-}
-
 function createJob(label: string, prompt: string) {
-  return withJobLogging(label, async (deps, context) => {
-    const result = await runAgentLoop(prompt, deps, context);
-    await fallbackPush(deps, context, result);
-    return result;
-  });
+  return withJobLogging(label, (deps, context) =>
+    runAgentLoop(prompt, deps, context),
+  );
 }
 
 export const morningBriefing = createJob(
@@ -61,7 +48,6 @@ export const urgentMailCheck = withJobLogging("urgent mail check", async (deps, 
   const prompt = `Gmailで重要なメールを確認して(クエリ: is:important after:${sinceEpoch})。該当メールがあれば内容をLINEで通知して。なければ何もしないで。`;
 
   const result = await runAgentLoop(prompt, deps, context);
-  await fallbackPush(deps, context, result);
   // Only advance checkpoint on success — failure retries same period
   lastUrgentCheckMap.set(context.userId, checkpoint);
   return result;

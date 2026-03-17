@@ -97,17 +97,6 @@ export function createLineWebhookRoute(
     );
   }
 
-  async function runAgentAndReply(
-    prompt: string,
-    userId: string,
-    context: ToolContext,
-  ): Promise<void> {
-    const result = await runAgentLoop(prompt, deps, context);
-    if (!result.pushedToLine && result.text) {
-      await sendText(userId, result.text);
-    }
-  }
-
   function enqueueAgent(prompt: string, userId: string): void {
     enqueue(userId, async () => {
       const context = resolveContext(userId);
@@ -115,7 +104,7 @@ export function createLineWebhookRoute(
         await sendWorkspaceSelectionPrompt(userId);
         return;
       }
-      await runAgentAndReply(prompt, userId, context);
+      await runAgentLoop(prompt, deps, context);
     });
   }
 
@@ -131,9 +120,9 @@ export function createLineWebhookRoute(
         await userStore.activate(userId);
         const context = resolveContext(userId);
         if (context) {
-          await runAgentAndReply(
+          await runAgentLoop(
             "管理者ユーザーが再参加しました。おかえりなさいとLINEで伝えてください。",
-            userId,
+            deps,
             context,
           );
         } else {
@@ -146,9 +135,9 @@ export function createLineWebhookRoute(
         await userStore.activate(userId);
         const context = resolveContext(userId);
         if (context) {
-          await runAgentAndReply(
+          await runAgentLoop(
             "新しいユーザーが参加しました。簡単な挨拶と使い方をLINEで案内してください。",
-            userId,
+            deps,
             context,
           );
         } else {
@@ -203,9 +192,9 @@ export function createLineWebhookRoute(
           if (userStore.isSystemAdmin(userId)) {
             await userStore.invite(targetId, userId);
             if (context) {
-              await runAgentAndReply(
+              await runAgentLoop(
                 `ユーザー ${targetId} を招待しました。招待完了をLINEで報告してください。`,
-                userId,
+                deps,
                 context,
               );
             }
@@ -222,9 +211,9 @@ export function createLineWebhookRoute(
         }
 
         if (context) {
-          await runAgentAndReply(
+          await runAgentLoop(
             `ユーザー ${targetId} をワークスペース「${ws.name}」に招待しました。招待完了をLINEで報告してください。`,
-            userId,
+            deps,
             context,
           );
         }

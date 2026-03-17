@@ -16,7 +16,6 @@ export interface ToolRegistry {
 export interface AgentResult {
   text: string;
   toolCalls: number;
-  pushedToLine: boolean;
 }
 
 // --- GWS ---

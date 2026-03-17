@@ -63,12 +63,15 @@ export async function runAgentLoop(
     });
 
     if (response.stop_reason === "max_tokens") {
-      const text = extractText(response.content);
-      return { text: text || "応答が長すぎて切り詰められました。", toolCalls, pushedToLine };
+      const text = extractText(response.content) || "応答が長すぎて切り詰められました。";
+      await ensureDelivery(text);
+      return { text, toolCalls };
     }
 
     if (response.stop_reason !== "tool_use") {
-      return { text: extractText(response.content), toolCalls, pushedToLine };
+      const text = extractText(response.content);
+      await ensureDelivery(text);
+      return { text, toolCalls };
     }
 
     const toolUseBlocks = response.content.filter(
@@ -118,13 +121,15 @@ export async function runAgentLoop(
         }
 
         try {
+          const isLinePush = block.name.startsWith(LINE_PUSH_PREFIX);
           // Belt-and-suspenders: enforce user_id for LINE push tools
-          if (block.name.startsWith(LINE_PUSH_PREFIX)) {
+          if (isLinePush) {
             toolInput.user_id = context.userId;
           }
 
           const result = await executor(toolInput);
-          if (block.name.startsWith(LINE_PUSH_PREFIX)) {
+          // Set only on success — if push fails, ensureDelivery fallback may retry
+          if (isLinePush) {
             pushedToLine = true;
           }
           return {
@@ -147,11 +152,20 @@ export async function runAgentLoop(
     messages.push({ role: "user", content: toolResults });
   }
 
-  return {
-    text: "ツール呼び出しの上限に達しました。処理を中断します。",
-    toolCalls,
-    pushedToLine,
-  };
+  const text = "ツール呼び出しの上限に達しました。処理を中断します。";
+  await ensureDelivery(text);
+  return { text, toolCalls };
+
+  /** Send response via LINE if the agent did not push itself */
+  async function ensureDelivery(text: string): Promise<void> {
+    if (pushedToLine || !text) return;
+    const exec = executors.get("push_text_message");
+    if (exec) {
+      await exec({ user_id: context.userId, text });
+    } else {
+      console.warn("[agent] push_text_message executor not found — response not delivered");
+    }
+  }
 }
 
 export function buildToolRegistry(
