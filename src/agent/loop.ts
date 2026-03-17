@@ -3,12 +3,13 @@ import { interceptWrite } from "../approvals/interceptor.js";
 import { notifyOwnerOfPending } from "../approvals/notify.js";
 import { config } from "../config.js";
 import { getGwsExecutors } from "../skills/gws/executor.js";
-import type {
-  AgentDependencies,
-  AgentResult,
-  ToolContext,
-  ToolExecutor,
-  ToolRegistry,
+import {
+  LINE_PUSH_TEXT_TOOL,
+  type AgentDependencies,
+  type AgentResult,
+  type ToolContext,
+  type ToolExecutor,
+  type ToolRegistry,
 } from "../types.js";
 import { toErrorMessage } from "../utils/error.js";
 import { buildSystemPrompt } from "./system.js";
@@ -159,7 +160,7 @@ export async function runAgentLoop(
   /** Send response via LINE if the agent did not push itself */
   async function ensureDelivery(text: string): Promise<void> {
     if (pushedToLine || !text) return;
-    const exec = executors.get("push_text_message");
+    const exec = executors.get(LINE_PUSH_TEXT_TOOL);
     if (exec) {
       await exec({ user_id: context.userId, text });
     } else {

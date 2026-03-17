@@ -1,4 +1,4 @@
-import type { PendingAction, ToolRegistry, WorkspaceStore } from "../types.js";
+import { LINE_PUSH_TEXT_TOOL, type PendingAction, type ToolRegistry, type WorkspaceStore } from "../types.js";
 
 export async function notifyOwnerOfPending(
   action: PendingAction,
@@ -11,7 +11,7 @@ export async function notifyOwnerOfPending(
   const executor = registry.executors.get("push_flex_message");
   if (!executor) {
     // Fallback to text message
-    const textExecutor = registry.executors.get("push_text_message");
+    const textExecutor = registry.executors.get(LINE_PUSH_TEXT_TOOL);
     if (!textExecutor) return;
 
     await textExecutor({
@@ -33,7 +33,7 @@ export async function notifyActionResult(
   targetUserId: string,
   executionError?: string,
 ): Promise<void> {
-  const executor = registry.executors.get("push_text_message");
+  const executor = registry.executors.get(LINE_PUSH_TEXT_TOOL);
   if (!executor) return;
 
   const statusText = action.status === "approved" ? "承認" : "却下";

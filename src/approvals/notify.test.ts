@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { notifyOwnerOfPending, notifyActionResult } from "./notify.js";
-import type { PendingAction, ToolRegistry, WorkspaceStore, WorkspaceRecord } from "../types.js";
+import { LINE_PUSH_TEXT_TOOL, type PendingAction, type ToolRegistry, type WorkspaceStore, type WorkspaceRecord } from "../types.js";
 
 function makePendingAction(overrides: Partial<PendingAction> = {}): PendingAction {
   return {
@@ -51,7 +51,7 @@ function makeRegistry(options: {
     });
   }
   if (options.hasText !== false) {
-    executors.set("push_text_message", async (input) => {
+    executors.set(LINE_PUSH_TEXT_TOOL, async (input) => {
       textCalls.push({ input });
       return "ok";
     });
