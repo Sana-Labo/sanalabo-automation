@@ -1,8 +1,11 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type { ToolExecutor } from "../types.js";
 import { toErrorMessage } from "../utils/error.js";
+import { createLogger } from "../utils/logger.js";
 import { buildMcpEnv, connectWithFallback, extractMcpText, mapMcpToAnthropicTools } from "./mcp.js";
 import type { McpConnection } from "./mcp.js";
+
+const log = createLogger("mcp-pool");
 
 export interface McpPoolConfig {
   size: number;
@@ -49,9 +52,9 @@ export async function connectMcpPool(
   // 1. 모든 풀 멤버를 병렬 연결
   const members: PoolMember[] = await Promise.all(
     Array.from({ length: cfg.size }, async (_, i) => {
-      console.log(`[mcp-pool] Connecting member ${i}...`);
+      log.info("Connecting member", { memberId: i });
       const client = await connectWithFallback(env);
-      console.log(`[mcp-pool] Member ${i} connected`);
+      log.info("Member connected", { memberId: i });
       return {
         id: i,
         client,
@@ -85,7 +88,7 @@ export async function connectMcpPool(
 
     member.state = "reconnecting";
     member.reconnecting = (async () => {
-      console.log(`[mcp-pool] Reconnecting member ${member.id}...`);
+      log.info("Reconnecting member", { memberId: member.id });
       try {
         await member.client.close();
       } catch {
@@ -95,10 +98,10 @@ export async function connectMcpPool(
         member.client = await connectWithFallback(env);
         member.state = "healthy";
         member.consecutiveFailures = 0;
-        console.log(`[mcp-pool] Member ${member.id} reconnected`);
+        log.info("Member reconnected", { memberId: member.id });
       } catch (e) {
         member.state = "unhealthy";
-        console.error(`[mcp-pool] Member ${member.id} reconnect failed:`, toErrorMessage(e));
+        log.error("Member reconnect failed", { memberId: member.id, error: toErrorMessage(e) });
       }
     })();
 
@@ -130,7 +133,11 @@ export async function connectMcpPool(
       }
 
       try {
-        return await callOnMember(member, toolName, input);
+        log.debug("Dispatching tool call", { tool: toolName, memberId: member.id, inflight: member.inflight });
+        const start = Date.now();
+        const result = await callOnMember(member, toolName, input);
+        log.debug("Tool call completed on member", { tool: toolName, memberId: member.id, durationMs: Date.now() - start });
+        return result;
       } catch (e) {
         lastError = e;
         member.consecutiveFailures++;
@@ -138,10 +145,9 @@ export async function connectMcpPool(
           member.state = "unhealthy";
           void reconnectMember(member);
         }
-        console.warn(
-          `[mcp-pool] Member ${member.id} failed for "${toolName}" (attempt ${attempt + 1}):`,
-          toErrorMessage(e),
-        );
+        log.warning("Member failed for tool call", {
+          memberId: member.id, tool: toolName, attempt: attempt + 1, error: toErrorMessage(e),
+        });
       }
     }
 
@@ -191,7 +197,7 @@ export async function connectMcpPool(
           if (member.state === "unhealthy") {
             member.state = "healthy";
             member.consecutiveFailures = 0;
-            console.log(`[mcp-pool] Member ${member.id} recovered`);
+            log.info("Member recovered", { memberId: member.id });
           }
         } catch {
           member.consecutiveFailures++;
@@ -220,10 +226,10 @@ export async function connectMcpPool(
   async function closePool(): Promise<void> {
     clearInterval(healthInterval);
     await Promise.allSettled(members.map((m) => m.client.close()));
-    console.log("[mcp-pool] All members closed");
+    log.info("All members closed");
   }
 
-  console.log(`[mcp-pool] Pool ready (${cfg.size} members, ${tools.length} tools)`);
+  log.info("Pool ready", { poolSize: cfg.size, toolCount: tools.length });
 
   return { tools, executors, close: closePool, getStatus };
 }

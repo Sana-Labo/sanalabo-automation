@@ -16,6 +16,7 @@ import {
 import { config } from "../config.js";
 import { getGwsExecutors } from "../skills/gws/executor.js";
 import { toErrorMessage } from "../utils/error.js";
+import { createLogger } from "../utils/logger.js";
 import {
   LINE_PUSH_TEXT_TOOL,
   type AgentDependencies,
@@ -34,6 +35,7 @@ export function createLineWebhookRoute(
   deps: AgentDependencies,
   userStore: UserStore,
 ) {
+  const log = createLogger("webhook");
   const route = new Hono();
 
   // --- 공통 헬퍼 ---
@@ -60,7 +62,7 @@ export function createLineWebhookRoute(
       try {
         await task();
       } catch (err) {
-        console.error(`[webhook] Agent loop error for ${userId}:`, err);
+        log.error("Agent loop error", { userId, error: toErrorMessage(err) });
       }
     }
     uq.processing = false;
@@ -74,6 +76,7 @@ export function createLineWebhookRoute(
       userQueues.set(userId, uq);
     }
     uq.tasks.push(fn);
+    log.debug("Task enqueued", { userId, queueSize: uq.tasks.length });
     void processUserQueue(userId);
   }
 
@@ -127,7 +130,7 @@ export function createLineWebhookRoute(
             context,
           );
         } else {
-          console.warn(`[webhook] System admin ${userId} re-followed but has no resolvable workspace`);
+          log.warning("System admin re-followed but has no resolvable workspace", { userId });
           await sendWorkspaceSelectionPrompt(userId);
         }
       });
@@ -146,7 +149,7 @@ export function createLineWebhookRoute(
         }
       });
     } else if (!userStore.isActive(userId)) {
-      console.log(`[webhook] Uninvited follow from ${userId}, ignoring`);
+      log.info("Uninvited follow, ignoring", { userId });
     }
   }
 
@@ -164,13 +167,12 @@ export function createLineWebhookRoute(
     userId: string,
   ): void {
     if (!userStore.isActive(userId)) {
-      console.log(`[webhook] Ignoring message from inactive user ${userId}`);
+      log.debug("Ignoring message from inactive user", { userId });
       return;
     }
-    console.log(`[webhook] Processing text message from ${userId}: "${extractTextMessage(event).slice(0, 50)}"`);
-
 
     const text = extractTextMessage(event);
+    log.debug("Processing text message", { userId, preview: text.slice(0, 50) });
 
     // 시스템 관리자: 워크스페이스 생성 명령
     const createWsMatch = /^create-workspace\s+(.+?)\s+(U[0-9a-f]{32})$/i.exec(text);
@@ -253,7 +255,6 @@ export function createLineWebhookRoute(
       return;
     }
 
-    console.log(`[webhook] Enqueuing agent for ${userId}`);
     enqueueAgent(text, userId);
   }
 
@@ -295,7 +296,7 @@ export function createLineWebhookRoute(
             await executor(resolved.toolInput);
           } catch (e) {
             executionError = toErrorMessage(e);
-            console.error(`[approvals] Execution after approval failed:`, e);
+            log.error("Execution after approval failed", { actionId, tool: resolved.toolName, error: toErrorMessage(e) });
           }
         }
       }
@@ -341,6 +342,8 @@ export function createLineWebhookRoute(
     const userId = extractUserId(event);
     if (!userId) return;
 
+    log.debug("Routing event", { eventType: event.type, userId });
+
     if (isFollowEvent(event)) {
       handleFollow(event, userId);
     } else if (isUnfollowEvent(event)) {
@@ -372,9 +375,8 @@ export function createLineWebhookRoute(
     }
 
     const events = parseLineEvents(body);
-    console.log(`[webhook] Received ${events.length} event(s)`);
+    log.debug("Received webhook events", { count: events.length });
     for (const event of events) {
-      console.log(`[webhook] Event type=${event.type}, userId=${extractUserId(event)}`);
       routeEvent(event);
     }
 
