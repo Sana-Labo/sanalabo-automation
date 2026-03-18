@@ -81,11 +81,9 @@ interface LineTextMessage {
 // --- 사용자 ---
 
 export type UserStatus = "invited" | "active" | "inactive";
-export type SystemRole = "admin" | "user";
 
 export interface UserRecord {
   status: UserStatus;
-  systemRole: SystemRole;
   invitedBy: string;
   invitedAt: string;
   activatedAt?: string;
@@ -93,12 +91,15 @@ export interface UserRecord {
   defaultWorkspaceId?: string;
 }
 
+// --- 역할 ---
+
+/** 통합 역할 계층: admin > owner > member */
+export type Role = "admin" | "owner" | "member";
+
 // --- 워크스페이스 ---
 
-export type WorkspaceRole = "owner" | "member";
-
 export interface WorkspaceMembership {
-  role: WorkspaceRole;
+  role: Role;
   joinedAt: string;
   invitedBy: string;
 }
@@ -137,7 +138,7 @@ export interface ToolContext {
   userId: string;
   /** undefined: System Admin without workspace */
   workspaceId?: string;
-  role: WorkspaceRole | "admin";
+  role: Role;
 }
 
 export interface AgentDependencies {
@@ -167,6 +168,6 @@ export interface WorkspaceStore {
   inviteMember(workspaceId: string, userId: string, invitedBy: string): Promise<void>;
   removeMember(workspaceId: string, userId: string): Promise<void>;
   resolveWorkspace(userId: string, defaultWorkspaceId?: string): WorkspaceRecord | undefined;
-  getUserRole(workspaceId: string, userId: string): WorkspaceRole | undefined;
+  getUserRole(workspaceId: string, userId: string): Role | undefined;
   setGwsAuthenticated(workspaceId: string, authenticated: boolean): Promise<void>;
 }

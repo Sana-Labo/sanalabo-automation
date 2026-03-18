@@ -1,4 +1,4 @@
-import type { WorkspaceRole } from "../../types.js";
+import type { Role } from "../../types.js";
 
 // GWS 상태를 변경하며 멤버 사용 시 오너 승인이 필요한 도구.
 // 새 도구 추가 시 _create, _update, _delete 접미사를 가진 도구를 포함할 것.
@@ -13,7 +13,7 @@ export function isWriteTool(toolName: string): boolean {
 
 export function canExecute(
   toolName: string,
-  role: WorkspaceRole | "admin",
+  role: Role,
 ): "allow" | "needs_approval" {
   if (role === "owner" || role === "admin") return "allow";
   return isWriteTool(toolName) ? "needs_approval" : "allow";

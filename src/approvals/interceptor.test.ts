@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { interceptWrite } from "./interceptor.js";
-import type { PendingAction, PendingActionStore, ToolContext } from "../types.js";
+import type { PendingAction, PendingActionStore, Role, ToolContext } from "../types.js";
 
 const mockStore: PendingActionStore = {
   create: async (input) => ({
@@ -21,7 +21,7 @@ const mockStore: PendingActionStore = {
   purgeResolved: async () => 0,
 };
 
-function makeContext(role: "owner" | "member" | "admin"): ToolContext {
+function makeContext(role: Role): ToolContext {
   if (role === "admin") {
     return { userId: "U_admin_123", role: "admin" };
   }
