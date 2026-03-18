@@ -91,6 +91,11 @@ export function createLineWebhookRoute(
     return { userId, workspaceId: workspace.id, role };
   }
 
+  /** System Admin 전용: 워크스페이스 컨텍스트 또는 admin 폴백 */
+  function resolveContextOrAdmin(userId: string): ToolContext {
+    return resolveContext(userId) ?? { userId, role: "admin" };
+  }
+
   async function sendWorkspaceSelectionPrompt(userId: string): Promise<void> {
     const workspaces = deps.workspaceStore.getByMember(userId);
     if (workspaces.length === 0) return;
@@ -105,6 +110,11 @@ export function createLineWebhookRoute(
     enqueue(userId, async () => {
       const context = resolveContext(userId);
       if (!context) {
+        // System Admin + 워크스페이스 미소속 → admin 컨텍스트로 에이전트 실행
+        if (userStore.isSystemAdmin(userId)) {
+          await runAgentLoop(prompt, deps, { userId, role: "admin" });
+          return;
+        }
         await sendWorkspaceSelectionPrompt(userId);
         return;
       }
@@ -122,17 +132,11 @@ export function createLineWebhookRoute(
     if (userStore.isSystemAdmin(userId) && !userStore.isActive(userId)) {
       enqueue(userId, async () => {
         await userStore.activate(userId);
-        const context = resolveContext(userId);
-        if (context) {
-          await runAgentLoop(
-            "An admin user has re-joined. Send a welcome-back message via LINE.",
-            deps,
-            context,
-          );
-        } else {
-          log.warning("System admin re-followed but has no resolvable workspace", { userId });
-          await sendWorkspaceSelectionPrompt(userId);
-        }
+        await runAgentLoop(
+          "An admin user has re-joined. Send a welcome-back message via LINE.",
+          deps,
+          resolveContextOrAdmin(userId),
+        );
       });
     } else if (userStore.isInvited(userId)) {
       enqueue(userId, async () => {
@@ -199,13 +203,11 @@ export function createLineWebhookRoute(
         if (ownerWs.length === 0) {
           if (userStore.isSystemAdmin(userId)) {
             await userStore.invite(targetId, userId);
-            if (context) {
-              await runAgentLoop(
-                `User ${targetId} has been invited. Report the invitation completion via LINE.`,
-                deps,
-                context,
-              );
-            }
+            await runAgentLoop(
+              `User ${targetId} has been invited. Report the invitation completion via LINE.`,
+              deps,
+              context ?? { userId, role: "admin" },
+            );
           }
           return;
         }
@@ -270,6 +272,9 @@ export function createLineWebhookRoute(
       return;
     }
 
+    // 승인은 워크스페이스 오너만 가능 — System Admin이라도 불가.
+    // 이유: PendingAction은 오너의 Google 데이터에 대한 write이므로,
+    // 해당 데이터의 소유자(오너)만이 승인 권한을 가짐.
     const role = deps.workspaceStore.getUserRole(pendingAction.workspaceId, userId);
     if (role !== "owner") {
       await sendText(userId, "Only the workspace owner can perform this operation.");

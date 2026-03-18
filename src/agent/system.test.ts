@@ -105,4 +105,65 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("no_action");
     expect(prompt).toContain("Response Rules");
   });
+
+  describe("admin role (no workspace)", () => {
+    test("admin prompt does not contain GWS-related content", () => {
+      const prompt = buildSystemPrompt(
+        makeContext({ role: "admin", workspaceId: undefined }),
+        undefined,
+      );
+      expect(prompt).not.toContain("Google Workspace");
+      expect(prompt).not.toContain("Workspace");
+      expect(prompt).not.toContain("Gmail");
+      expect(prompt).not.toContain("Calendar");
+      expect(prompt).not.toContain("Safety Rules");
+    });
+
+    test("admin prompt contains response rules and message format", () => {
+      const prompt = buildSystemPrompt(
+        makeContext({ role: "admin", workspaceId: undefined }),
+        undefined,
+      );
+      expect(prompt).toContain("push_text_message");
+      expect(prompt).toContain("no_action");
+      expect(prompt).toContain("Response Rules");
+      expect(prompt).toContain("2000 characters");
+    });
+
+    test("admin prompt contains userId", () => {
+      const prompt = buildSystemPrompt(
+        makeContext({ role: "admin", userId: "Uadmin9999", workspaceId: undefined }),
+        undefined,
+      );
+      expect(prompt).toContain("Uadmin9999");
+    });
+
+    test("admin prompt contains current time", () => {
+      const prompt = buildSystemPrompt(
+        makeContext({ role: "admin", workspaceId: undefined }),
+        undefined,
+      );
+      expect(prompt).toContain("JST");
+    });
+
+    test("admin prompt contains language rules", () => {
+      const prompt = buildSystemPrompt(
+        makeContext({ role: "admin", workspaceId: undefined }),
+        undefined,
+      );
+      expect(prompt).toContain("Language");
+    });
+  });
+
+  describe("admin role with workspace (fallthrough to GWS prompt)", () => {
+    test("admin + workspaceId → GWS prompt with Safety Rules", () => {
+      const prompt = buildSystemPrompt(
+        makeContext({ role: "admin", workspaceId: "ws-001" }),
+        makeWorkspace(),
+      );
+      expect(prompt).toContain("Google Workspace");
+      expect(prompt).toContain("Safety Rules");
+      expect(prompt).toContain("Never send emails");
+    });
+  });
 });

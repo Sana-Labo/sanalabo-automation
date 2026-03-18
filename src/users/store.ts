@@ -56,7 +56,6 @@ export class JsonUserStore extends JsonFileStore<UserRecord> implements UserStor
 
     this.data[userId] = {
       status: "invited",
-      systemRole: "user",
       invitedBy,
       invitedAt: new Date().toISOString(),
     };
@@ -91,13 +90,10 @@ export class JsonUserStore extends JsonFileStore<UserRecord> implements UserStor
     if (!existing || existing.status !== "active") {
       this.data[userId] = {
         status: "active",
-        systemRole: "admin",
         invitedBy: "system",
         invitedAt: new Date().toISOString(),
         activatedAt: new Date().toISOString(),
       };
-    } else {
-      existing.systemRole = "admin";
     }
   }
 

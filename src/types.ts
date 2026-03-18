@@ -81,11 +81,9 @@ interface LineTextMessage {
 // --- 사용자 ---
 
 export type UserStatus = "invited" | "active" | "inactive";
-export type SystemRole = "admin" | "user";
 
 export interface UserRecord {
   status: UserStatus;
-  systemRole: SystemRole;
   invitedBy: string;
   invitedAt: string;
   activatedAt?: string;
@@ -93,9 +91,22 @@ export interface UserRecord {
   defaultWorkspaceId?: string;
 }
 
-// --- 워크스페이스 ---
+// --- 역할 ---
+//
+// 2층 구조: WorkspaceRole ⊂ Role
+// - WorkspaceRole: 워크스페이스 내 역할. WorkspaceMembership에 영속 저장.
+//   "admin"이 저장되면 안 되므로 별도 타입으로 제한.
+// - Role: 에이전트 루프 진입 시 결정되는 런타임 권한.
+//   ToolContext.role과 canExecute() 등 접근 제어에 사용.
+//   System Admin(워크스페이스 미소속)은 "admin"으로 진입.
 
+/** 워크스페이스 내 역할 (영속 저장 대상) */
 export type WorkspaceRole = "owner" | "member";
+
+/** 통합 역할 계층: admin > owner > member (ToolContext, 접근 제어용) */
+export type Role = "admin" | WorkspaceRole;
+
+// --- 워크스페이스 ---
 
 export interface WorkspaceMembership {
   role: WorkspaceRole;
@@ -135,8 +146,9 @@ export interface PendingAction {
 
 export interface ToolContext {
   userId: string;
-  workspaceId: string;
-  role: WorkspaceRole;
+  /** undefined: System Admin without workspace */
+  workspaceId?: string;
+  role: Role;
 }
 
 export interface AgentDependencies {

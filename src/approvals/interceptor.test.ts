@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { interceptWrite } from "./interceptor.js";
-import type { PendingAction, PendingActionStore, ToolContext } from "../types.js";
+import type { PendingAction, PendingActionStore, Role, ToolContext } from "../types.js";
 
 const mockStore: PendingActionStore = {
   create: async (input) => ({
@@ -21,7 +21,10 @@ const mockStore: PendingActionStore = {
   purgeResolved: async () => 0,
 };
 
-function makeContext(role: "owner" | "member"): ToolContext {
+function makeContext(role: Role): ToolContext {
+  if (role === "admin") {
+    return { userId: "U_admin_123", role: "admin" };
+  }
   return {
     userId: "U_user_123",
     workspaceId: "ws_001",
@@ -105,12 +108,34 @@ describe("interceptWrite", () => {
     expect(result.intercepted).toBe(true);
     if (result.intercepted) {
       const pa = result.pendingAction;
-      expect(pa.workspaceId).toBe(context.workspaceId);
+      expect(pa.workspaceId).toBe(context.workspaceId!);
       expect(pa.requesterId).toBe(context.userId);
       expect(pa.toolName).toBe("gmail_create_draft");
       expect(pa.toolInput).toEqual(toolInput);
       expect(pa.requestContext).toBe(requestContext);
       expect(pa.id).toBe("test-id");
     }
+  });
+
+  test("admin + read tool → not intercepted", async () => {
+    const result = await interceptWrite(
+      "gmail_list",
+      { query: "is:unread" },
+      makeContext("admin"),
+      mockStore,
+      "Show me email list",
+    );
+    expect(result.intercepted).toBe(false);
+  });
+
+  test("admin + write tool → not intercepted (admin is always allowed)", async () => {
+    const result = await interceptWrite(
+      "gmail_create_draft",
+      { to: "a@b.com", subject: "hi", body: "hello" },
+      makeContext("admin"),
+      mockStore,
+      "Create email draft",
+    );
+    expect(result.intercepted).toBe(false);
   });
 });
