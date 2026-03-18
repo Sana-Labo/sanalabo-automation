@@ -206,7 +206,7 @@ export function createLineWebhookRoute(
             await runAgentLoop(
               `User ${targetId} has been invited. Report the invitation completion via LINE.`,
               deps,
-              resolveContextOrAdmin(userId),
+              context ?? { userId, role: "admin" },
             );
           }
           return;
