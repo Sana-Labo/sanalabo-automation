@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
+    "@line/line-bot-mcp-server": "^0.4.2",
     "@logtape/logtape": "^2.0.4",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "croner": "^10.0.1",

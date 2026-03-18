@@ -1,8 +1,13 @@
 FROM oven/bun:1-alpine
 
-# Node.js (npx fallback for LINE MCP Server) + GWS CLI (Google Workspace operations)
-RUN apk add --no-cache nodejs npm \
+# Chromium (Puppeteer용) + Node.js (MCP Server 실행) + GWS CLI
+RUN apk add --no-cache \
+    nodejs npm \
+    chromium nss fontconfig font-noto-cjk \
     && npm install -g @googleworkspace/cli
+
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+ENV PUPPETEER_SKIP_DOWNLOAD=true
 
 WORKDIR /app
 

@@ -3,7 +3,6 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { config } from "../config.js";
 import { MCP_ALLOWED_TOOLS, type ToolExecutor } from "../types.js";
-import { toErrorMessage } from "../utils/error.js";
 import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("mcp");
@@ -15,35 +14,40 @@ export interface McpConnection {
   getStatus?: () => unknown;
 }
 
-const MCP_PACKAGE = "@line/line-bot-mcp-server";
-
-interface McpRuntime {
-  command: string;
-  args: string[];
-}
-
-const RUNTIMES: McpRuntime[] = [
-  { command: "bunx", args: [MCP_PACKAGE] },
-  { command: "npx", args: ["-y", MCP_PACKAGE] },
-];
+/** LINE MCP Server 엔트리 포인트 (로컬 의존성, 절대 경로로 CWD 비의존) */
+const MCP_ENTRY = new URL(
+  "../../node_modules/@line/line-bot-mcp-server/dist/index.js",
+  import.meta.url,
+).pathname;
 
 export function buildMcpEnv(): Record<string, string> {
-  return {
+  const env: Record<string, string> = {
     CHANNEL_ACCESS_TOKEN: config.lineChannelAccessToken,
     DESTINATION_USER_ID: config.systemAdminIds[0] ?? "",
-    PUPPETEER_SKIP_DOWNLOAD: "true",
     PATH: process.env["PATH"] ?? "",
     HOME: process.env["HOME"] ?? "",
   };
+
+  // Docker: 시스템 chromium 사용, 로컬: Puppeteer 기본값
+  const execPath = process.env["PUPPETEER_EXECUTABLE_PATH"];
+  if (execPath) {
+    env["PUPPETEER_EXECUTABLE_PATH"] = execPath;
+    env["PUPPETEER_SKIP_DOWNLOAD"] = "true";
+  }
+
+  return env;
 }
 
-async function tryConnect(
-  runtime: McpRuntime,
-  env: Record<string, string>,
-): Promise<Client> {
+/**
+ * LINE MCP Server에 연결하는 MCP 클라이언트 생성
+ *
+ * 로컬 의존성에서 직접 node로 기동. npx/bunx 폴백 불필요 —
+ * node_modules에 확정적으로 존재하며, 실패는 패키지 자체의 문제.
+ */
+export async function connectMcpClient(env: Record<string, string>): Promise<Client> {
   const transport = new StdioClientTransport({
-    command: runtime.command,
-    args: runtime.args,
+    command: "node",
+    args: [MCP_ENTRY],
     env,
   });
 
@@ -52,28 +56,10 @@ async function tryConnect(
     version: "1.0.0",
   });
 
+  log.info("Connecting to LINE MCP Server", { entry: MCP_ENTRY });
   await client.connect(transport);
+  log.info("Connected to LINE MCP Server");
   return client;
-}
-
-export async function connectWithFallback(env: Record<string, string>): Promise<Client> {
-  let lastError: unknown;
-
-  for (const runtime of RUNTIMES) {
-    try {
-      log.info("Trying runtime", { command: runtime.command, args: runtime.args.join(" ") });
-      const client = await tryConnect(runtime, env);
-      log.info("Connected", { command: runtime.command });
-      return client;
-    } catch (e) {
-      lastError = e;
-      log.warning("Runtime failed", { command: runtime.command, error: toErrorMessage(e) });
-    }
-  }
-
-  throw new Error(
-    `Failed to connect to LINE MCP Server: ${toErrorMessage(lastError)}`,
-  );
 }
 
 export function extractMcpText(result: Awaited<ReturnType<Client["callTool"]>>): string {
@@ -108,66 +94,12 @@ export function mapMcpToAnthropicTools(
   });
 }
 
-export async function connectMcp(): Promise<McpConnection> {
-  const env = buildMcpEnv();
-
-  // 가변 클라이언트 참조 — 재연결 시 교체
-  let currentClient = await connectWithFallback(env);
-
-  // 동시 재연결 시도를 단일 Promise로 병합
-  let reconnecting: Promise<void> | null = null;
-
-  async function reconnect(): Promise<void> {
-    if (reconnecting) return reconnecting;
-
-    reconnecting = (async () => {
-      log.info("Reconnecting to LINE MCP Server...");
-      try {
-        await currentClient.close();
-      } catch {
-        // 기존 클라이언트가 이미 종료되었을 수 있음
-      }
-      currentClient = await connectWithFallback(env);
-      log.info("Reconnected successfully");
-    })();
-
-    try {
-      await reconnecting;
-    } finally {
-      reconnecting = null;
-    }
-  }
-
-  // 도구 목록은 최초 1회만 탐색 + 화이트리스트 필터링
-  const { tools: mcpTools } = await currentClient.listTools();
-  const filteredTools = mcpTools.filter(t => MCP_ALLOWED_TOOLS.has(t.name));
-  const tools = mapMcpToAnthropicTools(filteredTools);
-
-  // 자동 재연결 executor 구성: 1회 시도 → 실패 시 재연결 → 1회 재시도
-  const executors = new Map<string, ToolExecutor>();
-
-  for (const t of filteredTools) {
-    executors.set(t.name, async (input) => {
-      const attempt = () =>
-        currentClient
-          .callTool({ name: t.name, arguments: input })
-          .then(extractMcpText);
-
-      try {
-        return await attempt();
-      } catch (e) {
-        log.warning("Tool failed, reconnecting", { tool: t.name, error: toErrorMessage(e) });
-        await reconnect();
-        return await attempt();
-      }
-    });
-  }
-
-  return {
-    tools,
-    executors,
-    close: async () => {
-      await currentClient.close();
-    },
-  };
+/** MCP Server 도구 목록에서 화이트리스트 필터링 + Anthropic 형식 변환 */
+export type McpToolList = Awaited<ReturnType<Client["listTools"]>>["tools"];
+export function filterAndMapTools(mcpTools: McpToolList): {
+  filtered: McpToolList;
+  tools: Anthropic.Tool[];
+} {
+  const filtered = mcpTools.filter(t => MCP_ALLOWED_TOOLS.has(t.name));
+  return { filtered, tools: mapMcpToAnthropicTools(filtered) };
 }

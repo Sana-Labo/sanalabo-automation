@@ -1,8 +1,8 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { MCP_ALLOWED_TOOLS, type ToolExecutor } from "../types.js";
+import type { ToolExecutor } from "../types.js";
 import { toErrorMessage } from "../utils/error.js";
 import { createLogger } from "../utils/logger.js";
-import { buildMcpEnv, connectWithFallback, extractMcpText, mapMcpToAnthropicTools } from "./mcp.js";
+import { buildMcpEnv, connectMcpClient, extractMcpText, filterAndMapTools } from "./mcp.js";
 import type { McpConnection } from "./mcp.js";
 
 const log = createLogger("mcp-pool");
@@ -53,7 +53,7 @@ export async function connectMcpPool(
   const members: PoolMember[] = await Promise.all(
     Array.from({ length: cfg.size }, async (_, i) => {
       log.info("Connecting member", { memberId: i });
-      const client = await connectWithFallback(env);
+      const client = await connectMcpClient(env);
       log.info("Member connected", { memberId: i });
       return {
         id: i,
@@ -67,9 +67,8 @@ export async function connectMcpPool(
   );
 
   // 2. 첫 번째 멤버에서 도구 목록 탐색 + 화이트리스트 필터링
-  const { tools: mcpTools } = await members[0]!.client.listTools();
-  const filteredTools = mcpTools.filter(t => MCP_ALLOWED_TOOLS.has(t.name));
-  const tools = mapMcpToAnthropicTools(filteredTools);
+  const { tools: rawTools } = await members[0]!.client.listTools();
+  const { filtered, tools } = filterAndMapTools(rawTools);
 
   // 3. 멤버 선택: healthy 멤버 중 inflight가 가장 적은 멤버
   function selectMember(): PoolMember | undefined {
@@ -96,7 +95,7 @@ export async function connectMcpPool(
         // 기존 클라이언트가 이미 종료되었을 수 있음
       }
       try {
-        member.client = await connectWithFallback(env);
+        member.client = await connectMcpClient(env);
         member.state = "healthy";
         member.consecutiveFailures = 0;
         log.info("Member reconnected", { memberId: member.id });
@@ -184,7 +183,7 @@ export async function connectMcpPool(
 
   // 6. 풀 디스패치를 사용하여 executor 구성 (화이트리스트 도구만)
   const executors = new Map<string, ToolExecutor>();
-  for (const t of filteredTools) {
+  for (const t of filtered) {
     executors.set(t.name, (input) => dispatchCall(t.name, input));
   }
 
@@ -230,7 +229,7 @@ export async function connectMcpPool(
     log.info("All members closed");
   }
 
-  log.info("Pool ready", { poolSize: cfg.size, toolCount: filteredTools.length, totalAvailable: mcpTools.length });
+  log.info("Pool ready", { poolSize: cfg.size, toolCount: filtered.length, totalAvailable: rawTools.length });
 
   return { tools, executors, close: closePool, getStatus };
 }
