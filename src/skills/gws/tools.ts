@@ -36,7 +36,7 @@ export const gwsTools: Anthropic.Tool[] = [
   {
     name: "gmail_create_draft",
     description:
-      "Create a draft email in Gmail. This does NOT send the email — it only saves a draft.",
+      "Create a draft email in Gmail. This does NOT send the email — it only saves a draft. After creating, inform the user that the draft has been saved and they must send it from Gmail.",
     input_schema: {
       type: "object",
       properties: {
