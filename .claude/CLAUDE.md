@@ -214,6 +214,11 @@ src/
 - 모델 ID는 위 표의 값을 정확히 사용할 것
 - 새 모델 추가 시 이 파일을 먼저 갱신
 
+## 설명 언어 (Documentation Language)
+
+- 코드 주석, 커밋 메시지, PR 설명 등 모든 설명 텍스트: **한국어**(기본) > 영어
+- 코드 식별자(변수명, 함수명 등)와 기술 용어는 영어 유지
+
 ## Coding Conventions
 
 ### TypeScript
@@ -316,6 +321,7 @@ bun run src/workspaces/cli.ts status {id}
 - Conventional Commits: `<type>(<scope>): <description>`
 - **type**: `feat`, `fix`, `docs`, `chore`, `test`, `refactor`, `style`, `perf`, `ci`
 - **scope**: `agent`, `channel`, `skill`, `jobs`, `routes`, `config`, `workspaces`, `approvals`, `docker` 등 계층/모듈 단위
+- **언어**: 한국어(기본) > 영어 — `<description>`과 body 모두 해당
 - 1 태스크 = 1 커밋 (독립 cherry-pick 가능)
 - `git add -A`/`.` 금지 — 파일명 명시로 스테이징
 
