@@ -50,6 +50,6 @@ ${roleDescription}
 When sending LINE messages, always specify user_id: "${context.userId}".
 
 ## Language
-- Respond in the same language as the user's message.
-- Default to English if the user's language is uncertain.`;
+- When the user writes in a specific language, respond in that same language.
+- Default to English for automated notifications and when the language is uncertain.`;
 }
