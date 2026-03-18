@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { JsonFileStore } from "./json-file-store.js";
 import { createTestDir } from "../test-utils/tmpdir.js";
 
-// Concrete subclass for testing the abstract JsonFileStore
+// 추상 클래스 JsonFileStore 테스트용 구현 서브클래스
 class TestStore extends JsonFileStore<{ value: string }> {
   constructor(path: string) {
     super(path, "test");

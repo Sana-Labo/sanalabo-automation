@@ -132,8 +132,8 @@ describe("JsonPendingActionStore", () => {
   test("expireOlderThan: expires pending actions older than threshold", async () => {
     const action = await store.create(sampleAction);
 
-    // Intentional direct mutation: get() returns a live reference to internal data.
-    // This couples the test to that implementation detail but is the simplest way to backdate.
+    // 의도적 내부 상태 직접 변경: get()이 내부 데이터의 실참조를 반환함을 이용.
+    // 구현 세부사항에 의존하지만 날짜를 소급 설정하는 가장 간단한 방법.
     const actionRecord = store.get(action.id)!;
     actionRecord.createdAt = new Date(
       Date.now() - 25 * 60 * 60 * 1000,
@@ -158,7 +158,7 @@ describe("JsonPendingActionStore", () => {
     const action = await store.create(sampleAction);
     await store.approve(action.id, "Uowner01");
 
-    // Intentional direct mutation of internal state (see expireOlderThan test above)
+    // 내부 상태 직접 변경 (위 expireOlderThan 테스트 참조)
     const actionRecord = store.get(action.id)!;
     actionRecord.createdAt = new Date(
       Date.now() - 25 * 60 * 60 * 1000,
@@ -172,7 +172,7 @@ describe("JsonPendingActionStore", () => {
     const action = await store.create(sampleAction);
     await store.approve(action.id, "Uowner01");
 
-    // Intentional direct mutation of internal state (see expireOlderThan test above)
+    // 내부 상태 직접 변경 (위 expireOlderThan 테스트 참조)
     const actionRecord = store.get(action.id)!;
     actionRecord.resolvedAt = new Date(
       Date.now() - 8 * 24 * 60 * 60 * 1000,

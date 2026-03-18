@@ -110,10 +110,10 @@ export function mapMcpToAnthropicTools(
 export async function connectMcp(): Promise<McpConnection> {
   const env = buildMcpEnv();
 
-  // Mutable client reference — replaced on reconnect
+  // 가변 클라이언트 참조 — 재연결 시 교체
   let currentClient = await connectWithFallback(env);
 
-  // Coalesce concurrent reconnection attempts into a single promise
+  // 동시 재연결 시도를 단일 Promise로 병합
   let reconnecting: Promise<void> | null = null;
 
   async function reconnect(): Promise<void> {
@@ -124,7 +124,7 @@ export async function connectMcp(): Promise<McpConnection> {
       try {
         await currentClient.close();
       } catch {
-        // Old client may already be dead
+        // 기존 클라이언트가 이미 종료되었을 수 있음
       }
       currentClient = await connectWithFallback(env);
       console.log("[mcp] Reconnected successfully");
@@ -137,11 +137,11 @@ export async function connectMcp(): Promise<McpConnection> {
     }
   }
 
-  // Discover tools once — LINE MCP Server's tool list is stable
+  // 도구 목록은 최초 1회만 탐색 — LINE MCP Server의 도구 목록은 고정
   const { tools: mcpTools } = await currentClient.listTools();
   const tools = mapMcpToAnthropicTools(mcpTools);
 
-  // Build executors with auto-reconnect: try once, reconnect on failure, retry once
+  // 자동 재연결 executor 구성: 1회 시도 → 실패 시 재연결 → 1회 재시도
   const executors = new Map<string, ToolExecutor>();
 
   for (const t of mcpTools) {

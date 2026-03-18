@@ -3,11 +3,12 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 
 /**
- * Creates an isolated temp directory per test file with per-test subdirectories.
- * Usage:
- *   const td = createTestDir("my-store");
- *   beforeEach: td.path("data.json")   // returns unique sub-path per test
- *   afterEach:  td.cleanup()            // removes the entire temp dir
+ * 테스트 파일별 격리된 임시 디렉터리를 생성한다. 테스트별 서브디렉터리를 제공.
+ *
+ * @example
+ * const td = createTestDir("my-store");
+ * // beforeEach: td.path("data.json")   — 테스트별 고유 경로 반환
+ * // afterEach:  td.cleanup()            — 전체 임시 디렉터리 삭제
  */
 export function createTestDir(prefix: string) {
   const dir = join(tmpdir(), `${prefix}-${crypto.randomUUID()}`);

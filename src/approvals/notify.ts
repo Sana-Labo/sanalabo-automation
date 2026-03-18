@@ -10,7 +10,7 @@ export async function notifyOwnerOfPending(
 
   const executor = registry.executors.get("push_flex_message");
   if (!executor) {
-    // Fallback to text message
+    // Flex Message 불가 시 텍스트 메시지로 폴백
     const textExecutor = registry.executors.get("push_text_message");
     if (!textExecutor) return;
 

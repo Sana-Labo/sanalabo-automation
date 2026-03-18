@@ -38,7 +38,7 @@ export interface McpPoolStatus {
   totalInflight: number;
 }
 
-// Pool status is exposed via McpConnection.getStatus() — no module singleton
+// 풀 상태는 McpConnection.getStatus()로 노출 — 모듈 싱글턴 불필요
 
 export async function connectMcpPool(
   overrides?: Partial<McpPoolConfig>,
@@ -46,7 +46,7 @@ export async function connectMcpPool(
   const cfg = { ...DEFAULT_CONFIG, ...overrides };
   const env = buildMcpEnv();
 
-  // 1. Connect all pool members in parallel
+  // 1. 모든 풀 멤버를 병렬 연결
   const members: PoolMember[] = await Promise.all(
     Array.from({ length: cfg.size }, async (_, i) => {
       console.log(`[mcp-pool] Connecting member ${i}...`);
@@ -63,11 +63,11 @@ export async function connectMcpPool(
     }),
   );
 
-  // 2. Discover tools from the first member (all members serve the same tools)
+  // 2. 첫 번째 멤버에서 도구 목록 탐색 (모든 멤버가 동일 도구 제공)
   const { tools: mcpTools } = await members[0]!.client.listTools();
   const tools = mapMcpToAnthropicTools(mcpTools);
 
-  // 3. Member selection: least-inflight among healthy members
+  // 3. 멤버 선택: healthy 멤버 중 inflight가 가장 적은 멤버
   function selectMember(): PoolMember | undefined {
     let best: PoolMember | undefined;
     for (const m of members) {
@@ -79,7 +79,7 @@ export async function connectMcpPool(
     return best;
   }
 
-  // 4. Per-member isolated reconnection
+  // 4. 멤버별 격리 재연결
   function reconnectMember(member: PoolMember): Promise<void> {
     if (member.reconnecting) return member.reconnecting;
 
@@ -89,7 +89,7 @@ export async function connectMcpPool(
       try {
         await member.client.close();
       } catch {
-        // Old client may already be dead
+        // 기존 클라이언트가 이미 종료되었을 수 있음
       }
       try {
         member.client = await connectWithFallback(env);
@@ -109,7 +109,7 @@ export async function connectMcpPool(
     return member.reconnecting;
   }
 
-  // 5. Dispatch a tool call with retry across members
+  // 5. 멤버 간 재시도를 포함한 도구 호출 디스패치
   async function dispatchCall(
     toolName: string,
     input: Record<string, unknown>,
@@ -120,7 +120,7 @@ export async function connectMcpPool(
       const member = selectMember();
 
       if (!member) {
-        // All unhealthy — wait briefly for any reconnection
+        // 전원 unhealthy — 재연결 대기 후 재시도
         await new Promise((r) => setTimeout(r, 1000));
         const retryMember = selectMember();
         if (!retryMember) {
@@ -175,13 +175,13 @@ export async function connectMcpPool(
     }
   }
 
-  // 6. Build executors using pool dispatch
+  // 6. 풀 디스패치를 사용하여 executor 구성
   const executors = new Map<string, ToolExecutor>();
   for (const t of mcpTools) {
     executors.set(t.name, (input) => dispatchCall(t.name, input));
   }
 
-  // 7. Health check interval (parallel across members)
+  // 7. 헬스 체크 인터벌 (멤버 간 병렬 실행)
   const healthInterval = setInterval(async () => {
     await Promise.allSettled(
       members.map(async (member) => {
@@ -204,7 +204,7 @@ export async function connectMcpPool(
     );
   }, cfg.healthCheckIntervalMs);
 
-  // 8. Pool status accessor (returned via McpConnection.getStatus)
+  // 8. 풀 상태 접근자 (McpConnection.getStatus로 반환)
   function getStatus(): McpPoolStatus {
     return {
       members: members.map((m) => ({
@@ -216,7 +216,7 @@ export async function connectMcpPool(
     };
   }
 
-  // 9. Close all members
+  // 9. 전체 멤버 종료
   async function closePool(): Promise<void> {
     clearInterval(healthInterval);
     await Promise.allSettled(members.map((m) => m.client.close()));

@@ -34,7 +34,7 @@ export async function runAgentLoop(
   const workspace = deps.workspaceStore.get(context.workspaceId);
   const systemPrompt = buildSystemPrompt(context, workspace);
 
-  // Build per-request executors: base registry + workspace-specific GWS executors
+  // 요청별 executor 구성: 기본 레지스트리 + 워크스페이스별 GWS executor
   const executors = new Map(deps.registry.executors);
   if (workspace) {
     const gwsExecs = getGwsExecutors(workspace.id, workspace.gwsConfigDir);
@@ -79,7 +79,7 @@ export async function runAgentLoop(
         toolCalls++;
         const toolInput = block.input as Record<string, unknown>;
 
-        // Write interception for non-owner members
+        // 비오너 멤버의 write 도구 가로채기
         const interception = await interceptWrite(
           block.name,
           toolInput,
@@ -89,7 +89,7 @@ export async function runAgentLoop(
         );
 
         if (interception.intercepted) {
-          // Notify owner asynchronously (W8: log failures instead of silent drop)
+          // 비동기로 오너에게 통지 (실패 시 로그 기록, silent drop 방지)
           notifyOwnerOfPending(
             interception.pendingAction,
             deps.registry,
@@ -117,7 +117,7 @@ export async function runAgentLoop(
         }
 
         try {
-          // Belt-and-suspenders: enforce user_id for LINE push tools
+          // 이중 안전장치: LINE push 도구의 user_id를 코드에서 강제 주입
           if (block.name.startsWith(LINE_PUSH_PREFIX)) {
             toolInput.user_id = context.userId;
           }
