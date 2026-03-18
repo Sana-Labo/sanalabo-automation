@@ -2,7 +2,7 @@ import { describe, test, expect } from "bun:test";
 import { infraToolDefs, infraTools } from "./infra-tools.js";
 import type { ToolContext } from "../types.js";
 
-// --- Fixtures ---
+// --- 픽스처 ---
 
 function makeContext(overrides?: Partial<ToolContext>): ToolContext {
   return {
@@ -13,7 +13,7 @@ function makeContext(overrides?: Partial<ToolContext>): ToolContext {
   };
 }
 
-// --- Tests ---
+// --- 테스트 ---
 
 describe("infraTools registry", () => {
   test("infraTools contains no_action", () => {

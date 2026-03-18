@@ -1,7 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import type { ToolContext } from "../types.js";
 
-// --- Types ---
+// --- 타입 ---
 
 /** 인프라 도구 핸들러가 루프에 반환하는 시그널 */
 export interface InfraToolSignal {
@@ -27,19 +27,19 @@ export interface InfraToolEntry {
   handler: InfraToolHandler;
 }
 
-// --- Entries ---
+// --- 엔트리 ---
 
 const noAction: InfraToolEntry = {
   def: {
     name: "no_action",
     description:
-      "報告すべき内容がない場合に呼び出してください。このツールを呼ぶと、ユーザーへのメッセージ送信なしでタスクを終了します。",
+      "Call this tool when there is nothing to report. Calling this tool ends the task without sending any message to the user.",
     input_schema: {
       type: "object" as const,
       properties: {
         reason: {
           type: "string",
-          description: "通知不要の理由（ログ用）",
+          description: "Reason for no notification (for logging)",
         },
       },
       required: ["reason"],
@@ -57,7 +57,7 @@ const noAction: InfraToolEntry = {
   },
 };
 
-// --- Registry ---
+// --- 레지스트리 ---
 
 const entries: InfraToolEntry[] = [noAction];
 

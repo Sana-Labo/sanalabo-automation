@@ -151,7 +151,7 @@ export async function runAgentLoop(
           }
 
           const result = await executor(toolInput);
-          // Set only on success — if push fails, ensureDelivery fallback may retry
+          // push 성공 시에만 설정 — 실패 시 ensureDelivery 폴백이 재시도할 수 있음
           if (isLinePush) {
             delivery = "pushed";
           }
@@ -179,7 +179,7 @@ export async function runAgentLoop(
   await ensureDelivery(text);
   return { text, toolCalls };
 
-  /** Send response via LINE if the agent did not push itself */
+  /** 에이전트가 직접 push하지 않은 경우 LINE으로 응답 전송 */
   async function ensureDelivery(text: string): Promise<void> {
     if (delivery !== "pending" || !text) return;
     const exec = executors.get(LINE_PUSH_TEXT_TOOL);
