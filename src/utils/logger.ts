@@ -2,6 +2,7 @@ import {
   configure,
   getConsoleSink,
   getLogger,
+  getTextFormatter,
   isLogLevel,
   type LogLevel,
   type LogRecord,
@@ -10,6 +11,24 @@ import {
 import type { Logger } from "@logtape/logtape";
 
 const ROOT_CATEGORY = "sanalabo-automation";
+const baseFormatter = getTextFormatter();
+
+/**
+ * 기본 텍스트 포매터 출력에 구조화 속성을 `key=value` 형태로 추가한다.
+ *
+ * `getConsoleSink()`의 기본 포매터는 메시지 템플릿만 렌더링하고
+ * `record.properties`를 출력하지 않으므로, 디버깅에 필요한 에러 상세 등이 누락된다.
+ */
+function formatWithProperties(record: LogRecord): string {
+  const base = baseFormatter(record);
+  const keys = Object.keys(record.properties);
+  if (keys.length === 0) return base;
+  const pairs = keys.map((k) => {
+    const v = record.properties[k];
+    return `${k}=${typeof v === "string" ? v : JSON.stringify(v)}`;
+  }).join(" ");
+  return `${base} ${pairs}`;
+}
 
 /**
  * 모듈별 로거를 생성한다.
@@ -45,7 +64,7 @@ export async function configureLogging(options?: LoggingOptions): Promise<void> 
 
   const sinks: Record<string, Sink> = options?.testSink
     ? { console: options.testSink }
-    : { console: getConsoleSink() };
+    : { console: getConsoleSink({ formatter: formatWithProperties }) };
 
   await configure({
     sinks,
