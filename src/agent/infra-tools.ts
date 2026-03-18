@@ -9,8 +9,8 @@ export interface InfraToolSignal {
   toolResult: string;
   /** true면 루프 즉시 종료 */
   exitLoop?: boolean;
-  /** exitLoop 시 AgentResult.text */
-  exitText?: string;
+  /** exitLoop 시 AgentResult.text (exitLoop: true일 때 필수) */
+  exitText: string;
   /** delivery 상태 갱신 (ensureDelivery 스킵용) */
   delivery?: "pushed" | "no_action";
 }
