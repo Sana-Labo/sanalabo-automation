@@ -2,10 +2,6 @@ import type Anthropic from "@anthropic-ai/sdk";
 
 // --- 도구 시스템 ---
 
-/** LINE push 도구명 — executor 조회 및 폴백 전송에 사용 */
-export const LINE_PUSH_TEXT_TOOL = "push_text_message";
-export const LINE_PUSH_FLEX_TOOL = "push_flex_message";
-
 export type ToolExecutor = (
   input: Record<string, unknown>,
 ) => Promise<string>;

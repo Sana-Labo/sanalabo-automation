@@ -32,7 +32,7 @@ export const eveningSummary = createJob(
   "今日の活動をまとめて、明日の予定と一緒にLINEで送って",
 );
 
-// urgentMailCheck: per-user timestamp-based deduplication
+// urgentMailCheck: 사용자별 타임스탬프 기반 중복 방지
 const lastUrgentCheckMap = new Map<string, Date>();
 
 /** 오래된 체크포인트를 삭제하여 재활성화된 사용자가 공백 기간을 건너뛰지 않도록 한다. */
