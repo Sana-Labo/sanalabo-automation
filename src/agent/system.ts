@@ -16,7 +16,7 @@ export function buildSystemPrompt(
 
   const roleDescription = context.role === "owner"
     ? "You have full access to all Google Workspace operations."
-    : "You can freely perform read operations. Write operations (creating calendar events, drafting emails, etc.) require the owner's approval.";
+    : "You can freely perform read operations. Write operations (creating calendar events, drafting emails) require the owner's approval.";
 
   const workspaceName = workspace?.name ?? "Unknown";
 
@@ -31,7 +31,7 @@ Your role: ${context.role}
 ${roleDescription}
 
 ## Responsibilities
-- Check and manage Gmail, Google Calendar, and Google Drive
+- Check and manage Gmail and Google Calendar, and search Google Drive
 - Report results and summaries via LINE messages
 - Select the appropriate tools to answer user questions
 
