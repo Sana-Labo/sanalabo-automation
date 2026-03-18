@@ -1,4 +1,4 @@
-import type { PendingAction, ToolRegistry, WorkspaceStore } from "../types.js";
+import { LINE_PUSH_FLEX_TOOL, LINE_PUSH_TEXT_TOOL, type PendingAction, type ToolRegistry, type WorkspaceStore } from "../types.js";
 
 export async function notifyOwnerOfPending(
   action: PendingAction,
@@ -8,10 +8,10 @@ export async function notifyOwnerOfPending(
   const workspace = workspaceStore.get(action.workspaceId);
   if (!workspace) return;
 
-  const executor = registry.executors.get("push_flex_message");
+  const executor = registry.executors.get(LINE_PUSH_FLEX_TOOL);
   if (!executor) {
     // Flex Message 불가 시 텍스트 메시지로 폴백
-    const textExecutor = registry.executors.get("push_text_message");
+    const textExecutor = registry.executors.get(LINE_PUSH_TEXT_TOOL);
     if (!textExecutor) return;
 
     await textExecutor({
@@ -33,7 +33,7 @@ export async function notifyActionResult(
   targetUserId: string,
   executionError?: string,
 ): Promise<void> {
-  const executor = registry.executors.get("push_text_message");
+  const executor = registry.executors.get(LINE_PUSH_TEXT_TOOL);
   if (!executor) return;
 
   const statusText = action.status === "approved" ? "Approved" : "Rejected";

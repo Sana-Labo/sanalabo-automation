@@ -3,22 +3,25 @@ import { interceptWrite } from "../approvals/interceptor.js";
 import { notifyOwnerOfPending } from "../approvals/notify.js";
 import { config } from "../config.js";
 import { getGwsExecutors } from "../skills/gws/executor.js";
-import type {
-  AgentDependencies,
-  AgentResult,
-  ToolContext,
-  ToolExecutor,
-  ToolRegistry,
+import {
+  LINE_PUSH_FLEX_TOOL,
+  LINE_PUSH_TEXT_TOOL,
+  type AgentDependencies,
+  type AgentResult,
+  type ToolContext,
+  type ToolExecutor,
+  type ToolRegistry,
 } from "../types.js";
 import { toErrorMessage } from "../utils/error.js";
 import { createLogger } from "../utils/logger.js";
+import { infraToolDefs, infraTools } from "./infra-tools.js";
 import { buildSystemPrompt } from "./system.js";
 
 const log = createLogger("agent");
 
 const MAX_TURNS = 15;
 const MODEL = "claude-haiku-4-5-20251001";
-const LINE_PUSH_PREFIX = "push_";
+const LINE_PUSH_TOOLS = new Set([LINE_PUSH_TEXT_TOOL, LINE_PUSH_FLEX_TOOL]);
 
 const client = new Anthropic({ apiKey: config.anthropicApiKey });
 
@@ -46,46 +49,71 @@ export async function runAgentLoop(
     }
   }
 
-  log.debug("Agent loop started", { userId: context.userId, workspaceId: context.workspaceId, role: context.role });
-
   const messages: Anthropic.MessageParam[] = [
     { role: "user", content: userMessage },
   ];
 
   let turns = 0;
   let toolCalls = 0;
+  let delivery: "pending" | "pushed" | "no_action" = "pending";
+  const allTools = [...deps.registry.tools, ...infraToolDefs];
+
+  log.debug("Agent loop started", { userId: context.userId, workspaceId: context.workspaceId, role: context.role });
 
   while (turns < MAX_TURNS) {
     turns++;
     log.debug("Turn started", { turn: turns, maxTurns: MAX_TURNS });
 
-    log.debug("Claude API request", { model: MODEL, messageCount: messages.length, toolCount: deps.registry.tools.length });
+    log.debug("Claude API request", { model: MODEL, messageCount: messages.length, toolCount: allTools.length });
     const response = await client.messages.create({
       model: MODEL,
       max_tokens: 4096,
       system: systemPrompt,
-      tools: deps.registry.tools,
+      tools: allTools,
       messages,
     });
 
     log.debug("Claude API response", { stopReason: response.stop_reason, contentBlocks: response.content.length });
 
     if (response.stop_reason === "max_tokens") {
-      const text = extractText(response.content);
-      return { text: text || "The response was too long and has been truncated.", toolCalls };
+      const text = extractText(response.content) || "The response was too long and has been truncated.";
+      await ensureDelivery(text);
+      return { text, toolCalls };
     }
 
     if (response.stop_reason !== "tool_use") {
+      const text = extractText(response.content);
+      await ensureDelivery(text);
       log.debug("Agent loop completed", { turns, toolCalls });
-      return { text: extractText(response.content), toolCalls };
+      return { text, toolCalls };
     }
 
     const toolUseBlocks = response.content.filter(
       (b): b is Anthropic.ToolUseBlock => b.type === "tool_use",
     );
 
+    // 인프라 도구 선처리: 스킬 도구보다 먼저 디스패치
+    const handled = new Set<string>();
+    for (const block of toolUseBlocks) {
+      const entry = infraTools.get(block.name);
+      if (!entry) continue;
+      toolCalls++;
+      handled.add(block.id);
+      log.debug("Infra tool handled", { tool: block.name, toolUseId: block.id });
+      const signal = entry.handler(
+        block.input as Record<string, unknown>,
+        context,
+      );
+      if (signal.delivery) delivery = signal.delivery;
+      if (signal.exitLoop) {
+        return { text: signal.exitText, toolCalls };
+      }
+    }
+
+    // 이미 처리된 블록을 제외한 나머지 도구 실행
+    const remaining = toolUseBlocks.filter((b) => !handled.has(b.id));
     const toolResults = await Promise.all(
-      toolUseBlocks.map(async (block) => {
+      remaining.map(async (block) => {
         toolCalls++;
         log.debug("Tool call", { tool: block.name, toolUseId: block.id });
         const toolInput = block.input as Record<string, unknown>;
@@ -129,14 +157,18 @@ export async function runAgentLoop(
         }
 
         try {
+          const isLinePush = LINE_PUSH_TOOLS.has(block.name);
           // 이중 안전장치: LINE push 도구의 user_id를 코드에서 강제 주입
-          if (block.name.startsWith(LINE_PUSH_PREFIX)) {
+          if (isLinePush) {
             toolInput.user_id = context.userId;
             log.debug("Injected userId for LINE push", { tool: block.name, userId: context.userId });
           }
-
           const result = await executor(toolInput);
           log.debug("Tool result", { tool: block.name, resultLength: result.length, isError: false });
+          // push 성공 시에만 설정 — 실패 시 ensureDelivery 폴백이 재시도할 수 있음
+          if (isLinePush) {
+            delivery = "pushed";
+          }
           return {
             type: "tool_result" as const,
             tool_use_id: block.id,
@@ -158,10 +190,25 @@ export async function runAgentLoop(
     messages.push({ role: "user", content: toolResults });
   }
 
-  return {
-    text: "Tool call limit reached. Processing has been stopped.",
-    toolCalls,
-  };
+  const text = "Reached the maximum number of tool calls. Aborting.";
+  await ensureDelivery(text);
+  return { text, toolCalls };
+
+  /** 에이전트가 직접 push하지 않은 경우 LINE으로 응답 전송 */
+  async function ensureDelivery(text: string): Promise<void> {
+    if (delivery !== "pending" || !text) return;
+    const exec = executors.get(LINE_PUSH_TEXT_TOOL);
+    if (!exec) {
+      log.warning("push_text_message executor not found — response not delivered");
+      return;
+    }
+    try {
+      await exec({ user_id: context.userId, text });
+      delivery = "pushed";
+    } catch (e) {
+      log.error("ensureDelivery failed", { error: toErrorMessage(e) });
+    }
+  }
 }
 
 export function buildToolRegistry(
