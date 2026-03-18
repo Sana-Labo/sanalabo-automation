@@ -1,9 +1,9 @@
 import { mkdir } from "node:fs/promises";
 import { config } from "../config.js";
 import type {
-  Role,
   WorkspaceMembership,
   WorkspaceRecord,
+  WorkspaceRole,
   WorkspaceStore,
 } from "../types.js";
 import { JsonFileStore } from "../utils/json-file-store.js";
@@ -104,7 +104,7 @@ export class JsonWorkspaceStore extends JsonFileStore<WorkspaceRecord> implement
     return undefined;
   }
 
-  getUserRole(workspaceId: string, userId: string): Role | undefined {
+  getUserRole(workspaceId: string, userId: string): WorkspaceRole | undefined {
     const ws = this.data[workspaceId];
     if (!ws) return undefined;
     return ws.members[userId]?.role;

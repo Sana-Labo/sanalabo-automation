@@ -93,13 +93,16 @@ export interface UserRecord {
 
 // --- 역할 ---
 
-/** 통합 역할 계층: admin > owner > member */
-export type Role = "admin" | "owner" | "member";
+/** 워크스페이스 내 역할 (영속 저장 대상) */
+export type WorkspaceRole = "owner" | "member";
+
+/** 통합 역할 계층: admin > owner > member (ToolContext, 접근 제어용) */
+export type Role = "admin" | WorkspaceRole;
 
 // --- 워크스페이스 ---
 
 export interface WorkspaceMembership {
-  role: Role;
+  role: WorkspaceRole;
   joinedAt: string;
   invitedBy: string;
 }
@@ -168,6 +171,6 @@ export interface WorkspaceStore {
   inviteMember(workspaceId: string, userId: string, invitedBy: string): Promise<void>;
   removeMember(workspaceId: string, userId: string): Promise<void>;
   resolveWorkspace(userId: string, defaultWorkspaceId?: string): WorkspaceRecord | undefined;
-  getUserRole(workspaceId: string, userId: string): Role | undefined;
+  getUserRole(workspaceId: string, userId: string): WorkspaceRole | undefined;
   setGwsAuthenticated(workspaceId: string, authenticated: boolean): Promise<void>;
 }

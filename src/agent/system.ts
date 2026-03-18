@@ -42,7 +42,8 @@ export function buildSystemPrompt(
   ].join("\n\n");
 
   // System Admin (워크스페이스 미소속): 컨텍스트 정보 + 통신 규칙만
-  if (context.role === "admin") {
+  // workspaceId가 있으면 GWS 프롬프트(Safety Rules 포함)로 fallthrough
+  if (context.role === "admin" && !context.workspaceId) {
     return `You are a LINE assistant.
 
 ## Current Date & Time

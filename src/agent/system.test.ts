@@ -154,4 +154,16 @@ describe("buildSystemPrompt", () => {
       expect(prompt).toContain("Language");
     });
   });
+
+  describe("admin role with workspace (fallthrough to GWS prompt)", () => {
+    test("admin + workspaceId → GWS prompt with Safety Rules", () => {
+      const prompt = buildSystemPrompt(
+        makeContext({ role: "admin", workspaceId: "ws-001" }),
+        makeWorkspace(),
+      );
+      expect(prompt).toContain("Google Workspace");
+      expect(prompt).toContain("Safety Rules");
+      expect(prompt).toContain("Never send emails");
+    });
+  });
 });

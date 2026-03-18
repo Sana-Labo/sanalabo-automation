@@ -101,6 +101,12 @@ export class JsonUserStore extends JsonFileStore<UserRecord> implements UserStor
     for (const adminId of config.systemAdminIds) {
       this.ensureSystemAdmin(adminId);
     }
+    // v1.1 마이그레이션: 폐기된 systemRole 필드 제거
+    for (const record of Object.values(this.data)) {
+      if ("systemRole" in record) {
+        delete (record as Record<string, unknown>).systemRole;
+      }
+    }
     await this.save();
     this.log.info("System admins registered", { count: config.systemAdminIds.length });
   }

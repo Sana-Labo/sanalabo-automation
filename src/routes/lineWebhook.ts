@@ -112,7 +112,7 @@ export function createLineWebhookRoute(
       if (!context) {
         // System Admin + 워크스페이스 미소속 → admin 컨텍스트로 에이전트 실행
         if (userStore.isSystemAdmin(userId)) {
-          await runAgentLoop(prompt, deps, resolveContextOrAdmin(userId));
+          await runAgentLoop(prompt, deps, { userId, role: "admin" });
           return;
         }
         await sendWorkspaceSelectionPrompt(userId);
