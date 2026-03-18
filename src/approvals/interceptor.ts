@@ -21,7 +21,9 @@ export async function interceptWrite(
     return { intercepted: false };
   }
 
-  // 방어: workspaceId 없으면 PendingAction 생성 불가
+  // 방어: workspaceId 없으면 PendingAction 생성 불가.
+  // 現 코드에서는 도달 불가 (admin → canExecute "allow" → 위에서 return).
+  // 향후 리팩토링 시 안전장치.
   if (!context.workspaceId) {
     log.warning("interceptWrite: no workspaceId, skipping interception", { toolName, userId: context.userId });
     return { intercepted: false };

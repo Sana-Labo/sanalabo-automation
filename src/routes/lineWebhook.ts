@@ -272,6 +272,9 @@ export function createLineWebhookRoute(
       return;
     }
 
+    // 승인은 워크스페이스 오너만 가능 — System Admin이라도 불가.
+    // 이유: PendingAction은 오너의 Google 데이터에 대한 write이므로,
+    // 해당 데이터의 소유자(오너)만이 승인 권한을 가짐.
     const role = deps.workspaceStore.getUserRole(pendingAction.workspaceId, userId);
     if (role !== "owner") {
       await sendText(userId, "Only the workspace owner can perform this operation.");
