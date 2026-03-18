@@ -4,6 +4,7 @@ import { notifyOwnerOfPending } from "../approvals/notify.js";
 import { config } from "../config.js";
 import { getGwsExecutors } from "../skills/gws/executor.js";
 import {
+  LINE_PUSH_FLEX_TOOL,
   LINE_PUSH_TEXT_TOOL,
   type AgentDependencies,
   type AgentResult,
@@ -12,28 +13,12 @@ import {
   type ToolRegistry,
 } from "../types.js";
 import { toErrorMessage } from "../utils/error.js";
+import { infraToolDefs, infraTools } from "./infra-tools.js";
 import { buildSystemPrompt } from "./system.js";
 
 const MAX_TURNS = 15;
 const MODEL = "claude-haiku-4-5-20251001";
-const LINE_PUSH_PREFIX = "push_";
-const NO_ACTION_TOOL = "no_action";
-
-const noActionToolDef: Anthropic.Tool = {
-  name: NO_ACTION_TOOL,
-  description:
-    "報告すべき内容がない場合に呼び出してください。このツールを呼ぶと、ユーザーへのメッセージ送信なしでタスクを終了します。",
-  input_schema: {
-    type: "object" as const,
-    properties: {
-      reason: {
-        type: "string",
-        description: "通知不要の理由（ログ用）",
-      },
-    },
-    required: ["reason"],
-  },
-};
+const LINE_PUSH_TOOLS = new Set([LINE_PUSH_TEXT_TOOL, LINE_PUSH_FLEX_TOOL]);
 
 const client = new Anthropic({ apiKey: config.anthropicApiKey });
 
@@ -68,7 +53,7 @@ export async function runAgentLoop(
   let turns = 0;
   let toolCalls = 0;
   let delivery: "pending" | "pushed" | "no_action" = "pending";
-  const allTools = [...deps.registry.tools, noActionToolDef];
+  const allTools = [...deps.registry.tools, ...infraToolDefs];
 
   while (turns < MAX_TURNS) {
     turns++;
@@ -97,17 +82,24 @@ export async function runAgentLoop(
       (b): b is Anthropic.ToolUseBlock => b.type === "tool_use",
     );
 
-    // no_action: short-circuit before executing any other tools
-    const noActionBlock = toolUseBlocks.find((b) => b.name === NO_ACTION_TOOL);
-    if (noActionBlock) {
-      const reason = ((noActionBlock.input as Record<string, unknown>).reason as string) ?? "";
-      console.log(`[agent] no_action: ${reason}`);
-      delivery = "no_action";
-      return { text: "", toolCalls: toolCalls + 1 };
+    // Infra tools: dispatch before skill tools, filter from skill pass
+    const infraBlock = toolUseBlocks.find((b) => infraTools.has(b.name));
+    if (infraBlock) {
+      const entry = infraTools.get(infraBlock.name)!;
+      toolCalls++;
+      const signal = entry.handler(
+        infraBlock.input as Record<string, unknown>,
+        context,
+      );
+      if (signal.delivery) delivery = signal.delivery;
+      if (signal.exitLoop) {
+        return { text: signal.exitText ?? "", toolCalls };
+      }
     }
 
+    const skillBlocks = toolUseBlocks.filter((b) => !infraTools.has(b.name));
     const toolResults = await Promise.all(
-      toolUseBlocks.map(async (block) => {
+      skillBlocks.map(async (block) => {
         toolCalls++;
         const toolInput = block.input as Record<string, unknown>;
 
@@ -149,7 +141,7 @@ export async function runAgentLoop(
         }
 
         try {
-          const isLinePush = block.name.startsWith(LINE_PUSH_PREFIX);
+          const isLinePush = LINE_PUSH_TOOLS.has(block.name);
           // Belt-and-suspenders: enforce user_id for LINE push tools
           if (isLinePush) {
             toolInput.user_id = context.userId;
