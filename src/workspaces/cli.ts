@@ -1,11 +1,11 @@
 #!/usr/bin/env bun
 /**
- * Workspace provisioning CLI for system admins.
+ * 시스템 관리자용 워크스페이스 프로비저닝 CLI.
  *
- * Usage:
- *   bun run src/workspaces/cli.ts create <name> <ownerUserId>
- *   bun run src/workspaces/cli.ts list
- *   bun run src/workspaces/cli.ts status <workspaceId>
+ * @example
+ * bun run src/workspaces/cli.ts create <name> <ownerUserId>
+ * bun run src/workspaces/cli.ts list
+ * bun run src/workspaces/cli.ts status <workspaceId>
  */
 import { config } from "../config.js";
 import { JsonWorkspaceStore } from "./store.js";

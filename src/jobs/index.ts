@@ -35,7 +35,11 @@ export const eveningSummary = createJob(
 // urgentMailCheck: 사용자별 타임스탬프 기반 중복 방지
 const lastUrgentCheckMap = new Map<string, Date>();
 
-/** 오래된 체크포인트를 삭제하여 재활성화된 사용자가 공백 기간을 건너뛰지 않도록 한다. */
+/**
+ * 오래된 체크포인트를 삭제하여 재활성화된 사용자가 공백 기간을 건너뛰지 않도록 한다.
+ *
+ * @param userId - 체크포인트를 삭제할 사용자 ID
+ */
 export function clearUrgentCheckpoint(userId: string): void {
   lastUrgentCheckMap.delete(userId);
 }

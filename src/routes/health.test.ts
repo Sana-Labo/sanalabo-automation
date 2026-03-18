@@ -22,7 +22,7 @@ describe("GET /health", () => {
     const body = (await res.json()) as Record<string, unknown>;
 
     expect(typeof body.timestamp).toBe("string");
-    // ISO 8601: e.g. 2026-03-16T12:00:00.000Z
+    // ISO 8601 형식: 예) 2026-03-16T12:00:00.000Z
     const parsed = new Date(body.timestamp as string);
     expect(parsed.toISOString()).toBe(body.timestamp as string);
   });
