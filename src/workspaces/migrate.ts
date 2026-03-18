@@ -7,10 +7,6 @@ import type { UserStore } from "../users/store.js";
  * 첫 번째 시스템 관리자가 소유하는 "Default" 워크스페이스를 생성하고,
  * 기존 활성 사용자를 모두 멤버로 추가한다.
  * 워크스페이스가 이미 존재하면 무처리.
- *
- * @param userStore - 활성 사용자 목록 조회용 저장소
- * @param workspaceStore - 워크스페이스 생성 및 멤버 추가 대상 저장소
- * @param systemAdminIds - 시스템 관리자 ID 목록 (첫 번째가 오너)
  */
 export async function migrateFromFlatModel(
   userStore: UserStore,

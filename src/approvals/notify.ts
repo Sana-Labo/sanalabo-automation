@@ -1,4 +1,4 @@
-import { LINE_PUSH_FLEX_TOOL, LINE_PUSH_TEXT_TOOL, type PendingAction, type ToolRegistry, type WorkspaceStore } from "../types.js";
+import type { PendingAction, ToolRegistry, WorkspaceStore } from "../types.js";
 
 export async function notifyOwnerOfPending(
   action: PendingAction,
@@ -8,10 +8,10 @@ export async function notifyOwnerOfPending(
   const workspace = workspaceStore.get(action.workspaceId);
   if (!workspace) return;
 
-  const executor = registry.executors.get(LINE_PUSH_FLEX_TOOL);
+  const executor = registry.executors.get("push_flex_message");
   if (!executor) {
     // Flex Message 불가 시 텍스트 메시지로 폴백
-    const textExecutor = registry.executors.get(LINE_PUSH_TEXT_TOOL);
+    const textExecutor = registry.executors.get("push_text_message");
     if (!textExecutor) return;
 
     await textExecutor({
@@ -33,12 +33,12 @@ export async function notifyActionResult(
   targetUserId: string,
   executionError?: string,
 ): Promise<void> {
-  const executor = registry.executors.get(LINE_PUSH_TEXT_TOOL);
+  const executor = registry.executors.get("push_text_message");
   if (!executor) return;
 
-  const statusText = action.status === "approved" ? "Approved" : "Rejected";
-  const reason = action.rejectionReason ? `\nReason: ${action.rejectionReason}` : "";
-  const errorNote = executionError ? `\n⚠ Execution error: ${executionError}` : "";
+  const statusText = action.status === "approved" ? "承認" : "却下";
+  const reason = action.rejectionReason ? `\n理由: ${action.rejectionReason}` : "";
+  const errorNote = executionError ? `\n⚠ 実行エラー: ${executionError}` : "";
 
   await executor({
     user_id: targetUserId,
@@ -51,12 +51,12 @@ function buildApprovalText(action: PendingAction, workspaceName: string): string
     .map(([k, v]) => `  ${k}: ${String(v).slice(0, 100)}`)
     .join("\n");
 
-  return `[Approval Request] ${workspaceName}\n` +
-    `Requester: ${action.requesterId}\n` +
-    `Operation: ${action.toolName}\n` +
-    `Details:\n${inputSummary}\n` +
-    `Original request: ${action.requestContext}\n\n` +
-    `To approve, send "approve ${action.id}". To reject, send "reject ${action.id}".`;
+  return `[承認リクエスト] ${workspaceName}\n` +
+    `リクエスト元: ${action.requesterId}\n` +
+    `操作: ${action.toolName}\n` +
+    `内容:\n${inputSummary}\n` +
+    `元のリクエスト: ${action.requestContext}\n\n` +
+    `承認するにはメッセージで「approve ${action.id}」、却下するには「reject ${action.id}」と送信してください。`;
 }
 
 function buildApprovalFlexMessage(
@@ -69,7 +69,7 @@ function buildApprovalFlexMessage(
 
   return {
     type: "flex",
-    altText: `[Approval Request] ${action.toolName}`,
+    altText: `[承認リクエスト] ${action.toolName}`,
     contents: {
       type: "bubble",
       header: {
@@ -78,7 +78,7 @@ function buildApprovalFlexMessage(
         contents: [
           {
             type: "text",
-            text: `Approval Request — ${workspaceName}`,
+            text: `承認リクエスト — ${workspaceName}`,
             weight: "bold",
             size: "md",
           },
@@ -91,7 +91,7 @@ function buildApprovalFlexMessage(
         contents: [
           {
             type: "text",
-            text: `Operation: ${action.toolName}`,
+            text: `操作: ${action.toolName}`,
             size: "sm",
           },
           {
@@ -102,7 +102,7 @@ function buildApprovalFlexMessage(
           },
           {
             type: "text",
-            text: `Request: ${action.requestContext.slice(0, 200)}`,
+            text: `リクエスト: ${action.requestContext.slice(0, 200)}`,
             size: "xs",
             wrap: true,
             color: "#666666",
@@ -119,7 +119,7 @@ function buildApprovalFlexMessage(
             style: "primary",
             action: {
               type: "postback",
-              label: "Approve",
+              label: "承認",
               data: `action=approve&id=${action.id}`,
             },
           },
@@ -128,7 +128,7 @@ function buildApprovalFlexMessage(
             style: "secondary",
             action: {
               type: "postback",
-              label: "Reject",
+              label: "却下",
               data: `action=reject&id=${action.id}`,
             },
           },

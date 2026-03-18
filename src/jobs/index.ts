@@ -24,22 +24,18 @@ function createJob(label: string, prompt: string) {
 
 export const morningBriefing = createJob(
   "morning briefing",
-  "Check unread emails and today's schedule, then send a summary via LINE.",
+  "未読メールと今日の予定を確認して要約をLINEで送って",
 );
 
 export const eveningSummary = createJob(
   "evening summary",
-  "Summarize today's activities along with tomorrow's schedule, and send via LINE.",
+  "今日の活動をまとめて、明日の予定と一緒にLINEで送って",
 );
 
-// urgentMailCheck: 사용자별 타임스탬프 기반 중복 방지
+// urgentMailCheck: per-user timestamp-based deduplication
 const lastUrgentCheckMap = new Map<string, Date>();
 
-/**
- * 오래된 체크포인트를 삭제하여 재활성화된 사용자가 공백 기간을 건너뛰지 않도록 한다.
- *
- * @param userId - 체크포인트를 삭제할 사용자 ID
- */
+/** 오래된 체크포인트를 삭제하여 재활성화된 사용자가 공백 기간을 건너뛰지 않도록 한다. */
 export function clearUrgentCheckpoint(userId: string): void {
   lastUrgentCheckMap.delete(userId);
 }
@@ -49,7 +45,7 @@ export const urgentMailCheck = withJobLogging("urgent mail check", async (deps, 
   const checkpoint = new Date();
   const sinceEpoch = Math.floor(since.getTime() / 1000);
 
-  const prompt = `Check Gmail for important emails (query: is:important after:${sinceEpoch}). If any, notify the user via LINE. If none, use the no_action tool to exit.`;
+  const prompt = `Gmailで重要なメールを確認して(クエリ: is:important after:${sinceEpoch})。該当メールがあれば内容をLINEで通知して。なければ何もしないで。`;
 
   const result = await runAgentLoop(prompt, deps, context);
   // 성공 시에만 체크포인트를 전진 — 실패 시 동일 기간을 재시도
