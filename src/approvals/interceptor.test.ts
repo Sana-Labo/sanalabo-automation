@@ -36,7 +36,7 @@ describe("interceptWrite", () => {
       { query: "is:unread" },
       makeContext("owner"),
       mockStore,
-      "メール一覧を見せて",
+      "Show me email list",
     );
     expect(result.intercepted).toBe(false);
   });
@@ -47,7 +47,7 @@ describe("interceptWrite", () => {
       { to: "a@b.com", subject: "hi", body: "hello" },
       makeContext("owner"),
       mockStore,
-      "メール下書き作成",
+      "Create email draft",
     );
     expect(result.intercepted).toBe(false);
   });
@@ -58,7 +58,7 @@ describe("interceptWrite", () => {
       { query: "is:unread" },
       makeContext("member"),
       mockStore,
-      "メール一覧を見せて",
+      "Show me email list",
     );
     expect(result.intercepted).toBe(false);
   });
@@ -69,7 +69,7 @@ describe("interceptWrite", () => {
       { to: "a@b.com", subject: "hi", body: "hello" },
       makeContext("member"),
       mockStore,
-      "メール下書き作成",
+      "Create email draft",
     );
     expect(result.intercepted).toBe(true);
     if (result.intercepted) {
@@ -84,7 +84,7 @@ describe("interceptWrite", () => {
       { summary: "Meeting", start: "2026-01-01T09:00:00", end: "2026-01-01T10:00:00" },
       makeContext("member"),
       mockStore,
-      "予定を作成して",
+      "Create a schedule",
     );
     expect(result.intercepted).toBe(true);
   });
@@ -92,7 +92,7 @@ describe("interceptWrite", () => {
   test("pendingAction fields match the input context", async () => {
     const toolInput = { to: "x@y.com", subject: "test", body: "body" };
     const context = makeContext("member");
-    const requestContext = "テストリクエスト";
+    const requestContext = "Test request";
 
     const result = await interceptWrite(
       "gmail_create_draft",

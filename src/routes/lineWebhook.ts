@@ -90,7 +90,7 @@ export function createLineWebhookRoute(
   async function sendWorkspaceSelectionPrompt(userId: string): Promise<void> {
     const workspaces = deps.workspaceStore.getByMember(userId);
     if (workspaces.length === 0) return;
-    const list = workspaces.map((ws) => `・${ws.name} (${ws.id})`).join("\n");
+    const list = workspaces.map((ws) => `- ${ws.name} (${ws.id})`).join("\n");
     await sendText(
       userId,
       `You belong to multiple workspaces. Please set a default:\n${list}\n\nSend "use <ID>" to select one.`,
