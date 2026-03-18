@@ -6,6 +6,12 @@ import type Anthropic from "@anthropic-ai/sdk";
 export const LINE_PUSH_TEXT_TOOL = "push_text_message";
 export const LINE_PUSH_FLEX_TOOL = "push_flex_message";
 
+/** MCP Server에서 에이전트에 노출할 도구 화이트리스트 */
+export const MCP_ALLOWED_TOOLS = new Set([
+  LINE_PUSH_TEXT_TOOL,
+  LINE_PUSH_FLEX_TOOL,
+]);
+
 export type ToolExecutor = (
   input: Record<string, unknown>,
 ) => Promise<string>;

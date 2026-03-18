@@ -2,7 +2,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { config } from "../config.js";
-import type { ToolExecutor } from "../types.js";
+import { MCP_ALLOWED_TOOLS, type ToolExecutor } from "../types.js";
 import { toErrorMessage } from "../utils/error.js";
 import { createLogger } from "../utils/logger.js";
 
@@ -138,14 +138,15 @@ export async function connectMcp(): Promise<McpConnection> {
     }
   }
 
-  // 도구 목록은 최초 1회만 탐색 — LINE MCP Server의 도구 목록은 고정
+  // 도구 목록은 최초 1회만 탐색 + 화이트리스트 필터링
   const { tools: mcpTools } = await currentClient.listTools();
-  const tools = mapMcpToAnthropicTools(mcpTools);
+  const filteredTools = mcpTools.filter(t => MCP_ALLOWED_TOOLS.has(t.name));
+  const tools = mapMcpToAnthropicTools(filteredTools);
 
   // 자동 재연결 executor 구성: 1회 시도 → 실패 시 재연결 → 1회 재시도
   const executors = new Map<string, ToolExecutor>();
 
-  for (const t of mcpTools) {
+  for (const t of filteredTools) {
     executors.set(t.name, async (input) => {
       const attempt = () =>
         currentClient

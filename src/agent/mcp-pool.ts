@@ -1,5 +1,5 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import type { ToolExecutor } from "../types.js";
+import { MCP_ALLOWED_TOOLS, type ToolExecutor } from "../types.js";
 import { toErrorMessage } from "../utils/error.js";
 import { createLogger } from "../utils/logger.js";
 import { buildMcpEnv, connectWithFallback, extractMcpText, mapMcpToAnthropicTools } from "./mcp.js";
@@ -66,9 +66,10 @@ export async function connectMcpPool(
     }),
   );
 
-  // 2. 첫 번째 멤버에서 도구 목록 탐색 (모든 멤버가 동일 도구 제공)
+  // 2. 첫 번째 멤버에서 도구 목록 탐색 + 화이트리스트 필터링
   const { tools: mcpTools } = await members[0]!.client.listTools();
-  const tools = mapMcpToAnthropicTools(mcpTools);
+  const filteredTools = mcpTools.filter(t => MCP_ALLOWED_TOOLS.has(t.name));
+  const tools = mapMcpToAnthropicTools(filteredTools);
 
   // 3. 멤버 선택: healthy 멤버 중 inflight가 가장 적은 멤버
   function selectMember(): PoolMember | undefined {
@@ -181,9 +182,9 @@ export async function connectMcpPool(
     }
   }
 
-  // 6. 풀 디스패치를 사용하여 executor 구성
+  // 6. 풀 디스패치를 사용하여 executor 구성 (화이트리스트 도구만)
   const executors = new Map<string, ToolExecutor>();
-  for (const t of mcpTools) {
+  for (const t of filteredTools) {
     executors.set(t.name, (input) => dispatchCall(t.name, input));
   }
 
@@ -229,7 +230,7 @@ export async function connectMcpPool(
     log.info("All members closed");
   }
 
-  log.info("Pool ready", { poolSize: cfg.size, toolCount: tools.length });
+  log.info("Pool ready", { poolSize: cfg.size, toolCount: filteredTools.length, totalAvailable: mcpTools.length });
 
   return { tools, executors, close: closePool, getStatus };
 }
