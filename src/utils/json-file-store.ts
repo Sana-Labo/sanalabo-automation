@@ -1,5 +1,6 @@
 import { mkdir, rename } from "node:fs/promises";
 import { dirname } from "node:path";
+import { toErrorMessage } from "./error.js";
 import { createLogger, type Logger } from "./logger.js";
 
 /**
@@ -27,7 +28,7 @@ export abstract class JsonFileStore<T> {
         this.data = (await file.json()) as Record<string, T>;
       }
     } catch (e) {
-      this.log.error("Failed to load store", { error: String(e) });
+      this.log.error("Failed to load store", { error: toErrorMessage(e) });
       try {
         await rename(this.path, `${this.path}.corrupt.${Date.now()}`);
         this.log.warning("Corrupted file backed up");
@@ -50,7 +51,7 @@ export abstract class JsonFileStore<T> {
       await Bun.write(Bun.file(tmp), JSON.stringify(this.data, null, 2) + "\n");
       await rename(tmp, this.path);
     } catch (err) {
-      this.log.error("Save failed", { error: String(err) });
+      this.log.error("Save failed", { error: toErrorMessage(err) });
       throw err;
     } finally {
       resolve();

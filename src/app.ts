@@ -9,6 +9,7 @@ import { startScheduler } from "./scheduler.js";
 import { gwsTools } from "./skills/gws/tools.js";
 import type { AgentDependencies, ToolRegistry } from "./types.js";
 import { createUserStore } from "./users/store.js";
+import { toErrorMessage } from "./utils/error.js";
 import { configureLogging, createLogger } from "./utils/logger.js";
 import { migrateFromFlatModel } from "./workspaces/migrate.js";
 import { createWorkspaceStore } from "./workspaces/store.js";
@@ -87,6 +88,6 @@ process.on("SIGTERM", async () => {
 });
 
 export default await main().catch((err) => {
-  log.error("Fatal startup error", { error: String(err) });
+  log.error("Fatal startup error", { error: toErrorMessage(err) });
   process.exit(1);
 });

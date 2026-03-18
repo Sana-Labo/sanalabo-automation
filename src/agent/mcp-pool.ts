@@ -133,10 +133,10 @@ export async function connectMcpPool(
       }
 
       try {
-        log.debug("Dispatching tool call", { tool: toolName, memberId: member.id, inflight: member.inflight });
+        log.debug("Dispatching tool call", () => ({ tool: toolName, memberId: member.id, inflight: member.inflight }));
         const start = Date.now();
         const result = await callOnMember(member, toolName, input);
-        log.debug("Tool call completed on member", { tool: toolName, memberId: member.id, durationMs: Date.now() - start });
+        log.debug("Tool call completed on member", () => ({ tool: toolName, memberId: member.id, durationMs: Date.now() - start }));
         return result;
       } catch (e) {
         lastError = e;

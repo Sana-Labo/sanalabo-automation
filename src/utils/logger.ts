@@ -2,6 +2,7 @@ import {
   configure,
   getConsoleSink,
   getLogger,
+  isLogLevel,
   type LogLevel,
   type LogRecord,
   type Sink,
@@ -37,9 +38,10 @@ export interface LoggingOptions {
  * @param options - 테스트용 sink 주입 옵션
  */
 export async function configureLogging(options?: LoggingOptions): Promise<void> {
-  const level = (process.env["LOG_LEVEL"]
-    ?? (process.env["DEBUG"] === "1" || process.env["DEBUG"] === "true"
-      ? "debug" : "info")) as LogLevel;
+  const raw = process.env["LOG_LEVEL"];
+  const level: LogLevel = raw && isLogLevel(raw) ? raw
+    : (process.env["DEBUG"] === "1" || process.env["DEBUG"] === "true")
+      ? "debug" : "info";
 
   const sinks: Record<string, Sink> = options?.testSink
     ? { console: options.testSink }

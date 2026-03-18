@@ -92,6 +92,21 @@ describe("configureLogging", () => {
     expect(captured.map((r) => r.level)).toEqual(["warning", "error"]);
   });
 
+  test("잘못된 LOG_LEVEL 값은 무시하고 기본값 info를 사용한다", async () => {
+    process.env["LOG_LEVEL"] = "verbose"; // 유효하지 않은 값
+    const captured: LogRecord[] = [];
+    await configureLogging({
+      testSink: (record: LogRecord) => captured.push(record),
+    });
+
+    const log = createLogger("test");
+    log.debug("debug msg");
+    log.info("info msg");
+
+    expect(captured).toHaveLength(1);
+    expect(captured[0]!.level).toBe("info");
+  });
+
   test("구조화 데이터가 LogRecord.properties에 포함된다", async () => {
     const captured: LogRecord[] = [];
     await configureLogging({

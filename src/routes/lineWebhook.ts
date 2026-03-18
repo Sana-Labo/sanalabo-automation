@@ -76,7 +76,7 @@ export function createLineWebhookRoute(
       userQueues.set(userId, uq);
     }
     uq.tasks.push(fn);
-    log.debug("Task enqueued", { userId, queueSize: uq.tasks.length });
+    log.debug("Task enqueued", () => ({ userId, queueSize: uq.tasks.length }));
     void processUserQueue(userId);
   }
 
@@ -167,12 +167,12 @@ export function createLineWebhookRoute(
     userId: string,
   ): void {
     if (!userStore.isActive(userId)) {
-      log.debug("Ignoring message from inactive user", { userId });
+      log.debug("Ignoring message from inactive user", () => ({ userId }));
       return;
     }
 
     const text = extractTextMessage(event);
-    log.debug("Processing text message", { userId, preview: text.slice(0, 50) });
+    log.debug("Processing text message", () => ({ userId, preview: text.slice(0, 50) }));
 
     // 시스템 관리자: 워크스페이스 생성 명령
     const createWsMatch = /^create-workspace\s+(.+?)\s+(U[0-9a-f]{32})$/i.exec(text);
@@ -342,7 +342,7 @@ export function createLineWebhookRoute(
     const userId = extractUserId(event);
     if (!userId) return;
 
-    log.debug("Routing event", { eventType: event.type, userId });
+    log.debug("Routing event", () => ({ eventType: event.type, userId }));
 
     if (isFollowEvent(event)) {
       handleFollow(event, userId);
@@ -375,7 +375,7 @@ export function createLineWebhookRoute(
     }
 
     const events = parseLineEvents(body);
-    log.debug("Received webhook events", { count: events.length });
+    log.debug("Received webhook events", () => ({ count: events.length }));
     for (const event of events) {
       routeEvent(event);
     }

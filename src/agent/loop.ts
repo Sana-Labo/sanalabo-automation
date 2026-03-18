@@ -58,13 +58,13 @@ export async function runAgentLoop(
   let delivery: "pending" | "pushed" | "no_action" = "pending";
   const allTools = [...deps.registry.tools, ...infraToolDefs];
 
-  log.debug("Agent loop started", { userId: context.userId, workspaceId: context.workspaceId, role: context.role });
+  log.debug("Agent loop started", () => ({ userId: context.userId, workspaceId: context.workspaceId, role: context.role }));
 
   while (turns < MAX_TURNS) {
     turns++;
-    log.debug("Turn started", { turn: turns, maxTurns: MAX_TURNS });
+    log.debug("Turn started", () => ({ turn: turns, maxTurns: MAX_TURNS }));
 
-    log.debug("Claude API request", { model: MODEL, messageCount: messages.length, toolCount: allTools.length });
+    log.debug("Claude API request", () => ({ model: MODEL, messageCount: messages.length, toolCount: allTools.length }));
     const response = await client.messages.create({
       model: MODEL,
       max_tokens: 4096,
@@ -73,7 +73,7 @@ export async function runAgentLoop(
       messages,
     });
 
-    log.debug("Claude API response", { stopReason: response.stop_reason, contentBlocks: response.content.length });
+    log.debug("Claude API response", () => ({ stopReason: response.stop_reason, contentBlocks: response.content.length }));
 
     if (response.stop_reason === "max_tokens") {
       const text = extractText(response.content) || "The response was too long and has been truncated.";
@@ -84,7 +84,7 @@ export async function runAgentLoop(
     if (response.stop_reason !== "tool_use") {
       const text = extractText(response.content);
       await ensureDelivery(text);
-      log.debug("Agent loop completed", { turns, toolCalls });
+      log.debug("Agent loop completed", () => ({ turns, toolCalls }));
       return { text, toolCalls };
     }
 
@@ -99,7 +99,7 @@ export async function runAgentLoop(
       if (!entry) continue;
       toolCalls++;
       handled.add(block.id);
-      log.debug("Infra tool handled", { tool: block.name, toolUseId: block.id });
+      log.debug("Infra tool handled", () => ({ tool: block.name, toolUseId: block.id }));
       const signal = entry.handler(
         block.input as Record<string, unknown>,
         context,
@@ -115,7 +115,7 @@ export async function runAgentLoop(
     const toolResults = await Promise.all(
       remaining.map(async (block) => {
         toolCalls++;
-        log.debug("Tool call", { tool: block.name, toolUseId: block.id });
+        log.debug("Tool call", () => ({ tool: block.name, toolUseId: block.id }));
         const toolInput = block.input as Record<string, unknown>;
 
         // 비오너 멤버의 write 도구 가로채기
@@ -128,7 +128,7 @@ export async function runAgentLoop(
         );
 
         if (interception.intercepted) {
-          log.debug("Write intercepted", { tool: block.name, pendingActionId: interception.pendingAction.id });
+          log.debug("Write intercepted", () => ({ tool: block.name, pendingActionId: interception.pendingAction.id }));
           // 비동기로 오너에게 통지 (실패 시 로그 기록, silent drop 방지)
           notifyOwnerOfPending(
             interception.pendingAction,
@@ -161,10 +161,10 @@ export async function runAgentLoop(
           // 이중 안전장치: LINE push 도구의 user_id를 코드에서 강제 주입
           if (isLinePush) {
             toolInput.user_id = context.userId;
-            log.debug("Injected userId for LINE push", { tool: block.name, userId: context.userId });
+            log.debug("Injected userId for LINE push", () => ({ tool: block.name, userId: context.userId }));
           }
           const result = await executor(toolInput);
-          log.debug("Tool result", { tool: block.name, resultLength: result.length, isError: false });
+          log.debug("Tool succeeded", () => ({ tool: block.name, resultLength: result.length }));
           // push 성공 시에만 설정 — 실패 시 ensureDelivery 폴백이 재시도할 수 있음
           if (isLinePush) {
             delivery = "pushed";
@@ -175,7 +175,7 @@ export async function runAgentLoop(
             content: result,
           };
         } catch (e) {
-          log.debug("Tool result", { tool: block.name, error: toErrorMessage(e), isError: true });
+          log.debug("Tool failed", () => ({ tool: block.name, error: toErrorMessage(e) }));
           return {
             type: "tool_result" as const,
             tool_use_id: block.id,
