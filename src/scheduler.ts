@@ -51,7 +51,7 @@ export function startScheduler(
     new Cron("0 21 * * 1-5", { timezone: tz, protect: true }, async () => {
       await forAllWorkspaceUsers(deps, userStore, eveningSummary);
     }),
-    // Expire stale pending actions and purge old resolved ones every hour
+    // 매시간 만료된 PendingAction 처리 + 오래된 해결 건 삭제
     new Cron("0 * * * *", { timezone: tz }, async () => {
       const expired = await deps.pendingActionStore.expireOlderThan(24);
       if (expired > 0) console.log(`[approvals] Expired ${expired} pending actions`);

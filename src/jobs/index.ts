@@ -32,10 +32,14 @@ export const eveningSummary = createJob(
   "今日の活動をまとめて、明日の予定と一緒にLINEで送って",
 );
 
-// urgentMailCheck: per-user timestamp-based deduplication
+// urgentMailCheck: 사용자별 타임스탬프 기반 중복 방지
 const lastUrgentCheckMap = new Map<string, Date>();
 
-/** Clear stale checkpoint so reactivated users don't skip the gap period */
+/**
+ * 오래된 체크포인트를 삭제하여 재활성화된 사용자가 공백 기간을 건너뛰지 않도록 한다.
+ *
+ * @param userId - 체크포인트를 삭제할 사용자 ID
+ */
 export function clearUrgentCheckpoint(userId: string): void {
   lastUrgentCheckMap.delete(userId);
 }
@@ -48,7 +52,7 @@ export const urgentMailCheck = withJobLogging("urgent mail check", async (deps, 
   const prompt = `Check Gmail for important emails (query: is:important after:${sinceEpoch}). If any, notify the user via LINE. If none, use the no_action tool to exit.`;
 
   const result = await runAgentLoop(prompt, deps, context);
-  // Only advance checkpoint on success — failure retries same period
+  // 성공 시에만 체크포인트를 전진 — 실패 시 동일 기간을 재시도
   lastUrgentCheckMap.set(context.userId, checkpoint);
   return result;
 });

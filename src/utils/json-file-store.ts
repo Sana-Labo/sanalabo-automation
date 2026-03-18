@@ -2,8 +2,9 @@ import { mkdir, rename } from "node:fs/promises";
 import { dirname } from "node:path";
 
 /**
- * JSON file-backed key-value store with atomic writes and corruption recovery.
- * Subclasses define domain logic; infrastructure (load/save/writeLock) lives here.
+ * JSON 파일 기반 키-값 저장소. 원자적 쓰기와 손상 복구를 지원한다.
+ *
+ * 서브클래스가 도메인 로직을 정의하고, 인프라(load/save/writeLock)는 이 클래스에 위치.
  */
 export abstract class JsonFileStore<T> {
   protected data: Record<string, T> = {};
@@ -30,7 +31,7 @@ export abstract class JsonFileStore<T> {
         await rename(this.path, `${this.path}.corrupt.${Date.now()}`);
         console.warn(`[${this.label}] Corrupted file backed up`);
       } catch {
-        // Backup failed — file may not exist
+        // 백업 실패 — 파일이 존재하지 않을 수 있음
       }
       this.data = {};
     }

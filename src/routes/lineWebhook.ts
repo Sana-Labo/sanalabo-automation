@@ -36,15 +36,15 @@ export function createLineWebhookRoute(
 ) {
   const route = new Hono();
 
-  // --- Shared helpers ---
+  // --- 공통 헬퍼 ---
 
   async function sendText(userId: string, text: string): Promise<void> {
     const exec = deps.registry.executors.get(LINE_PUSH_TEXT_TOOL);
     if (exec) await exec({ user_id: userId, text });
   }
 
-  // Per-user queues: sequential within same user (conversation order),
-  // parallel across different users (no cross-user blocking)
+  // 사용자별 큐: 같은 사용자 내 순차 처리 (대화 순서 보장),
+  // 다른 사용자 간 병렬 실행 (상호 차단 없음)
   interface UserQueue {
     tasks: Array<() => Promise<void>>;
     processing: boolean;
@@ -109,13 +109,13 @@ export function createLineWebhookRoute(
     });
   }
 
-  // --- Event Handlers ---
+  // --- 이벤트 핸들러 ---
 
   function handleFollow(
     event: LineFollowEvent,
     userId: string,
   ): void {
-    // System admin re-follow: reactivate without invitation check
+    // 시스템 관리자 재팔로우: 초대 확인 없이 재활성화
     if (userStore.isSystemAdmin(userId) && !userStore.isActive(userId)) {
       enqueue(userId, async () => {
         await userStore.activate(userId);
@@ -172,7 +172,7 @@ export function createLineWebhookRoute(
 
     const text = extractTextMessage(event);
 
-    // System admin: workspace creation command
+    // 시스템 관리자: 워크스페이스 생성 명령
     const createWsMatch = /^create-workspace\s+(.+?)\s+(U[0-9a-f]{32})$/i.exec(text);
     if (userStore.isSystemAdmin(userId) && createWsMatch) {
       const [, wsName, ownerId] = createWsMatch;
@@ -186,7 +186,7 @@ export function createLineWebhookRoute(
       return;
     }
 
-    // Owner invite command — deterministic, not Claude-dependent
+    // 오너 초대 명령 — 결정론적 처리, Claude 판단 불필요
     const inviteMatch = INVITE_PATTERN.exec(text);
     if (inviteMatch) {
       const targetId = inviteMatch[1]!;
@@ -227,7 +227,7 @@ export function createLineWebhookRoute(
       return;
     }
 
-    // Approval commands (approve/reject)
+    // 승인/거부 명령
     const approvalMatch = APPROVAL_PATTERN.exec(text);
     if (approvalMatch) {
       const [, action, actionId, reason] = approvalMatch;
@@ -237,7 +237,7 @@ export function createLineWebhookRoute(
       return;
     }
 
-    // Workspace selection command
+    // 워크스페이스 선택 명령
     const useMatch = /^use\s+(\S+)$/i.exec(text);
     if (useMatch) {
       const wsId = useMatch[1]!;
@@ -352,7 +352,7 @@ export function createLineWebhookRoute(
     }
   }
 
-  // --- Route ---
+  // --- 라우트 ---
 
   route.post("/webhook/line", async (c) => {
     const body = await c.req.text();

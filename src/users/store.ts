@@ -51,7 +51,7 @@ export class JsonUserStore extends JsonFileStore<UserRecord> implements UserStor
   async invite(userId: string, invitedBy: string): Promise<void> {
     const existing = this.data[userId];
     if (existing && existing.status === "active") {
-      return; // Already active — no-op
+      return; // 이미 활성 상태 — 무처리
     }
 
     this.data[userId] = {
@@ -85,7 +85,7 @@ export class JsonUserStore extends JsonFileStore<UserRecord> implements UserStor
     console.log(`[users] Deactivated ${userId}`);
   }
 
-  // Caller must call save() after batch operations
+  // 일괄 작업 후 호출자가 save()를 호출해야 함
   private ensureSystemAdmin(userId: string): void {
     const existing = this.data[userId];
     if (!existing || existing.status !== "active") {

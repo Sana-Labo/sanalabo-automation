@@ -68,7 +68,7 @@ export class JsonWorkspaceStore extends JsonFileStore<WorkspaceRecord> implement
   async inviteMember(workspaceId: string, userId: string, invitedBy: string): Promise<void> {
     const ws = this.data[workspaceId];
     if (!ws) throw new Error(`Workspace not found: ${workspaceId}`);
-    if (userId in ws.members) return; // Already a member
+    if (userId in ws.members) return; // 이미 멤버
 
     ws.members[userId] = {
       role: "member",
@@ -95,12 +95,12 @@ export class JsonWorkspaceStore extends JsonFileStore<WorkspaceRecord> implement
     if (workspaces.length === 0) return undefined;
     if (workspaces.length === 1) return workspaces[0];
 
-    // Multiple workspaces — use default if set
+    // 복수 워크스페이스 — 기본값이 설정되어 있으면 사용
     if (defaultWorkspaceId) {
       return workspaces.find((ws) => ws.id === defaultWorkspaceId);
     }
 
-    // No default — caller must prompt for selection
+    // 기본값 미설정 — 호출자가 선택을 안내해야 함
     return undefined;
   }
 

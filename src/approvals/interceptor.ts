@@ -18,7 +18,7 @@ export async function interceptWrite(
     return { intercepted: false };
   }
 
-  // needs_approval — create pending action
+  // needs_approval — PendingAction 생성
   const pendingAction = await pendingStore.create({
     workspaceId: context.workspaceId,
     requesterId: context.userId,

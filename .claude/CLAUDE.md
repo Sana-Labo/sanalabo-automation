@@ -221,6 +221,15 @@ src/
 - 공통 타입은 `src/types.ts`에 정의
 - Store 인터페이스도 `src/types.ts`에 선언 (순환 의존 방지)
 
+### 주석 규격 (Comment Convention)
+
+- **언어**: 한국어(기본) > 영어. 코드 식별자 및 기술 용어는 영어 유지
+- **형식**: TSDoc/JSDoc 표준 (`/** */` 블록)
+  - export되는 함수, 클래스, 인터페이스, 타입에 `/** */` 문서화 주석 필수
+  - `@param`, `@returns`, `@throws` 등 TSDoc 태그 사용
+  - 내부 구현 설명은 `//` 인라인 주석 허용
+- **기존 주석 포함**: 기존 영어 주석도 한국어 + TSDoc 형식으로 갱신 대상
+
 ### LINE Webhook 수신 (Channel Layer, SDK-free)
 - signature 검증: `crypto.subtle.verify()` (Web Crypto API, timing-safe)
 - raw body 보존: signature 검증 전 body 파싱/변환 금지
