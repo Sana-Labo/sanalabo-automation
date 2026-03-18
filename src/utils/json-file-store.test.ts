@@ -53,13 +53,13 @@ describe("JsonFileStore", () => {
   test("save + load: roundtrip preserves data", async () => {
     const path = td.path("data.json");
 
-    // Save with first instance
+    // 첫 번째 인스턴스로 저장
     const store1 = new TestStore(path);
     await store1.load();
     await store1.set("a", "alpha");
     await store1.set("b", "bravo");
 
-    // Load with second instance
+    // 두 번째 인스턴스로 로드
     const store2 = new TestStore(path);
     await store2.load();
 
@@ -76,10 +76,10 @@ describe("JsonFileStore", () => {
     const store = new TestStore(path);
     await store.load();
 
-    // Store should start empty after corruption
+    // 손상 후 빈 상태로 시작해야 함
     expect(store.getAll()).toEqual({});
 
-    // .corrupt backup file should exist
+    // .corrupt 백업 파일이 존재해야 함
     const dir = dirname(path);
     const files = await readdir(dir);
     const corruptFiles = files.filter((f) => f.includes(".corrupt."));
@@ -91,20 +91,20 @@ describe("JsonFileStore", () => {
     const store = new TestStore(path);
     await store.load();
 
-    // Fire multiple save() calls concurrently
+    // 다수의 save() 호출을 동시 실행
     const promises = [];
     for (let i = 0; i < 10; i++) {
       promises.push(store.set(`key${i}`, `value${i}`));
     }
     await Promise.all(promises);
 
-    // All keys should be present
+    // 모든 키가 존재해야 함
     const all = store.getAll();
     for (let i = 0; i < 10; i++) {
       expect(all[`key${i}`]).toEqual({ value: `value${i}` });
     }
 
-    // Verify persisted data matches
+    // 영속화된 데이터 일치 확인
     const store2 = new TestStore(path);
     await store2.load();
     for (let i = 0; i < 10; i++) {
@@ -118,7 +118,7 @@ describe("JsonFileStore", () => {
     await store.load();
     await store.set("x", "y");
 
-    // Verify file was written
+    // 파일 기록 확인
     const store2 = new TestStore(path);
     await store2.load();
     expect(store2.get("x")).toEqual({ value: "y" });

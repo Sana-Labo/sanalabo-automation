@@ -1,6 +1,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
 
-// --- Tool System ---
+// --- 도구 시스템 ---
 
 export type ToolExecutor = (
   input: Record<string, unknown>,
@@ -11,7 +11,7 @@ export interface ToolRegistry {
   executors: Map<string, ToolExecutor>;
 }
 
-// --- Agent ---
+// --- 에이전트 ---
 
 export interface AgentResult {
   text: string;
@@ -74,7 +74,7 @@ interface LineTextMessage {
   text: string;
 }
 
-// --- Users ---
+// --- 사용자 ---
 
 export type UserStatus = "invited" | "active" | "inactive";
 export type SystemRole = "admin" | "user";
@@ -89,7 +89,7 @@ export interface UserRecord {
   defaultWorkspaceId?: string;
 }
 
-// --- Workspace ---
+// --- 워크스페이스 ---
 
 export type WorkspaceRole = "owner" | "member";
 
@@ -109,7 +109,7 @@ export interface WorkspaceRecord {
   members: Record<string, WorkspaceMembership>;
 }
 
-// --- Pending Action (Write Approval) ---
+// --- PendingAction (쓰기 승인) ---
 
 export type PendingActionStatus = "pending" | "approved" | "rejected" | "expired";
 
@@ -127,7 +127,7 @@ export interface PendingAction {
   requestContext: string;
 }
 
-// --- Tool Context ---
+// --- 도구 컨텍스트 ---
 
 export interface ToolContext {
   userId: string;
@@ -141,7 +141,7 @@ export interface AgentDependencies {
   workspaceStore: WorkspaceStore;
 }
 
-// --- Store Interfaces (forward declarations) ---
+// --- Store 인터페이스 (전방 선언) ---
 
 export interface PendingActionStore {
   create(action: Omit<PendingAction, "id" | "status" | "createdAt">): Promise<PendingAction>;

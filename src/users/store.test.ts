@@ -87,7 +87,7 @@ describe("JsonUserStore", () => {
   });
 
   test("setDefaultWorkspaceId: no-op for nonexistent user", async () => {
-    // Should not throw
+    // 에러 발생하지 않아야 함
     await store.setDefaultWorkspaceId("Unonexistent", "ws-001");
     expect(store.getDefaultWorkspaceId("Unonexistent")).toBeUndefined();
   });
@@ -96,7 +96,7 @@ describe("JsonUserStore", () => {
     await store.invite("Uuser01", "Uowner01");
     await store.activate("Uuser01");
 
-    // Re-invite should be a no-op
+    // 재초대는 무처리
     await store.invite("Uuser01", "Uowner02");
     expect(store.isActive("Uuser01")).toBe(true);
   });
@@ -113,14 +113,14 @@ describe("JsonUserStore", () => {
   });
 
   test("activate: no-op for nonexistent user", async () => {
-    // Should not throw
+    // 에러 발생하지 않아야 함
     await store.activate("Unonexistent");
     expect(store.isActive("Unonexistent")).toBe(false);
   });
 
   test("deactivate: no-op for non-active user", async () => {
     await store.invite("Uuser01", "Uowner01");
-    // User is invited, not active — deactivate should be no-op
+    // invited 상태, active 아님 — deactivate는 무처리
     await store.deactivate("Uuser01");
     expect(store.isInvited("Uuser01")).toBe(true);
   });

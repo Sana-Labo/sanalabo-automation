@@ -2,7 +2,7 @@ import { describe, test, expect } from "bun:test";
 import { buildSystemPrompt } from "./system.js";
 import type { ToolContext, WorkspaceRecord } from "../types.js";
 
-// --- Fixtures ---
+// --- 픽스처 ---
 
 function makeContext(overrides?: Partial<ToolContext>): ToolContext {
   return {
@@ -32,7 +32,7 @@ function makeWorkspace(overrides?: Partial<WorkspaceRecord>): WorkspaceRecord {
   };
 }
 
-// --- Tests ---
+// --- 테스트 ---
 
 describe("buildSystemPrompt", () => {
   test("owner role includes full access description", () => {

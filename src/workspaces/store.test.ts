@@ -64,12 +64,12 @@ describe("JsonWorkspaceStore", () => {
     await store.create("WS2", "Uowner02");
     await store.inviteMember(ws1.id, "Umember01", "Uowner01");
 
-    // Umember01 is in WS1
+    // Umember01은 WS1에 소속
     const memberWorkspaces = store.getByMember("Umember01");
     expect(memberWorkspaces.length).toBe(1);
     expect(memberWorkspaces[0]!.id).toBe(ws1.id);
 
-    // Uowner01 is also a member (as owner)
+    // Uowner01도 멤버 (오너로서)
     const ownerWorkspaces = store.getByMember("Uowner01");
     expect(ownerWorkspaces.length).toBe(1);
     expect(ownerWorkspaces[0]!.id).toBe(ws1.id);
@@ -90,7 +90,7 @@ describe("JsonWorkspaceStore", () => {
     await store.inviteMember(ws.id, "Umember01", "Uother"); // no-op
 
     const updated = store.get(ws.id)!;
-    // invitedBy should remain the original
+    // invitedBy는 원래 값을 유지해야 함
     expect(updated.members["Umember01"]!.invitedBy).toBe("Uowner01");
   });
 
@@ -141,11 +141,11 @@ describe("JsonWorkspaceStore", () => {
     const ws2 = await store.create("WS2", "Uowner02");
     await store.inviteMember(ws2.id, "Uowner01", "Uowner02");
 
-    // Without default — returns undefined
+    // 기본값 없음 — undefined 반환
     const noDefault = store.resolveWorkspace("Uowner01");
     expect(noDefault).toBeUndefined();
 
-    // With default — returns specified workspace
+    // 기본값 있음 — 지정된 워크스페이스 반환
     const withDefault = store.resolveWorkspace("Uowner01", ws2.id);
     expect(withDefault).toBeDefined();
     expect(withDefault!.id).toBe(ws2.id);
@@ -193,7 +193,7 @@ describe("JsonWorkspaceStore", () => {
     const ws = await store1.create("WS1", "Uowner01");
     await store1.inviteMember(ws.id, "Umember01", "Uowner01");
 
-    // Reload into fresh instance
+    // 새 인스턴스로 재로드
     const store2 = new JsonWorkspaceStore(storePath, dataDir);
     await store2.load();
 

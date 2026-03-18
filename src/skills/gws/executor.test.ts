@@ -11,7 +11,7 @@ const EXPECTED_TOOLS = [
 ];
 
 afterEach(() => {
-  // Clear all cached executors to prevent cross-test state leaks
+  // 테스트 간 상태 오염 방지를 위해 캐시된 executor 전체 삭제
   invalidateGwsExecutors();
 });
 

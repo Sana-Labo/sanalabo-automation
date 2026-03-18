@@ -18,7 +18,7 @@ import type {
   LineWebhookEvent,
 } from "../types.js";
 
-// --- Fixtures ---
+// --- 픽스처 ---
 
 const baseSource = { type: "user", userId: "U1234567890abcdef" };
 const baseTimestamp = 1700000000000;
@@ -52,7 +52,7 @@ const postbackEvent: LinePostbackEvent = {
   replyToken: "reply-token-3",
 };
 
-// --- Tests ---
+// --- 테스트 ---
 
 describe("parseLineEvents", () => {
   test("valid body with events returns event array", () => {
@@ -188,7 +188,7 @@ describe("verifyLineSignature", () => {
   test("wrong signature returns false", async () => {
     const body = '{"events":[]}';
     const signature = await signBody(body);
-    // Modify body after signing
+    // 서명 후 body를 변조
     expect(await verifyLineSignature(body + "x", signature, secret)).toBe(false);
   });
 

@@ -35,7 +35,7 @@ export function createLineWebhookRoute(
 ) {
   const route = new Hono();
 
-  // --- Shared helpers ---
+  // --- 공통 헬퍼 ---
 
   async function sendText(userId: string, text: string): Promise<void> {
     const exec = deps.registry.executors.get("push_text_message");
