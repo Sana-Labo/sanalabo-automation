@@ -63,7 +63,7 @@ export async function runAgentLoop(
 
     if (response.stop_reason === "max_tokens") {
       const text = extractText(response.content);
-      return { text: text || "応答が長すぎて切り詰められました。", toolCalls };
+      return { text: text || "The response was too long and has been truncated.", toolCalls };
     }
 
     if (response.stop_reason !== "tool_use") {
@@ -101,7 +101,7 @@ export async function runAgentLoop(
           return {
             type: "tool_result" as const,
             tool_use_id: block.id,
-            content: "この操作はオーナーの承認が必要です。承認リクエストを送信しました。",
+            content: "This operation requires the owner's approval. An approval request has been sent.",
           };
         }
 
@@ -144,7 +144,7 @@ export async function runAgentLoop(
   }
 
   return {
-    text: "ツール呼び出しの上限に達しました。処理を中断します。",
+    text: "Tool call limit reached. Processing has been stopped.",
     toolCalls,
   };
 }

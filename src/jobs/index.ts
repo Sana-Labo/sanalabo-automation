@@ -24,12 +24,12 @@ function createJob(label: string, prompt: string) {
 
 export const morningBriefing = createJob(
   "morning briefing",
-  "未読メールと今日の予定を確認して要約をLINEで送って",
+  "Check unread emails and today's schedule, then send a summary via LINE.",
 );
 
 export const eveningSummary = createJob(
   "evening summary",
-  "今日の活動をまとめて、明日の予定と一緒にLINEで送って",
+  "Summarize today's activities along with tomorrow's schedule, and send via LINE.",
 );
 
 // urgentMailCheck: 사용자별 타임스탬프 기반 중복 방지
@@ -49,7 +49,7 @@ export const urgentMailCheck = withJobLogging("urgent mail check", async (deps, 
   const checkpoint = new Date();
   const sinceEpoch = Math.floor(since.getTime() / 1000);
 
-  const prompt = `Gmailで重要なメールを確認して(クエリ: is:important after:${sinceEpoch})。該当メールがあれば内容をLINEで通知して。なければ何もしないで。`;
+  const prompt = `Check Gmail for important emails (query: is:important after:${sinceEpoch}). If any are found, notify via LINE. If none, do nothing.`;
 
   const result = await runAgentLoop(prompt, deps, context);
   // 성공 시에만 체크포인트를 전진 — 실패 시 동일 기간을 재시도
