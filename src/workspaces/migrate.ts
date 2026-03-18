@@ -1,5 +1,8 @@
 import type { WorkspaceStore } from "../types.js";
 import type { UserStore } from "../users/store.js";
+import { createLogger } from "../utils/logger.js";
+
+const log = createLogger("migrate");
 
 /**
  * flat 사용자 모델에서 워크스페이스 모델로 마이그레이션한다.
@@ -21,11 +24,11 @@ export async function migrateFromFlatModel(
 
   const ownerId = systemAdminIds[0];
   if (!ownerId) {
-    console.warn("[migrate] No system admin IDs configured, skipping migration");
+    log.warning("No system admin IDs configured, skipping migration");
     return;
   }
 
-  console.log("[migrate] Migrating from flat user model to workspace model...");
+  log.info("Migrating from flat user model to workspace model...");
 
   const workspace = await workspaceStore.create("Default", ownerId);
 
@@ -39,8 +42,7 @@ export async function migrateFromFlatModel(
     await workspaceStore.inviteMember(workspace.id, userId, "system");
   }
 
-  console.log(
-    `[migrate] Created default workspace "${workspace.name}" (${workspace.id}) ` +
-    `with ${activeUsers.length} user(s)`,
-  );
+  log.info("Created default workspace", {
+    name: workspace.name, id: workspace.id, userCount: activeUsers.length,
+  });
 }

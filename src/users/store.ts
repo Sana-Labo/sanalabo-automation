@@ -61,7 +61,7 @@ export class JsonUserStore extends JsonFileStore<UserRecord> implements UserStor
       invitedAt: new Date().toISOString(),
     };
     await this.save();
-    console.log(`[users] Invited ${userId} by ${invitedBy}`);
+    this.log.info("Invited user", { userId, invitedBy });
   }
 
   async activate(userId: string): Promise<void> {
@@ -72,7 +72,7 @@ export class JsonUserStore extends JsonFileStore<UserRecord> implements UserStor
     record.status = "active";
     record.activatedAt = new Date().toISOString();
     await this.save();
-    console.log(`[users] Activated ${userId}`);
+    this.log.info("Activated user", { userId });
   }
 
   async deactivate(userId: string): Promise<void> {
@@ -82,7 +82,7 @@ export class JsonUserStore extends JsonFileStore<UserRecord> implements UserStor
     record.status = "inactive";
     record.deactivatedAt = new Date().toISOString();
     await this.save();
-    console.log(`[users] Deactivated ${userId}`);
+    this.log.info("Deactivated user", { userId });
   }
 
   // 일괄 작업 후 호출자가 save()를 호출해야 함
@@ -106,9 +106,7 @@ export class JsonUserStore extends JsonFileStore<UserRecord> implements UserStor
       this.ensureSystemAdmin(adminId);
     }
     await this.save();
-    console.log(
-      `[users] System admins registered: ${config.systemAdminIds.length} user(s)`,
-    );
+    this.log.info("System admins registered", { count: config.systemAdminIds.length });
   }
 }
 

@@ -2,6 +2,10 @@ import { Cron } from "croner";
 import { morningBriefing, urgentMailCheck, eveningSummary } from "./jobs/index.js";
 import type { AgentDependencies, ToolContext } from "./types.js";
 import type { UserStore } from "./users/store.js";
+import { createLogger } from "./utils/logger.js";
+import { toErrorMessage } from "./utils/error.js";
+
+const log = createLogger("scheduler");
 
 async function forAllWorkspaceUsers(
   deps: AgentDependencies,
@@ -25,10 +29,9 @@ async function forAllWorkspaceUsers(
       for (let i = 0; i < results.length; i++) {
         const r = results[i]!;
         if (r.status === "rejected") {
-          console.error(
-            `[scheduler] Job failure for ${activeMembers[i]![0]} in workspace ${ws.id}:`,
-            r.reason,
-          );
+          log.error("Job failure", {
+            userId: activeMembers[i]![0], workspaceId: ws.id, error: toErrorMessage(r.reason),
+          });
         }
       }
     }),
@@ -54,17 +57,17 @@ export function startScheduler(
     // 매시간 만료된 PendingAction 처리 + 오래된 해결 건 삭제
     new Cron("0 * * * *", { timezone: tz }, async () => {
       const expired = await deps.pendingActionStore.expireOlderThan(24);
-      if (expired > 0) console.log(`[approvals] Expired ${expired} pending actions`);
+      if (expired > 0) log.info("Expired pending actions", { count: expired });
       const purged = await deps.pendingActionStore.purgeResolved(7);
-      if (purged > 0) console.log(`[approvals] Purged ${purged} resolved actions older than 7 days`);
+      if (purged > 0) log.info("Purged resolved actions", { count: purged, olderThanDays: 7 });
     }),
   ];
 
-  console.log("[scheduler] Cron jobs started (Asia/Tokyo)");
-  console.log("[scheduler]   - Morning briefing: 0 8 * * 1-5");
-  console.log("[scheduler]   - Urgent mail check: */30 8-22 * * *");
-  console.log("[scheduler]   - Evening summary: 0 21 * * 1-5");
-  console.log("[scheduler]   - Pending action expiry: 0 * * * *");
+  log.info("Cron jobs started", { timezone: tz });
+  log.info("  - Morning briefing: 0 8 * * 1-5");
+  log.info("  - Urgent mail check: */30 8-22 * * *");
+  log.info("  - Evening summary: 0 21 * * 1-5");
+  log.info("  - Pending action expiry: 0 * * * *");
 
   return jobs;
 }
