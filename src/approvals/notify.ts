@@ -36,9 +36,9 @@ export async function notifyActionResult(
   const executor = registry.executors.get(LINE_PUSH_TEXT_TOOL);
   if (!executor) return;
 
-  const statusText = action.status === "approved" ? "承認" : "却下";
-  const reason = action.rejectionReason ? `\n理由: ${action.rejectionReason}` : "";
-  const errorNote = executionError ? `\n⚠ 実行エラー: ${executionError}` : "";
+  const statusText = action.status === "approved" ? "Approved" : "Rejected";
+  const reason = action.rejectionReason ? `\nReason: ${action.rejectionReason}` : "";
+  const errorNote = executionError ? `\n⚠ Execution error: ${executionError}` : "";
 
   await executor({
     user_id: targetUserId,
@@ -51,12 +51,12 @@ function buildApprovalText(action: PendingAction, workspaceName: string): string
     .map(([k, v]) => `  ${k}: ${String(v).slice(0, 100)}`)
     .join("\n");
 
-  return `[承認リクエスト] ${workspaceName}\n` +
-    `リクエスト元: ${action.requesterId}\n` +
-    `操作: ${action.toolName}\n` +
-    `内容:\n${inputSummary}\n` +
-    `元のリクエスト: ${action.requestContext}\n\n` +
-    `承認するにはメッセージで「approve ${action.id}」、却下するには「reject ${action.id}」と送信してください。`;
+  return `[Approval Request] ${workspaceName}\n` +
+    `Requester: ${action.requesterId}\n` +
+    `Operation: ${action.toolName}\n` +
+    `Details:\n${inputSummary}\n` +
+    `Original request: ${action.requestContext}\n\n` +
+    `To approve, send "approve ${action.id}". To reject, send "reject ${action.id}".`;
 }
 
 function buildApprovalFlexMessage(
@@ -69,7 +69,7 @@ function buildApprovalFlexMessage(
 
   return {
     type: "flex",
-    altText: `[承認リクエスト] ${action.toolName}`,
+    altText: `[Approval Request] ${action.toolName}`,
     contents: {
       type: "bubble",
       header: {
@@ -78,7 +78,7 @@ function buildApprovalFlexMessage(
         contents: [
           {
             type: "text",
-            text: `承認リクエスト — ${workspaceName}`,
+            text: `Approval Request — ${workspaceName}`,
             weight: "bold",
             size: "md",
           },
@@ -91,7 +91,7 @@ function buildApprovalFlexMessage(
         contents: [
           {
             type: "text",
-            text: `操作: ${action.toolName}`,
+            text: `Operation: ${action.toolName}`,
             size: "sm",
           },
           {
@@ -102,7 +102,7 @@ function buildApprovalFlexMessage(
           },
           {
             type: "text",
-            text: `リクエスト: ${action.requestContext.slice(0, 200)}`,
+            text: `Request: ${action.requestContext.slice(0, 200)}`,
             size: "xs",
             wrap: true,
             color: "#666666",
@@ -119,7 +119,7 @@ function buildApprovalFlexMessage(
             style: "primary",
             action: {
               type: "postback",
-              label: "承認",
+              label: "Approve",
               data: `action=approve&id=${action.id}`,
             },
           },
@@ -128,7 +128,7 @@ function buildApprovalFlexMessage(
             style: "secondary",
             action: {
               type: "postback",
-              label: "却下",
+              label: "Reject",
               data: `action=reject&id=${action.id}`,
             },
           },

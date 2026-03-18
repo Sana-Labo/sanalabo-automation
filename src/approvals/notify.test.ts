@@ -11,7 +11,7 @@ function makePendingAction(overrides: Partial<PendingAction> = {}): PendingActio
     toolInput: { to: "a@b.com", subject: "hi", body: "hello" },
     status: "pending",
     createdAt: "2024-01-01T00:00:00.000Z",
-    requestContext: "メール下書きを作成して",
+    requestContext: "Create an email draft",
     ...overrides,
   };
 }
@@ -19,7 +19,7 @@ function makePendingAction(overrides: Partial<PendingAction> = {}): PendingActio
 function makeWorkspace(overrides: Partial<WorkspaceRecord> = {}): WorkspaceRecord {
   return {
     id: "ws_001",
-    name: "テストWS",
+    name: "TestWS",
     ownerId: "U_owner_1",
     gwsConfigDir: "/data/workspaces/ws_001/gws-config",
     gwsAuthenticated: true,
@@ -105,7 +105,7 @@ describe("notifyOwnerOfPending", () => {
     expect(textCalls).toHaveLength(1);
     expect(textCalls[0]!.input.user_id).toBe(ws.ownerId);
     const text = textCalls[0]!.input.text as string;
-    expect(text).toContain("承認リクエスト");
+    expect(text).toContain("Approval Request");
     expect(text).toContain(action.toolName);
   });
 
@@ -121,7 +121,7 @@ describe("notifyOwnerOfPending", () => {
 });
 
 describe("notifyActionResult", () => {
-  test("approved status includes 承認 text", async () => {
+  test("approved status includes Approved text", async () => {
     const action = makePendingAction({ status: "approved" });
     const { registry, textCalls } = makeRegistry({ hasFlex: false, hasText: true });
 
@@ -129,14 +129,14 @@ describe("notifyActionResult", () => {
 
     expect(textCalls).toHaveLength(1);
     const text = textCalls[0]!.input.text as string;
-    expect(text).toContain("承認");
+    expect(text).toContain("Approved");
     expect(text).toContain(action.toolName);
   });
 
-  test("rejected status with reason includes 却下 and reason", async () => {
+  test("rejected status with reason includes Rejected and reason", async () => {
     const action = makePendingAction({
       status: "rejected",
-      rejectionReason: "内容が不適切",
+      rejectionReason: "Inappropriate content",
     });
     const { registry, textCalls } = makeRegistry({ hasFlex: false, hasText: true });
 
@@ -144,11 +144,11 @@ describe("notifyActionResult", () => {
 
     expect(textCalls).toHaveLength(1);
     const text = textCalls[0]!.input.text as string;
-    expect(text).toContain("却下");
-    expect(text).toContain("内容が不適切");
+    expect(text).toContain("Rejected");
+    expect(text).toContain("Inappropriate content");
   });
 
-  test("executionError includes 実行エラー text", async () => {
+  test("executionError includes Execution error text", async () => {
     const action = makePendingAction({ status: "approved" });
     const { registry, textCalls } = makeRegistry({ hasFlex: false, hasText: true });
 
@@ -156,7 +156,7 @@ describe("notifyActionResult", () => {
 
     expect(textCalls).toHaveLength(1);
     const text = textCalls[0]!.input.text as string;
-    expect(text).toContain("実行エラー");
+    expect(text).toContain("Execution error");
     expect(text).toContain("GWS API timeout");
   });
 

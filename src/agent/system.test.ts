@@ -37,7 +37,7 @@ function makeWorkspace(overrides?: Partial<WorkspaceRecord>): WorkspaceRecord {
 describe("buildSystemPrompt", () => {
   test("owner role includes full access description", () => {
     const prompt = buildSystemPrompt(makeContext(), makeWorkspace());
-    expect(prompt).toContain("全てのGoogle Workspace操作が可能");
+    expect(prompt).toContain("full access to all Google Workspace");
   });
 
   test("member role includes approval requirement description", () => {
@@ -45,7 +45,7 @@ describe("buildSystemPrompt", () => {
       makeContext({ role: "member", userId: "Umember5678" }),
       makeWorkspace(),
     );
-    expect(prompt).toContain("オーナーの承認が必要");
+    expect(prompt).toContain("owner's approval");
   });
 
   test("member role does not include owner full-access text", () => {
@@ -53,7 +53,7 @@ describe("buildSystemPrompt", () => {
       makeContext({ role: "member", userId: "Umember5678" }),
       makeWorkspace(),
     );
-    expect(prompt).not.toContain("全てのGoogle Workspace操作が可能です。");
+    expect(prompt).not.toContain("full access to all Google Workspace");
   });
 
   test("workspace name is included in prompt", () => {
@@ -85,18 +85,18 @@ describe("buildSystemPrompt", () => {
 
   test("prompt contains role field", () => {
     const prompt = buildSystemPrompt(makeContext({ role: "owner" }), makeWorkspace());
-    expect(prompt).toContain("あなたの権限: owner");
+    expect(prompt).toContain("Your role: owner");
   });
 
   test("prompt contains safety rules", () => {
     const prompt = buildSystemPrompt(makeContext(), makeWorkspace());
-    expect(prompt).toContain("メール送信は絶対禁止");
-    expect(prompt).toContain("カレンダーイベント追加時は事前確認必須");
+    expect(prompt).toContain("Never send emails");
+    expect(prompt).toContain("Confirm before adding calendar events");
   });
 
   test("prompt contains message format guidelines", () => {
     const prompt = buildSystemPrompt(makeContext(), makeWorkspace());
-    expect(prompt).toContain("2000文字以内");
+    expect(prompt).toContain("2000 characters");
   });
 
   test("prompt explains two valid exit paths", () => {

@@ -24,12 +24,12 @@ function createJob(label: string, prompt: string) {
 
 export const morningBriefing = createJob(
   "morning briefing",
-  "未読メールと今日の予定を確認して要約をLINEで送って",
+  "Check unread emails and today's schedule, then send a summary via LINE.",
 );
 
 export const eveningSummary = createJob(
   "evening summary",
-  "今日の活動をまとめて、明日の予定と一緒にLINEで送って",
+  "Summarize today's activities along with tomorrow's schedule, and send via LINE.",
 );
 
 // urgentMailCheck: 사용자별 타임스탬프 기반 중복 방지

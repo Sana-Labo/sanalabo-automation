@@ -91,10 +91,10 @@ export function createLineWebhookRoute(
   async function sendWorkspaceSelectionPrompt(userId: string): Promise<void> {
     const workspaces = deps.workspaceStore.getByMember(userId);
     if (workspaces.length === 0) return;
-    const list = workspaces.map((ws) => `・${ws.name} (${ws.id})`).join("\n");
+    const list = workspaces.map((ws) => `- ${ws.name} (${ws.id})`).join("\n");
     await sendText(
       userId,
-      `複数のワークスペースに所属しています。デフォルトを設定してください:\n${list}\n\n「use <ID>」と送信してください。`,
+      `You belong to multiple workspaces. Please set a default:\n${list}\n\nSend "use <ID>" to select one.`,
     );
   }
 
@@ -122,7 +122,7 @@ export function createLineWebhookRoute(
         const context = resolveContext(userId);
         if (context) {
           await runAgentLoop(
-            "管理者ユーザーが再参加しました。おかえりなさいとLINEで伝えてください。",
+            "An admin user has re-joined. Send a welcome-back message via LINE.",
             deps,
             context,
           );
@@ -137,7 +137,7 @@ export function createLineWebhookRoute(
         const context = resolveContext(userId);
         if (context) {
           await runAgentLoop(
-            "新しいユーザーが参加しました。簡単な挨拶と使い方をLINEで案内してください。",
+            "A new user has joined. Send a brief greeting and usage instructions via LINE.",
             deps,
             context,
           );
@@ -180,7 +180,7 @@ export function createLineWebhookRoute(
         const ws = await deps.workspaceStore.create(wsName!, ownerId!);
         await sendText(
           userId,
-          `ワークスペース「${ws.name}」(${ws.id})を作成しました。\nオーナー: ${ownerId}\nGWS認証: docker exec -it assistant gws auth login --config-dir ${ws.gwsConfigDir}`,
+          `Workspace "${ws.name}" (${ws.id}) has been created.\nOwner: ${ownerId}\nGWS auth: docker exec -it assistant gws auth login --config-dir ${ws.gwsConfigDir}`,
         );
       });
       return;
@@ -199,7 +199,7 @@ export function createLineWebhookRoute(
             await userStore.invite(targetId, userId);
             if (context) {
               await runAgentLoop(
-                `ユーザー ${targetId} を招待しました。招待完了をLINEで報告してください。`,
+                `User ${targetId} has been invited. Report the invitation completion via LINE.`,
                 deps,
                 context,
               );
@@ -218,7 +218,7 @@ export function createLineWebhookRoute(
 
         if (context) {
           await runAgentLoop(
-            `ユーザー ${targetId} をワークスペース「${ws.name}」に招待しました。招待完了をLINEで報告してください。`,
+            `User ${targetId} has been invited to workspace "${ws.name}". Report the invitation completion via LINE.`,
             deps,
             context,
           );
@@ -244,11 +244,11 @@ export function createLineWebhookRoute(
       enqueue(userId, async () => {
         const ws = deps.workspaceStore.get(wsId);
         if (!ws || !deps.workspaceStore.getUserRole(wsId, userId)) {
-          await sendText(userId, "指定されたワークスペースが見つからないか、アクセス権がありません。");
+          await sendText(userId, "The specified workspace was not found, or you do not have access.");
           return;
         }
         await userStore.setDefaultWorkspaceId(userId, wsId);
-        await sendText(userId, `デフォルトワークスペースを「${ws.name}」に設定しました。`);
+        await sendText(userId, `Default workspace has been set to "${ws.name}".`);
       });
       return;
     }
@@ -265,20 +265,20 @@ export function createLineWebhookRoute(
   ): Promise<void> {
     const pendingAction = deps.pendingActionStore.get(actionId);
     if (!pendingAction) {
-      await sendText(userId, `承認リクエスト ${actionId} が見つかりません。`);
+      await sendText(userId, `Approval request ${actionId} was not found.`);
       return;
     }
 
     const role = deps.workspaceStore.getUserRole(pendingAction.workspaceId, userId);
     if (role !== "owner") {
-      await sendText(userId, "この操作はワークスペースオーナーのみ実行できます。");
+      await sendText(userId, "Only the workspace owner can perform this operation.");
       return;
     }
 
     if (action === "approve") {
       const requesterRole = deps.workspaceStore.getUserRole(pendingAction.workspaceId, pendingAction.requesterId);
       if (!requesterRole || !userStore.isActive(pendingAction.requesterId)) {
-        await sendText(userId, "リクエスト元ユーザーはすでにワークスペースのメンバーではありません。操作をキャンセルしました。");
+        await sendText(userId, "The requesting user is no longer a member of this workspace. The operation has been cancelled.");
         await deps.pendingActionStore.reject(actionId, userId, "Requester no longer a member");
         return;
       }
@@ -332,7 +332,7 @@ export function createLineWebhookRoute(
     }
 
     enqueueAgent(
-      `[ポストバック] ユーザーがボタンを押しました。データ: ${data}`,
+      `[Postback] The user pressed a button. Data: ${data}`,
       userId,
     );
   }
