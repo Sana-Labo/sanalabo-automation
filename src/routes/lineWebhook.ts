@@ -91,6 +91,11 @@ export function createLineWebhookRoute(
     return { userId, workspaceId: workspace.id, role };
   }
 
+  /** System Admin 전용: 워크스페이스 컨텍스트 또는 admin 폴백 */
+  function resolveContextOrAdmin(userId: string): ToolContext {
+    return resolveContext(userId) ?? { userId, role: "admin" };
+  }
+
   async function sendWorkspaceSelectionPrompt(userId: string): Promise<void> {
     const workspaces = deps.workspaceStore.getByMember(userId);
     if (workspaces.length === 0) return;
@@ -107,7 +112,7 @@ export function createLineWebhookRoute(
       if (!context) {
         // System Admin + 워크스페이스 미소속 → admin 컨텍스트로 에이전트 실행
         if (userStore.isSystemAdmin(userId)) {
-          await runAgentLoop(prompt, deps, { userId, role: "admin" });
+          await runAgentLoop(prompt, deps, resolveContextOrAdmin(userId));
           return;
         }
         await sendWorkspaceSelectionPrompt(userId);
@@ -127,11 +132,10 @@ export function createLineWebhookRoute(
     if (userStore.isSystemAdmin(userId) && !userStore.isActive(userId)) {
       enqueue(userId, async () => {
         await userStore.activate(userId);
-        const context = resolveContext(userId);
         await runAgentLoop(
           "An admin user has re-joined. Send a welcome-back message via LINE.",
           deps,
-          context ?? { userId, role: "admin" },
+          resolveContextOrAdmin(userId),
         );
       });
     } else if (userStore.isInvited(userId)) {
@@ -202,7 +206,7 @@ export function createLineWebhookRoute(
             await runAgentLoop(
               `User ${targetId} has been invited. Report the invitation completion via LINE.`,
               deps,
-              context ?? { userId, role: "admin" },
+              resolveContextOrAdmin(userId),
             );
           }
           return;

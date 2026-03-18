@@ -1,5 +1,8 @@
 import { canExecute } from "../skills/gws/access.js";
 import type { PendingAction, PendingActionStore, ToolContext } from "../types.js";
+import { createLogger } from "../utils/logger.js";
+
+const log = createLogger("approvals");
 
 export type InterceptResult =
   | { intercepted: true; pendingAction: PendingAction }
@@ -20,6 +23,7 @@ export async function interceptWrite(
 
   // 방어: workspaceId 없으면 PendingAction 생성 불가
   if (!context.workspaceId) {
+    log.warning("interceptWrite: no workspaceId, skipping interception", { toolName, userId: context.userId });
     return { intercepted: false };
   }
 

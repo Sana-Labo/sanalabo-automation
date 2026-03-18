@@ -1,5 +1,25 @@
 import type { ToolContext, WorkspaceRecord } from "../types.js";
 
+const RESPONSE_RULES = `## Response Rules (Mandatory)
+- You MUST use the push_text_message tool to send responses to the user via LINE.
+- Only when explicitly instructed that no notification is needed, you may use the no_action tool to log the reason and exit.
+- Ending with a text-only response without using either tool is prohibited.`;
+
+const MESSAGE_FORMAT = `## Message Format
+- Keep messages under 2000 characters
+- Use line breaks for readability
+- Minimize emoji usage
+- Place important information first`;
+
+function messageRecipient(userId: string): string {
+  return `## Message Recipient
+When sending LINE messages, always specify user_id: "${userId}".`;
+}
+
+const LANGUAGE_RULES = `## Language
+- When the user writes in a specific language, respond in that same language.
+- Default to English for automated notifications and when the language is uncertain.`;
+
 export function buildSystemPrompt(
   context: ToolContext,
   workspace: WorkspaceRecord | undefined,
@@ -14,6 +34,13 @@ export function buildSystemPrompt(
     minute: "2-digit",
   });
 
+  const commonSections = [
+    RESPONSE_RULES,
+    MESSAGE_FORMAT,
+    messageRecipient(context.userId),
+    LANGUAGE_RULES,
+  ].join("\n\n");
+
   // System Admin (워크스페이스 미소속): 컨텍스트 정보 + 통신 규칙만
   if (context.role === "admin") {
     return `You are a LINE assistant.
@@ -21,23 +48,7 @@ export function buildSystemPrompt(
 ## Current Date & Time
 ${now} (JST)
 
-## Response Rules (Mandatory)
-- You MUST use the push_text_message tool to send responses to the user via LINE.
-- Only when explicitly instructed that no notification is needed, you may use the no_action tool to log the reason and exit.
-- Ending with a text-only response without using either tool is prohibited.
-
-## Message Format
-- Keep messages under 2000 characters
-- Use line breaks for readability
-- Minimize emoji usage
-- Place important information first
-
-## Message Recipient
-When sending LINE messages, always specify user_id: "${context.userId}".
-
-## Language
-- When the user writes in a specific language, respond in that same language.
-- Default to English for automated notifications and when the language is uncertain.`;
+${commonSections}`;
   }
 
   const roleDescription = context.role === "owner"
@@ -61,26 +72,16 @@ ${roleDescription}
 - Report results and summaries via LINE messages
 - Select the appropriate tools to answer user questions
 
-## Response Rules (Mandatory)
-- You MUST use the push_text_message tool to send responses to the user via LINE.
-- Only when explicitly instructed that no notification is needed, you may use the no_action tool to log the reason and exit.
-- Ending with a text-only response without using either tool is prohibited.
+${RESPONSE_RULES}
 
 ## Safety Rules (Mandatory)
 1. **Never send emails** — Only creating drafts (gmail_create_draft) is allowed. The user sends emails directly from Gmail.
 2. **Confirm before adding calendar events** — Present the details via LINE and wait for user confirmation before proceeding.
 3. When uncertain, ask the user instead of guessing.
 
-## Message Format
-- Keep messages under 2000 characters
-- Use line breaks for readability
-- Minimize emoji usage
-- Place important information first
+${MESSAGE_FORMAT}
 
-## Message Recipient
-When sending LINE messages, always specify user_id: "${context.userId}".
+${messageRecipient(context.userId)}
 
-## Language
-- When the user writes in a specific language, respond in that same language.
-- Default to English for automated notifications and when the language is uncertain.`;
+${LANGUAGE_RULES}`;
 }
