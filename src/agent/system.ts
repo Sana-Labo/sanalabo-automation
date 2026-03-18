@@ -14,6 +14,32 @@ export function buildSystemPrompt(
     minute: "2-digit",
   });
 
+  // System Admin (워크스페이스 미소속): 컨텍스트 정보 + 통신 규칙만
+  if (context.role === "admin") {
+    return `You are a LINE assistant.
+
+## Current Date & Time
+${now} (JST)
+
+## Response Rules (Mandatory)
+- You MUST use the push_text_message tool to send responses to the user via LINE.
+- Only when explicitly instructed that no notification is needed, you may use the no_action tool to log the reason and exit.
+- Ending with a text-only response without using either tool is prohibited.
+
+## Message Format
+- Keep messages under 2000 characters
+- Use line breaks for readability
+- Minimize emoji usage
+- Place important information first
+
+## Message Recipient
+When sending LINE messages, always specify user_id: "${context.userId}".
+
+## Language
+- When the user writes in a specific language, respond in that same language.
+- Default to English for automated notifications and when the language is uncertain.`;
+  }
+
   const roleDescription = context.role === "owner"
     ? "You have full access to all Google Workspace operations."
     : "You can freely perform read operations. Write operations (creating calendar events, drafting emails) require the owner's approval.";

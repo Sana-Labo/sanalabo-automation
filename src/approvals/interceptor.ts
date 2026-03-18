@@ -18,6 +18,11 @@ export async function interceptWrite(
     return { intercepted: false };
   }
 
+  // 방어: workspaceId 없으면 PendingAction 생성 불가
+  if (!context.workspaceId) {
+    return { intercepted: false };
+  }
+
   // needs_approval — PendingAction 생성
   const pendingAction = await pendingStore.create({
     workspaceId: context.workspaceId,

@@ -37,7 +37,9 @@ export async function runAgentLoop(
   deps: AgentDependencies,
   context: ToolContext,
 ): Promise<AgentResult> {
-  const workspace = deps.workspaceStore.get(context.workspaceId);
+  const workspace = context.workspaceId
+    ? deps.workspaceStore.get(context.workspaceId)
+    : undefined;
   const systemPrompt = buildSystemPrompt(context, workspace);
 
   // 요청별 executor 구성: 기본 레지스트리 + 워크스페이스별 GWS executor
@@ -56,7 +58,9 @@ export async function runAgentLoop(
   let turns = 0;
   let toolCalls = 0;
   let delivery: "pending" | "pushed" | "no_action" = "pending";
-  const allTools = [...deps.registry.tools, ...infraToolDefs];
+  // executor가 존재하는 도구 + 인프라 도구만 Claude에게 전달
+  const allTools = [...deps.registry.tools, ...infraToolDefs]
+    .filter(t => executors.has(t.name) || infraTools.has(t.name));
 
   log.debug("Agent loop started", () => ({ userId: context.userId, workspaceId: context.workspaceId, role: context.role }));
 

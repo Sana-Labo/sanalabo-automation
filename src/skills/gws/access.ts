@@ -13,8 +13,8 @@ export function isWriteTool(toolName: string): boolean {
 
 export function canExecute(
   toolName: string,
-  role: WorkspaceRole,
+  role: WorkspaceRole | "admin",
 ): "allow" | "needs_approval" {
-  if (role === "owner") return "allow";
+  if (role === "owner" || role === "admin") return "allow";
   return isWriteTool(toolName) ? "needs_approval" : "allow";
 }

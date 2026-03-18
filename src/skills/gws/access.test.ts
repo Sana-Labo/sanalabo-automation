@@ -54,4 +54,15 @@ describe("canExecute", () => {
       expect(canExecute("calendar_create", "member")).toBe("needs_approval");
     });
   });
+
+  describe("admin role", () => {
+    test("admin can execute read tools", () => {
+      expect(canExecute("gmail_search", "admin")).toBe("allow");
+    });
+
+    test("admin can execute write tools without approval", () => {
+      expect(canExecute("gmail_create_draft", "admin")).toBe("allow");
+      expect(canExecute("calendar_create", "admin")).toBe("allow");
+    });
+  });
 });

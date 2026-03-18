@@ -135,8 +135,9 @@ export interface PendingAction {
 
 export interface ToolContext {
   userId: string;
-  workspaceId: string;
-  role: WorkspaceRole;
+  /** undefined: System Admin without workspace */
+  workspaceId?: string;
+  role: WorkspaceRole | "admin";
 }
 
 export interface AgentDependencies {
