@@ -3,19 +3,22 @@ import { interceptWrite } from "../approvals/interceptor.js";
 import { notifyOwnerOfPending } from "../approvals/notify.js";
 import { config } from "../config.js";
 import { getGwsExecutors } from "../skills/gws/executor.js";
-import type {
-  AgentDependencies,
-  AgentResult,
-  ToolContext,
-  ToolExecutor,
-  ToolRegistry,
+import {
+  LINE_PUSH_FLEX_TOOL,
+  LINE_PUSH_TEXT_TOOL,
+  type AgentDependencies,
+  type AgentResult,
+  type ToolContext,
+  type ToolExecutor,
+  type ToolRegistry,
 } from "../types.js";
 import { toErrorMessage } from "../utils/error.js";
+import { infraToolDefs, infraTools } from "./infra-tools.js";
 import { buildSystemPrompt } from "./system.js";
 
 const MAX_TURNS = 15;
 const MODEL = "claude-haiku-4-5-20251001";
-const LINE_PUSH_PREFIX = "push_";
+const LINE_PUSH_TOOLS = new Set([LINE_PUSH_TEXT_TOOL, LINE_PUSH_FLEX_TOOL]);
 
 const client = new Anthropic({ apiKey: config.anthropicApiKey });
 
@@ -49,33 +52,61 @@ export async function runAgentLoop(
 
   let turns = 0;
   let toolCalls = 0;
+  let delivery: "pending" | "pushed" | "no_action" = "pending";
+  const allTools = [...deps.registry.tools, ...infraToolDefs];
+
+  console.log(`[agent] Starting agent loop for ${context.userId} (workspace=${context.workspaceId}, role=${context.role})`);
 
   while (turns < MAX_TURNS) {
     turns++;
 
+    console.log(`[agent] Turn ${turns}: calling Claude API (model=${MODEL})...`);
     const response = await client.messages.create({
       model: MODEL,
       max_tokens: 4096,
       system: systemPrompt,
-      tools: deps.registry.tools,
+      tools: allTools,
       messages,
     });
+    console.log(`[agent] Turn ${turns}: response received (stop_reason=${response.stop_reason})`);
 
     if (response.stop_reason === "max_tokens") {
-      const text = extractText(response.content);
-      return { text: text || "応答が長すぎて切り詰められました。", toolCalls };
+      const text = extractText(response.content) || "応答が長すぎて切り詰められました。";
+      await ensureDelivery(text);
+      return { text, toolCalls };
     }
 
     if (response.stop_reason !== "tool_use") {
-      return { text: extractText(response.content), toolCalls };
+      const text = extractText(response.content);
+      await ensureDelivery(text);
+      return { text, toolCalls };
     }
 
     const toolUseBlocks = response.content.filter(
       (b): b is Anthropic.ToolUseBlock => b.type === "tool_use",
     );
 
+    // 인프라 도구 선처리: 스킬 도구보다 먼저 디스패치
+    const handled = new Set<string>();
+    for (const block of toolUseBlocks) {
+      const entry = infraTools.get(block.name);
+      if (!entry) continue;
+      toolCalls++;
+      handled.add(block.id);
+      const signal = entry.handler(
+        block.input as Record<string, unknown>,
+        context,
+      );
+      if (signal.delivery) delivery = signal.delivery;
+      if (signal.exitLoop) {
+        return { text: signal.exitText, toolCalls };
+      }
+    }
+
+    // 이미 처리된 블록을 제외한 나머지 도구 실행
+    const remaining = toolUseBlocks.filter((b) => !handled.has(b.id));
     const toolResults = await Promise.all(
-      toolUseBlocks.map(async (block) => {
+      remaining.map(async (block) => {
         toolCalls++;
         const toolInput = block.input as Record<string, unknown>;
 
@@ -116,13 +147,18 @@ export async function runAgentLoop(
           };
         }
 
-        try {
+        try {      
+          const isLinePush = LINE_PUSH_TOOLS.has(block.name);
           // 이중 안전장치: LINE push 도구의 user_id를 코드에서 강제 주입
-          if (block.name.startsWith(LINE_PUSH_PREFIX)) {
+          if (isLinePush) {
             toolInput.user_id = context.userId;
           }
-
+          console.log(`[agent] Executing tool: ${block.name}`);
           const result = await executor(toolInput);
+          // push 성공 시에만 설정 — 실패 시 ensureDelivery 폴백이 재시도할 수 있음
+          if (isLinePush) {
+            delivery = "pushed";
+          }
           return {
             type: "tool_result" as const,
             tool_use_id: block.id,
@@ -143,10 +179,25 @@ export async function runAgentLoop(
     messages.push({ role: "user", content: toolResults });
   }
 
-  return {
-    text: "ツール呼び出しの上限に達しました。処理を中断します。",
-    toolCalls,
-  };
+  const text = "ツール呼び出しの上限に達しました。処理を中断します。";
+  await ensureDelivery(text);
+  return { text, toolCalls };
+
+  /** 에이전트가 직접 push하지 않은 경우 LINE으로 응답 전송 */
+  async function ensureDelivery(text: string): Promise<void> {
+    if (delivery !== "pending" || !text) return;
+    const exec = executors.get(LINE_PUSH_TEXT_TOOL);
+    if (!exec) {
+      console.warn("[agent] push_text_message executor not found — response not delivered");
+      return;
+    }
+    try {
+      await exec({ user_id: context.userId, text });
+      delivery = "pushed";
+    } catch (e) {
+      console.error("[agent] ensureDelivery failed:", toErrorMessage(e));
+    }
+  }
 }
 
 export function buildToolRegistry(

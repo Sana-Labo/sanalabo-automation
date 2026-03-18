@@ -98,4 +98,11 @@ describe("buildSystemPrompt", () => {
     const prompt = buildSystemPrompt(makeContext(), makeWorkspace());
     expect(prompt).toContain("2000文字以内");
   });
+
+  test("prompt explains two valid exit paths", () => {
+    const prompt = buildSystemPrompt(makeContext(), makeWorkspace());
+    expect(prompt).toContain("push_text_message");
+    expect(prompt).toContain("no_action");
+    expect(prompt).toContain("Response Rules");
+  });
 });

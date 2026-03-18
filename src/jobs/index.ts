@@ -49,7 +49,7 @@ export const urgentMailCheck = withJobLogging("urgent mail check", async (deps, 
   const checkpoint = new Date();
   const sinceEpoch = Math.floor(since.getTime() / 1000);
 
-  const prompt = `Gmailで重要なメールを確認して(クエリ: is:important after:${sinceEpoch})。該当メールがあれば内容をLINEで通知して。なければ何もしないで。`;
+  const prompt = `Check Gmail for important emails (query: is:important after:${sinceEpoch}). If any, notify the user via LINE. If none, use the no_action tool to exit.`;
 
   const result = await runAgentLoop(prompt, deps, context);
   // 성공 시에만 체크포인트를 전진 — 실패 시 동일 기간을 재시도

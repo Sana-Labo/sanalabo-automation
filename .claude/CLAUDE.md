@@ -325,6 +325,7 @@ bun run src/workspaces/cli.ts status {id}
 - Conventional Commits: `<type>(<scope>): <description>`
 - **type**: `feat`, `fix`, `docs`, `chore`, `test`, `refactor`, `style`, `perf`, `ci`
 - **scope**: `agent`, `channel`, `skill`, `jobs`, `routes`, `config`, `workspaces`, `approvals`, `docker` 등 계층/모듈 단위
+- **언어**: 한국어(기본) > 영어 — `<description>`과 body 모두 해당
 - 1 태스크 = 1 커밋 (독립 cherry-pick 가능)
 - `git add -A`/`.` 금지 — 파일명 명시로 스테이징
 
