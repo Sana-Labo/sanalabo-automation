@@ -31,6 +31,7 @@ export function buildMcpEnv(): Record<string, string> {
   return {
     CHANNEL_ACCESS_TOKEN: config.lineChannelAccessToken,
     DESTINATION_USER_ID: config.systemAdminIds[0] ?? "",
+    PUPPETEER_SKIP_DOWNLOAD: "true",
     PATH: process.env["PATH"] ?? "",
     HOME: process.env["HOME"] ?? "",
   };
