@@ -16,13 +16,14 @@ import {
 import { config } from "../config.js";
 import { getGwsExecutors } from "../skills/gws/executor.js";
 import { toErrorMessage } from "../utils/error.js";
-import type {
-  AgentDependencies,
-  LineFollowEvent,
-  LinePostbackEvent,
-  LineMessageEvent,
-  LineWebhookEvent,
-  ToolContext,
+import {
+  LINE_PUSH_TEXT_TOOL,
+  type AgentDependencies,
+  type LineFollowEvent,
+  type LinePostbackEvent,
+  type LineMessageEvent,
+  type LineWebhookEvent,
+  type ToolContext,
 } from "../types.js";
 import type { UserStore } from "../users/store.js";
 
@@ -38,7 +39,7 @@ export function createLineWebhookRoute(
   // --- Shared helpers ---
 
   async function sendText(userId: string, text: string): Promise<void> {
-    const exec = deps.registry.executors.get("push_text_message");
+    const exec = deps.registry.executors.get(LINE_PUSH_TEXT_TOOL);
     if (exec) await exec({ user_id: userId, text });
   }
 
