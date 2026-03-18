@@ -9,35 +9,42 @@ import { startScheduler } from "./scheduler.js";
 import { gwsTools } from "./skills/gws/tools.js";
 import type { AgentDependencies, ToolRegistry } from "./types.js";
 import { createUserStore } from "./users/store.js";
+import { toErrorMessage } from "./utils/error.js";
+import { configureLogging, createLogger } from "./utils/logger.js";
 import { migrateFromFlatModel } from "./workspaces/migrate.js";
 import { createWorkspaceStore } from "./workspaces/store.js";
+
+const log = createLogger("app");
 
 let mcpClose: (() => Promise<void>) | undefined;
 let cronJobs: { stop: () => void }[] = [];
 
 async function main() {
+  // 0. 로깅 초기화 (다른 초기화보다 먼저)
+  await configureLogging();
+
   // 1. 환경변수 검증
   const port = config.port;
-  console.log("[app] Environment validated");
+  log.info("Environment validated");
 
   // 2. 저장소 초기화
   const userStore = await createUserStore();
-  console.log("[app] User store initialized");
+  log.info("User store initialized");
 
   const workspaceStore = await createWorkspaceStore();
-  console.log("[app] Workspace store initialized");
+  log.info("Workspace store initialized");
 
   // 워크스페이스 미존재 시 flat 모델에서 자동 마이그레이션
   await migrateFromFlatModel(userStore, workspaceStore, config.systemAdminIds);
 
   const pendingActionStore = await createPendingActionStore();
-  console.log("[app] Pending action store initialized");
+  log.info("Pending action store initialized");
 
   // 3. MCP 풀 연결 (LINE MCP Server)
-  console.log("[app] Connecting MCP pool...");
+  log.info("Connecting MCP pool...");
   const mcp = await connectMcpPool({ size: config.mcpPoolSize });
   mcpClose = mcp.close;
-  console.log(`[app] MCP pool connected (${mcp.tools.length} tools, ${config.mcpPoolSize} members)`);
+  log.info("MCP pool connected", { toolCount: mcp.tools.length, poolSize: config.mcpPoolSize });
 
   // 4. 기본 도구 레지스트리 구성
   // GWS 도구 *정의*는 공통 — executor는 런타임에 워크스페이스별로 해결
@@ -45,7 +52,7 @@ async function main() {
     { tools: gwsTools, executors: new Map() },
     { tools: mcp.tools, executors: mcp.executors },
   );
-  console.log(`[app] Tool registry built (${registry.tools.length} tools total)`);
+  log.info("Tool registry built", { toolCount: registry.tools.length });
 
   // 5. 에이전트 의존성 (webhook + scheduler 공유)
   const deps: AgentDependencies = {
@@ -62,7 +69,7 @@ async function main() {
   // 7. 스케줄러 시작
   cronJobs = startScheduler(deps, userStore);
 
-  console.log(`[app] Server starting on port ${port}`);
+  log.info("Server starting", { port });
 
   // 8. Bun serve용 export
   return { port, fetch: app.fetch };
@@ -70,7 +77,7 @@ async function main() {
 
 // 정상 종료 처리
 process.on("SIGTERM", async () => {
-  console.log("[app] SIGTERM received, shutting down...");
+  log.info("SIGTERM received, shutting down...");
   for (const job of cronJobs) {
     job.stop();
   }
@@ -81,6 +88,6 @@ process.on("SIGTERM", async () => {
 });
 
 export default await main().catch((err) => {
-  console.error("[app] Fatal startup error:", err);
+  log.error("Fatal startup error", { error: toErrorMessage(err) });
   process.exit(1);
 });

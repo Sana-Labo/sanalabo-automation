@@ -1,5 +1,8 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import type { ToolContext } from "../types.js";
+import { createLogger } from "../utils/logger.js";
+
+const log = createLogger("agent");
 
 // --- 타입 ---
 
@@ -47,7 +50,7 @@ const noAction: InfraToolEntry = {
   },
   handler(input) {
     const reason = (input.reason as string) ?? "";
-    console.log(`[agent] no_action: ${reason}`);
+    log.info("no_action", { reason });
     return {
       toolResult: "no_action acknowledged",
       exitLoop: true,

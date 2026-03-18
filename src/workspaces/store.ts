@@ -61,7 +61,7 @@ export class JsonWorkspaceStore extends JsonFileStore<WorkspaceRecord> implement
 
     this.data[id] = record;
     await this.save();
-    console.log(`[workspaces] Created workspace "${name}" (${id}) for owner ${ownerId}`);
+    this.log.info("Created workspace", { name, id, ownerId });
     return record;
   }
 
@@ -76,7 +76,7 @@ export class JsonWorkspaceStore extends JsonFileStore<WorkspaceRecord> implement
       invitedBy,
     };
     await this.save();
-    console.log(`[workspaces] Added member ${userId} to workspace ${workspaceId}`);
+    this.log.info("Added member", { userId, workspaceId });
   }
 
   async removeMember(workspaceId: string, userId: string): Promise<void> {
@@ -86,7 +86,7 @@ export class JsonWorkspaceStore extends JsonFileStore<WorkspaceRecord> implement
 
     delete ws.members[userId];
     await this.save();
-    console.log(`[workspaces] Removed member ${userId} from workspace ${workspaceId}`);
+    this.log.info("Removed member", { userId, workspaceId });
   }
 
   resolveWorkspace(userId: string, defaultWorkspaceId?: string): WorkspaceRecord | undefined {
@@ -115,7 +115,7 @@ export class JsonWorkspaceStore extends JsonFileStore<WorkspaceRecord> implement
     if (!ws) throw new Error(`Workspace not found: ${workspaceId}`);
     ws.gwsAuthenticated = authenticated;
     await this.save();
-    console.log(`[workspaces] Set gwsAuthenticated=${authenticated} for workspace ${workspaceId}`);
+    this.log.info("Set gwsAuthenticated", { workspaceId, authenticated });
   }
 }
 

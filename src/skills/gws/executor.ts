@@ -1,5 +1,8 @@
 import type { GwsCommandResult, ToolExecutor } from "../../types.js";
 import { toErrorMessage } from "../../utils/error.js";
+import { createLogger } from "../../utils/logger.js";
+
+const log = createLogger("gws");
 
 export interface GwsExecOptions {
   configDir: string;
@@ -20,6 +23,7 @@ function optString(input: Record<string, unknown>, key: string): string | undefi
 }
 
 async function runGws(args: string[], options: GwsExecOptions): Promise<GwsCommandResult> {
+  log.debug("Executing GWS command", () => ({ args }));
   const proc = Bun.spawn(["gws", ...args, "--format", "json"], {
     stdout: "pipe",
     stderr: "pipe",
@@ -49,6 +53,8 @@ async function runGws(args: string[], options: GwsExecOptions): Promise<GwsComma
       })),
       timeout,
     ]);
+
+    log.debug("GWS command completed", () => ({ success: exitCode === 0, exitCode, stdoutLength: stdout.length }));
 
     if (exitCode !== 0) {
       return {

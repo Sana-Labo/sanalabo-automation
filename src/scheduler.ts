@@ -2,6 +2,10 @@ import { Cron } from "croner";
 import { morningBriefing, urgentMailCheck, eveningSummary } from "./jobs/index.js";
 import type { AgentDependencies, ToolContext } from "./types.js";
 import type { UserStore } from "./users/store.js";
+import { toErrorMessage } from "./utils/error.js";
+import { createLogger } from "./utils/logger.js";
+
+const log = createLogger("scheduler");
 
 async function forAllWorkspaceUsers(
   deps: AgentDependencies,
@@ -25,14 +29,21 @@ async function forAllWorkspaceUsers(
       for (let i = 0; i < results.length; i++) {
         const r = results[i]!;
         if (r.status === "rejected") {
-          console.error(
-            `[scheduler] Job failure for ${activeMembers[i]![0]} in workspace ${ws.id}:`,
-            r.reason,
-          );
+          log.error("Job failure", {
+            userId: activeMembers[i]![0], workspaceId: ws.id, error: toErrorMessage(r.reason),
+          });
         }
       }
     }),
   );
+}
+
+/** 크론 잡 스케줄 정의 — Cron 생성과 시작 로깅의 단일 출처 */
+interface ScheduleDef {
+  name: string;
+  cron: string;
+  protect?: boolean;
+  run: () => Promise<void>;
 }
 
 export function startScheduler(
@@ -41,30 +52,30 @@ export function startScheduler(
 ): Cron[] {
   const tz = "Asia/Tokyo";
 
-  const jobs = [
-    new Cron("0 8 * * 1-5", { timezone: tz, protect: true }, async () => {
-      await forAllWorkspaceUsers(deps, userStore, morningBriefing);
-    }),
-    new Cron("*/30 8-22 * * *", { timezone: tz, protect: true }, async () => {
-      await forAllWorkspaceUsers(deps, userStore, urgentMailCheck);
-    }),
-    new Cron("0 21 * * 1-5", { timezone: tz, protect: true }, async () => {
-      await forAllWorkspaceUsers(deps, userStore, eveningSummary);
-    }),
-    // 매시간 만료된 PendingAction 처리 + 오래된 해결 건 삭제
-    new Cron("0 * * * *", { timezone: tz }, async () => {
-      const expired = await deps.pendingActionStore.expireOlderThan(24);
-      if (expired > 0) console.log(`[approvals] Expired ${expired} pending actions`);
-      const purged = await deps.pendingActionStore.purgeResolved(7);
-      if (purged > 0) console.log(`[approvals] Purged ${purged} resolved actions older than 7 days`);
-    }),
+  const schedules: ScheduleDef[] = [
+    { name: "morningBriefing", cron: "0 8 * * 1-5", protect: true,
+      run: () => forAllWorkspaceUsers(deps, userStore, morningBriefing) },
+    { name: "urgentMailCheck", cron: "*/30 8-22 * * *", protect: true,
+      run: () => forAllWorkspaceUsers(deps, userStore, urgentMailCheck) },
+    { name: "eveningSummary", cron: "0 21 * * 1-5", protect: true,
+      run: () => forAllWorkspaceUsers(deps, userStore, eveningSummary) },
+    { name: "pendingActionExpiry", cron: "0 * * * *",
+      run: async () => {
+        const expired = await deps.pendingActionStore.expireOlderThan(24);
+        if (expired > 0) log.info("Expired pending actions", { count: expired });
+        const purged = await deps.pendingActionStore.purgeResolved(7);
+        if (purged > 0) log.info("Purged resolved actions", { count: purged, olderThanDays: 7 });
+      } },
   ];
 
-  console.log("[scheduler] Cron jobs started (Asia/Tokyo)");
-  console.log("[scheduler]   - Morning briefing: 0 8 * * 1-5");
-  console.log("[scheduler]   - Urgent mail check: */30 8-22 * * *");
-  console.log("[scheduler]   - Evening summary: 0 21 * * 1-5");
-  console.log("[scheduler]   - Pending action expiry: 0 * * * *");
+  const jobs = schedules.map((s) =>
+    new Cron(s.cron, { timezone: tz, protect: s.protect ?? false }, s.run),
+  );
+
+  log.info("Cron jobs started", {
+    timezone: tz,
+    schedules: schedules.map((s) => ({ name: s.name, cron: s.cron })),
+  });
 
   return jobs;
 }

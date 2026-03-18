@@ -4,6 +4,9 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { config } from "../config.js";
 import type { ToolExecutor } from "../types.js";
 import { toErrorMessage } from "../utils/error.js";
+import { createLogger } from "../utils/logger.js";
+
+const log = createLogger("mcp");
 
 export interface McpConnection {
   tools: Anthropic.Tool[];
@@ -57,16 +60,13 @@ export async function connectWithFallback(env: Record<string, string>): Promise<
 
   for (const runtime of RUNTIMES) {
     try {
-      console.log(`[mcp] Trying ${runtime.command} ${runtime.args.join(" ")}...`);
+      log.info("Trying runtime", { command: runtime.command, args: runtime.args.join(" ") });
       const client = await tryConnect(runtime, env);
-      console.log(`[mcp] Connected via ${runtime.command}`);
+      log.info("Connected", { command: runtime.command });
       return client;
     } catch (e) {
       lastError = e;
-      console.warn(
-        `[mcp] ${runtime.command} failed:`,
-        toErrorMessage(e),
-      );
+      log.warning("Runtime failed", { command: runtime.command, error: toErrorMessage(e) });
     }
   }
 
@@ -120,14 +120,14 @@ export async function connectMcp(): Promise<McpConnection> {
     if (reconnecting) return reconnecting;
 
     reconnecting = (async () => {
-      console.log("[mcp] Reconnecting to LINE MCP Server...");
+      log.info("Reconnecting to LINE MCP Server...");
       try {
         await currentClient.close();
       } catch {
         // 기존 클라이언트가 이미 종료되었을 수 있음
       }
       currentClient = await connectWithFallback(env);
-      console.log("[mcp] Reconnected successfully");
+      log.info("Reconnected successfully");
     })();
 
     try {
@@ -154,10 +154,7 @@ export async function connectMcp(): Promise<McpConnection> {
       try {
         return await attempt();
       } catch (e) {
-        console.warn(
-          `[mcp] Tool "${t.name}" failed, reconnecting:`,
-          toErrorMessage(e),
-        );
+        log.warning("Tool failed, reconnecting", { tool: t.name, error: toErrorMessage(e) });
         await reconnect();
         return await attempt();
       }

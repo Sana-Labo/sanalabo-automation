@@ -1,17 +1,21 @@
 import { runAgentLoop } from "../agent/loop.js";
 import type { AgentDependencies, ToolContext } from "../types.js";
+import { toErrorMessage } from "../utils/error.js";
+import { createLogger } from "../utils/logger.js";
+
+const log = createLogger("cron");
 
 function withJobLogging(
   label: string,
   fn: (deps: AgentDependencies, context: ToolContext) => Promise<{ toolCalls: number }>,
 ): (deps: AgentDependencies, context: ToolContext) => Promise<void> {
   return async (deps, context) => {
-    console.log(`[cron] Running ${label} for ${context.userId}...`);
+    log.info("Running job", { job: label, userId: context.userId });
     try {
       const result = await fn(deps, context);
-      console.log(`[cron] ${label} done for ${context.userId} (${result.toolCalls} tool calls)`);
+      log.info("Job done", { job: label, userId: context.userId, toolCalls: result.toolCalls });
     } catch (err) {
-      console.error(`[cron] ${label} error for ${context.userId}:`, err);
+      log.error("Job error", { job: label, userId: context.userId, error: toErrorMessage(err) });
     }
   };
 }

@@ -24,7 +24,7 @@ export class JsonPendingActionStore extends JsonFileStore<PendingAction> impleme
 
     this.data[id] = record;
     await this.save();
-    console.log(`[approvals] Created pending action ${id} (${action.toolName}) for ${action.requesterId}`);
+    this.log.info("Created pending action", { id, toolName: action.toolName, requesterId: action.requesterId });
     return record;
   }
 
@@ -51,7 +51,7 @@ export class JsonPendingActionStore extends JsonFileStore<PendingAction> impleme
     action.resolvedAt = new Date().toISOString();
     action.resolvedBy = approvedBy;
     await this.save();
-    console.log(`[approvals] Approved action ${actionId} by ${approvedBy}`);
+    this.log.info("Approved action", { actionId, approvedBy });
     return action;
   }
 
@@ -67,7 +67,7 @@ export class JsonPendingActionStore extends JsonFileStore<PendingAction> impleme
     action.resolvedBy = rejectedBy;
     if (reason) action.rejectionReason = reason;
     await this.save();
-    console.log(`[approvals] Rejected action ${actionId} by ${rejectedBy}`);
+    this.log.info("Rejected action", { actionId, rejectedBy });
     return action;
   }
 
