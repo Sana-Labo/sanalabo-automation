@@ -16,13 +16,14 @@ import {
 import { config } from "../config.js";
 import { getGwsExecutors } from "../skills/gws/executor.js";
 import { toErrorMessage } from "../utils/error.js";
-import type {
-  AgentDependencies,
-  LineFollowEvent,
-  LinePostbackEvent,
-  LineMessageEvent,
-  LineWebhookEvent,
-  ToolContext,
+import {
+  LINE_PUSH_TEXT_TOOL,
+  type AgentDependencies,
+  type LineFollowEvent,
+  type LinePostbackEvent,
+  type LineMessageEvent,
+  type LineWebhookEvent,
+  type ToolContext,
 } from "../types.js";
 import type { UserStore } from "../users/store.js";
 
@@ -38,7 +39,7 @@ export function createLineWebhookRoute(
   // --- 공통 헬퍼 ---
 
   async function sendText(userId: string, text: string): Promise<void> {
-    const exec = deps.registry.executors.get("push_text_message");
+    const exec = deps.registry.executors.get(LINE_PUSH_TEXT_TOOL);
     if (exec) await exec({ user_id: userId, text });
   }
 
@@ -162,7 +163,12 @@ export function createLineWebhookRoute(
     event: LineMessageEvent,
     userId: string,
   ): void {
-    if (!userStore.isActive(userId)) return;
+    if (!userStore.isActive(userId)) {
+      console.log(`[webhook] Ignoring message from inactive user ${userId}`);
+      return;
+    }
+    console.log(`[webhook] Processing text message from ${userId}: "${extractTextMessage(event).slice(0, 50)}"`);
+
 
     const text = extractTextMessage(event);
 
@@ -247,6 +253,7 @@ export function createLineWebhookRoute(
       return;
     }
 
+    console.log(`[webhook] Enqueuing agent for ${userId}`);
     enqueueAgent(text, userId);
   }
 
@@ -365,7 +372,9 @@ export function createLineWebhookRoute(
     }
 
     const events = parseLineEvents(body);
+    console.log(`[webhook] Received ${events.length} event(s)`);
     for (const event of events) {
+      console.log(`[webhook] Event type=${event.type}, userId=${extractUserId(event)}`);
       routeEvent(event);
     }
 
