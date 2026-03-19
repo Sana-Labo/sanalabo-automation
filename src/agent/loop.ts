@@ -4,8 +4,8 @@ import { notifyOwnerOfPending } from "../approvals/notify.js";
 import { config } from "../config.js";
 import { getGwsExecutors } from "../skills/gws/executor.js";
 import {
-  LINE_PUSH_FLEX_TOOL,
   LINE_PUSH_TEXT_TOOL,
+  MCP_ALLOWED_TOOLS,
   type AgentDependencies,
   type AgentResult,
   type ToolContext,
@@ -15,21 +15,57 @@ import {
 import { toErrorMessage } from "../utils/error.js";
 import { createLogger } from "../utils/logger.js";
 import { infraToolDefs, infraTools } from "./infra-tools.js";
+import { createLineExecutors } from "./line-tool-adapter.js";
 import { buildSystemPrompt } from "./system.js";
 
 const log = createLogger("agent");
 
 const MAX_TURNS = 15;
 const MODEL = "claude-haiku-4-5-20251001";
-const LINE_PUSH_TOOLS = new Set([LINE_PUSH_TEXT_TOOL, LINE_PUSH_FLEX_TOOL]);
 
 const client = new Anthropic({ apiKey: config.anthropicApiKey });
+
+/** end_turn 응답을 JSON Schema로 강제하는 설정 */
+const OUTPUT_CONFIG: Anthropic.Messages.OutputConfig = {
+  format: {
+    type: "json_schema",
+    schema: {
+      type: "object",
+      properties: {
+        text: { type: "string", description: "Message to send to user via LINE" },
+      },
+      required: ["text"],
+      additionalProperties: false,
+    },
+  },
+};
 
 function extractText(content: Anthropic.ContentBlock[]): string {
   return content
     .filter((b): b is Anthropic.TextBlock => b.type === "text")
     .map((b) => b.text)
     .join("\n");
+}
+
+/**
+ * end_turn 응답에서 JSON 파싱 → text 필드 추출
+ *
+ * output_config(json_schema)에 의해 `{ text: string }` 형식이 보장되지만,
+ * 파싱 실패 또는 text 필드 누락 시 원본 텍스트를 폴백으로 반환.
+ */
+function extractJsonText(content: Anthropic.ContentBlock[]): string {
+  const raw = extractText(content);
+  if (!raw) return raw;
+  try {
+    const parsed = JSON.parse(raw) as { text?: string };
+    if (typeof parsed.text === "string") return parsed.text;
+    // output_config 제약에도 불구하고 text 필드 누락 — 구조 불일치 경고
+    log.warning("JSON output missing text field", { keys: Object.keys(parsed) });
+    return raw;
+  } catch {
+    log.debug("JSON output parsing failed, using raw text");
+    return raw;
+  }
 }
 
 export async function runAgentLoop(
@@ -43,12 +79,17 @@ export async function runAgentLoop(
   const systemPrompt = buildSystemPrompt(context, workspace);
 
   // 요청별 executor 구성: 기본 레지스트리 + 워크스페이스별 GWS executor
+  // LINE push 도구는 래핑 executor (단순화 입력 → MCP 네이티브 변환 + userId 주입)
   const executors = new Map(deps.registry.executors);
   if (workspace) {
     const gwsExecs = getGwsExecutors(workspace.id, workspace.gwsConfigDir);
     for (const [name, exec] of gwsExecs) {
       executors.set(name, exec);
     }
+  }
+  const lineExecs = createLineExecutors(deps.registry.executors, context.userId);
+  for (const [name, exec] of lineExecs) {
+    executors.set(name, exec);
   }
 
   const messages: Anthropic.MessageParam[] = [
@@ -74,6 +115,7 @@ export async function runAgentLoop(
       max_tokens: 4096,
       system: systemPrompt,
       tools: allTools,
+      output_config: OUTPUT_CONFIG,
       messages,
     });
 
@@ -86,7 +128,8 @@ export async function runAgentLoop(
     }
 
     if (response.stop_reason !== "tool_use") {
-      const text = extractText(response.content);
+      // end_turn: output_config에 의해 JSON 형식 → text 필드 추출
+      const text = extractJsonText(response.content);
       await ensureDelivery(text);
       log.debug("Agent loop completed", () => ({ turns, toolCalls }));
       return { text, toolCalls };
@@ -161,16 +204,9 @@ export async function runAgentLoop(
         }
 
         try {
-          const isLinePush = LINE_PUSH_TOOLS.has(block.name);
-          // 이중 안전장치: LINE push 도구의 user_id를 코드에서 강제 주입
-          if (isLinePush) {
-            toolInput.user_id = context.userId;
-            log.debug("Injected userId for LINE push", () => ({ tool: block.name, userId: context.userId }));
-          }
           const result = await executor(toolInput);
           log.debug("Tool succeeded", () => ({ tool: block.name, resultLength: result.length }));
-          // push 성공 시에만 설정 — 실패 시 ensureDelivery 폴백이 재시도할 수 있음
-          if (isLinePush) {
+          if (MCP_ALLOWED_TOOLS.has(block.name)) {
             delivery = "pushed";
           }
           return {
@@ -207,7 +243,8 @@ export async function runAgentLoop(
       return;
     }
     try {
-      await exec({ user_id: context.userId, text });
+      // 래핑 executor 사용: { text } → userId 자동 주입 + MCP 네이티브 변환
+      await exec({ text });
       delivery = "pushed";
     } catch (e) {
       log.error("ensureDelivery failed", { error: toErrorMessage(e) });

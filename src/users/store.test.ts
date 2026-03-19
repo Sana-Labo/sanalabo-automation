@@ -1,6 +1,7 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import "../test-utils/setup-env.js";
 import { createTestDir } from "../test-utils/tmpdir.js";
+import { createFromFollow, deactivate } from "../domain/user.js";
 
 const { JsonUserStore } = await import("./store.js");
 
@@ -15,60 +16,36 @@ beforeEach(async () => {
 afterEach(() => td.cleanup());
 
 describe("JsonUserStore", () => {
-  test("invite: new user gets status 'invited'", async () => {
-    await store.invite("Uuser01", "Uowner01");
+  // --- get / set ---
 
-    expect(store.isInvited("Uuser01")).toBe(true);
-    expect(store.isActive("Uuser01")).toBe(false);
+  test("get: returns undefined for nonexistent user", () => {
+    expect(store.get("Unonexistent")).toBeUndefined();
   });
 
-  test("activate: invited -> active", async () => {
-    await store.invite("Uuser01", "Uowner01");
-    await store.activate("Uuser01");
+  test("set: stores and retrieves a record", async () => {
+    const record = createFromFollow();
+    await store.set("Uuser01", record);
 
-    expect(store.isActive("Uuser01")).toBe(true);
-    expect(store.isInvited("Uuser01")).toBe(false);
+    expect(store.get("Uuser01")).toEqual(record);
   });
 
-  test("deactivate: active -> inactive", async () => {
-    await store.invite("Uuser01", "Uowner01");
-    await store.activate("Uuser01");
-    await store.deactivate("Uuser01");
+  test("set: overwrites existing record", async () => {
+    await store.set("Uuser01", createFromFollow());
+    const deactivated = deactivate(store.get("Uuser01")!);
+    await store.set("Uuser01", deactivated);
 
-    expect(store.isActive("Uuser01")).toBe(false);
-    expect(store.isInvited("Uuser01")).toBe(false);
+    expect(store.get("Uuser01")?.status).toBe("inactive");
   });
 
-  test("isActive: only active users return true", async () => {
-    await store.invite("Uuser01", "Uowner01");
-    expect(store.isActive("Uuser01")).toBe(false); // invited
-
-    await store.activate("Uuser01");
-    expect(store.isActive("Uuser01")).toBe(true); // active
-
-    await store.deactivate("Uuser01");
-    expect(store.isActive("Uuser01")).toBe(false); // inactive
-
-    expect(store.isActive("Unonexistent")).toBe(false); // unknown
-  });
-
-  test("isInvited: only invited users return true", async () => {
-    await store.invite("Uuser01", "Uowner01");
-    expect(store.isInvited("Uuser01")).toBe(true);
-
-    await store.activate("Uuser01");
-    expect(store.isInvited("Uuser01")).toBe(false);
-
-    expect(store.isInvited("Unonexistent")).toBe(false);
-  });
+  // --- getActiveUsers ---
 
   test("getActiveUsers: returns only active user IDs", async () => {
-    await store.invite("Uuser01", "Uowner01");
-    await store.invite("Uuser02", "Uowner01");
-    await store.invite("Uuser03", "Uowner01");
+    await store.set("Uuser01", createFromFollow());
+    await store.set("Uuser02", createFromFollow());
+    await store.set("Uuser03", createFromFollow());
 
-    await store.activate("Uuser01");
-    await store.activate("Uuser03");
+    // Uuser02 를 비활성화
+    await store.set("Uuser02", deactivate(store.get("Uuser02")!));
 
     const activeUsers = store.getActiveUsers();
     expect(activeUsers).toContain("Uuser01");
@@ -76,9 +53,10 @@ describe("JsonUserStore", () => {
     expect(activeUsers).not.toContain("Uuser02");
   });
 
+  // --- defaultWorkspaceId ---
+
   test("setDefaultWorkspaceId: sets and retrieves workspace ID", async () => {
-    await store.invite("Uuser01", "Uowner01");
-    await store.activate("Uuser01");
+    await store.set("Uuser01", createFromFollow());
 
     expect(store.getDefaultWorkspaceId("Uuser01")).toBeUndefined();
 
@@ -87,41 +65,24 @@ describe("JsonUserStore", () => {
   });
 
   test("setDefaultWorkspaceId: no-op for nonexistent user", async () => {
-    // 에러 발생하지 않아야 함
     await store.setDefaultWorkspaceId("Unonexistent", "ws-001");
     expect(store.getDefaultWorkspaceId("Unonexistent")).toBeUndefined();
   });
 
-  test("invite duplicate: already active user is no-op", async () => {
-    await store.invite("Uuser01", "Uowner01");
-    await store.activate("Uuser01");
-
-    // 재초대는 무처리
-    await store.invite("Uuser01", "Uowner02");
-    expect(store.isActive("Uuser01")).toBe(true);
-  });
+  // --- isSystemAdmin ---
 
   test("isSystemAdmin: returns true for configured admin IDs", () => {
     expect(store.isSystemAdmin("Uadmin00000000000000000000000001")).toBe(true);
     expect(store.isSystemAdmin("Uuser01")).toBe(false);
   });
 
+  // --- registerSystemAdmins ---
+
   test("registerSystemAdmins: admin is auto-registered as active", async () => {
     await store.registerSystemAdmins();
 
-    expect(store.isActive("Uadmin00000000000000000000000001")).toBe(true);
-  });
-
-  test("activate: no-op for nonexistent user", async () => {
-    // 에러 발생하지 않아야 함
-    await store.activate("Unonexistent");
-    expect(store.isActive("Unonexistent")).toBe(false);
-  });
-
-  test("deactivate: no-op for non-active user", async () => {
-    await store.invite("Uuser01", "Uowner01");
-    // invited 상태, active 아님 — deactivate는 무처리
-    await store.deactivate("Uuser01");
-    expect(store.isInvited("Uuser01")).toBe(true);
+    const admin = store.get("Uadmin00000000000000000000000001");
+    expect(admin?.status).toBe("active");
+    expect(admin?.invitedBy).toBe("system");
   });
 });

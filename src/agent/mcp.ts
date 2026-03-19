@@ -78,6 +78,13 @@ export function extractMcpText(result: Awaited<ReturnType<Client["callTool"]>>):
   return texts.join("\n");
 }
 
+/**
+ * MCP 도구를 Anthropic Tool 형식으로 변환 (strict mode 일괄 적용)
+ *
+ * 주의: `additionalProperties: false`는 최상위 object에만 적용.
+ * 중첩 object 속성이 있는 MCP 도구는 strict mode에서 거부될 수 있음.
+ * 그 경우 재귀적으로 `additionalProperties: false`를 주입하는 로직 추가 필요.
+ */
 export function mapMcpToAnthropicTools(
   mcpTools: Awaited<ReturnType<Client["listTools"]>>["tools"],
 ): Anthropic.Tool[] {
@@ -85,10 +92,12 @@ export function mapMcpToAnthropicTools(
     const { type: _type, ...rest } = t.inputSchema;
     return {
       name: t.name,
+      strict: true,
       description: t.description ?? "",
       input_schema: {
         type: "object" as const,
         ...rest,
+        additionalProperties: false,
       },
     };
   });

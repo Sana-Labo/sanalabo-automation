@@ -166,4 +166,50 @@ describe("buildSystemPrompt", () => {
       expect(prompt).toContain("Never send emails");
     });
   });
+
+  describe("onboarding (member, no workspace)", () => {
+    test("contains service introduction", () => {
+      const prompt = buildSystemPrompt(
+        makeContext({ role: "member", workspaceId: undefined }),
+        undefined,
+      );
+      expect(prompt).toContain("onboarding");
+    });
+
+    test("does not contain GWS-specific content", () => {
+      const prompt = buildSystemPrompt(
+        makeContext({ role: "member", workspaceId: undefined }),
+        undefined,
+      );
+      expect(prompt).not.toContain("Safety Rules");
+      expect(prompt).not.toContain("Never send emails");
+      expect(prompt).not.toContain("Your role:");
+    });
+
+    test("contains response rules and message format", () => {
+      const prompt = buildSystemPrompt(
+        makeContext({ role: "member", workspaceId: undefined }),
+        undefined,
+      );
+      expect(prompt).toContain("push_text_message");
+      expect(prompt).toContain("Response Rules");
+      expect(prompt).toContain("2000 characters");
+    });
+
+    test("contains userId", () => {
+      const prompt = buildSystemPrompt(
+        makeContext({ role: "member", userId: "Unewuser9999", workspaceId: undefined }),
+        undefined,
+      );
+      expect(prompt).toContain("Unewuser9999");
+    });
+
+    test("mentions workspace as next step", () => {
+      const prompt = buildSystemPrompt(
+        makeContext({ role: "member", workspaceId: undefined }),
+        undefined,
+      );
+      expect(prompt).toContain("workspace");
+    });
+  });
 });

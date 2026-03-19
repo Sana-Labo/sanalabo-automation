@@ -1,6 +1,12 @@
 import { Hono } from "hono";
 import { runAgentLoop } from "../agent/loop.js";
 import { notifyActionResult } from "../approvals/notify.js";
+import {
+  isActive,
+  createFromFollow,
+  activate as activateUser,
+  deactivate as deactivateUser,
+} from "../domain/user.js";
 import { clearUrgentCheckpoint } from "../jobs/index.js";
 import {
   verifyLineSignature,
@@ -96,16 +102,6 @@ export function createLineWebhookRoute(
     return resolveContext(userId) ?? { userId, role: "admin" };
   }
 
-  async function sendWorkspaceSelectionPrompt(userId: string): Promise<void> {
-    const workspaces = deps.workspaceStore.getByMember(userId);
-    if (workspaces.length === 0) return;
-    const list = workspaces.map((ws) => `- ${ws.name} (${ws.id})`).join("\n");
-    await sendText(
-      userId,
-      `You belong to multiple workspaces. Please set a default:\n${list}\n\nSend "use <ID>" to select one.`,
-    );
-  }
-
   function enqueueAgent(prompt: string, userId: string): void {
     enqueue(userId, async () => {
       const context = resolveContext(userId);
@@ -115,7 +111,8 @@ export function createLineWebhookRoute(
           await runAgentLoop(prompt, deps, { userId, role: "admin" });
           return;
         }
-        await sendWorkspaceSelectionPrompt(userId);
+        // 일반 사용자 + 워크스페이스 미소속 → 온보딩 컨텍스트
+        await runAgentLoop(prompt, deps, { userId, role: "member" });
         return;
       }
       await runAgentLoop(prompt, deps, context);
@@ -124,53 +121,59 @@ export function createLineWebhookRoute(
 
   // --- 이벤트 핸들러 ---
 
+  // TODO: event.replyToken을 Reply API에 활용 (Push API 비용 최적화)
   function handleFollow(
-    event: LineFollowEvent,
+    _event: LineFollowEvent,
     userId: string,
   ): void {
-    // 시스템 관리자 재팔로우: 초대 확인 없이 재활성화
-    if (userStore.isSystemAdmin(userId) && !userStore.isActive(userId)) {
-      enqueue(userId, async () => {
-        await userStore.activate(userId);
+    // 동기 가드: 빠른 거부 (이미 active면 중복 follow)
+    if (isActive(userStore.get(userId))) return;
+
+    enqueue(userId, async () => {
+      // 클로저 내부에서 재조회 — enqueue 대기 중 상태 변경 대비
+      const current = userStore.get(userId);
+
+      // 이미 active — 중복 follow 또는 다른 경로에서 활성화됨
+      if (isActive(current)) return;
+
+      if (current) {
+        // 기존 사용자 재팔로우 (inactive → active)
+        await userStore.set(userId, activateUser(current));
+        const isAdmin = userStore.isSystemAdmin(userId);
+        const context = isAdmin ? resolveContextOrAdmin(userId) : resolveContext(userId) ?? { userId, role: "member" };
+        const prompt = isAdmin
+          ? "An admin user has re-joined. Send a welcome-back message via LINE."
+          : "A returning user has re-joined. Send a welcome-back message via LINE.";
+        await runAgentLoop(prompt, deps, context);
+      } else {
+        // 신규 사용자: 즉시 활성화 + 온보딩
+        await userStore.set(userId, createFromFollow());
         await runAgentLoop(
-          "An admin user has re-joined. Send a welcome-back message via LINE.",
+          "A new user has just joined. Greet them, introduce the service, and guide them on how to get started.",
           deps,
-          resolveContextOrAdmin(userId),
+          { userId, role: "member" },
         );
-      });
-    } else if (userStore.isInvited(userId)) {
-      enqueue(userId, async () => {
-        await userStore.activate(userId);
-        const context = resolveContext(userId);
-        if (context) {
-          await runAgentLoop(
-            "A new user has joined. Send a brief greeting and usage instructions via LINE.",
-            deps,
-            context,
-          );
-        } else {
-          await sendWorkspaceSelectionPrompt(userId);
-        }
-      });
-    } else if (!userStore.isActive(userId)) {
-      log.info("Uninvited follow, ignoring", { userId });
-    }
+      }
+    });
   }
 
   function handleUnfollow(userId: string): void {
-    if (userStore.isActive(userId)) {
-      enqueue(userId, async () => {
-        await userStore.deactivate(userId);
-        clearUrgentCheckpoint(userId);
-      });
-    }
+    // 동기 가드: active가 아니면 무시
+    if (!isActive(userStore.get(userId))) return;
+
+    enqueue(userId, async () => {
+      const current = userStore.get(userId);
+      if (!current || !isActive(current)) return;
+      await userStore.set(userId, deactivateUser(current));
+      clearUrgentCheckpoint(userId);
+    });
   }
 
   function handleTextMessage(
     event: LineMessageEvent,
     userId: string,
   ): void {
-    if (!userStore.isActive(userId)) {
+    if (!isActive(userStore.get(userId))) {
       log.debug("Ignoring message from inactive user", () => ({ userId }));
       return;
     }
@@ -192,41 +195,32 @@ export function createLineWebhookRoute(
       return;
     }
 
-    // 오너 초대 명령 — 결정론적 처리, Claude 판단 불필요
+    // 초대 명령 — 워크스페이스 owner만 사용 가능
     const inviteMatch = INVITE_PATTERN.exec(text);
     if (inviteMatch) {
       const targetId = inviteMatch[1]!;
       enqueue(userId, async () => {
         const ownerWs = deps.workspaceStore.getByOwner(userId);
-        const context = resolveContext(userId);
 
         if (ownerWs.length === 0) {
-          if (userStore.isSystemAdmin(userId)) {
-            await userStore.invite(targetId, userId);
-            await runAgentLoop(
-              `User ${targetId} has been invited. Report the invitation completion via LINE.`,
-              deps,
-              context ?? { userId, role: "admin" },
-            );
-          }
+          await sendText(userId, "You do not own any workspaces. Create a workspace first before inviting members.");
           return;
         }
 
         const ws = ownerWs.length === 1 ? ownerWs[0]! : ownerWs.find((w) => w.id === userStore.getDefaultWorkspaceId(userId)) ?? ownerWs[0]!;
-        await userStore.invite(targetId, userId);
         await deps.workspaceStore.inviteMember(ws.id, targetId, userId);
 
         if (!userStore.getDefaultWorkspaceId(targetId)) {
           await userStore.setDefaultWorkspaceId(targetId, ws.id);
         }
 
-        if (context) {
-          await runAgentLoop(
-            `User ${targetId} has been invited to workspace "${ws.name}". Report the invitation completion via LINE.`,
-            deps,
-            context,
-          );
-        }
+        // owner는 반드시 워크스페이스 소속 → resolveContext 보장
+        const context = resolveContext(userId)!;
+        await runAgentLoop(
+          `User ${targetId} has been invited to workspace "${ws.name}". Report the invitation completion via LINE.`,
+          deps,
+          context,
+        );
       });
       return;
     }
@@ -283,7 +277,7 @@ export function createLineWebhookRoute(
 
     if (action === "approve") {
       const requesterRole = deps.workspaceStore.getUserRole(pendingAction.workspaceId, pendingAction.requesterId);
-      if (!requesterRole || !userStore.isActive(pendingAction.requesterId)) {
+      if (!requesterRole || !isActive(userStore.get(pendingAction.requesterId))) {
         await sendText(userId, "The requesting user is no longer a member of this workspace. The operation has been cancelled.");
         await deps.pendingActionStore.reject(actionId, userId, "Requester no longer a member");
         return;
@@ -323,7 +317,7 @@ export function createLineWebhookRoute(
     event: LinePostbackEvent,
     userId: string,
   ): void {
-    if (!userStore.isActive(userId)) return;
+    if (!isActive(userStore.get(userId))) return;
 
     const data = extractPostbackData(event);
 

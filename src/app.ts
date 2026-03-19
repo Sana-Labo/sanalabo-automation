@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { LINE_SIMPLIFIED_TOOLS } from "./agent/line-tool-adapter.js";
 import { buildToolRegistry } from "./agent/loop.js";
 import { connectMcpPool } from "./agent/mcp-pool.js";
 import { createPendingActionStore } from "./approvals/store.js";
@@ -48,9 +49,11 @@ async function main() {
 
   // 4. 기본 도구 레지스트리 구성
   // GWS 도구 *정의*는 공통 — executor는 런타임에 워크스페이스별로 해결
+  // LINE 도구: LLM에는 단순화 스키마 노출, executor는 MCP 원본 유지
+  //   → loop.ts에서 createLineExecutors()로 래핑하여 입력 변환
   const registry: ToolRegistry = buildToolRegistry(
     { tools: gwsTools, executors: new Map() },
-    { tools: mcp.tools, executors: mcp.executors },
+    { tools: LINE_SIMPLIFIED_TOOLS, executors: mcp.executors },
   );
   log.info("Tool registry built", { toolCount: registry.tools.length });
 

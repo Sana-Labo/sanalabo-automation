@@ -72,6 +72,16 @@ describe("mapMcpToAnthropicTools", () => {
     expect(result[0]!.input_schema).toEqual({
       type: "object",
       properties: { msg: { type: "string" } },
+      additionalProperties: false,
     });
+  });
+
+  test("strict: true가 일괄 적용", () => {
+    const mcpTools = [mockTool("tool_a"), mockTool("tool_b")];
+    const result = mapMcpToAnthropicTools(mcpTools);
+
+    for (const tool of result) {
+      expect(tool.strict).toBe(true);
+    }
   });
 });

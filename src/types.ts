@@ -86,11 +86,17 @@ interface LineTextMessage {
 
 // --- 사용자 ---
 
-export type UserStatus = "invited" | "active" | "inactive";
+export type UserStatus = "active" | "inactive";
+
+/** 초대 출처 */
+export type InviteSource =
+  | "system"       // 시스템 관리자 자동 등록
+  | "self"         // 팔로우로 자가 가입
+  | `U${string}`;  // 다른 사용자가 초대 (LINE userId)
 
 export interface UserRecord {
   status: UserStatus;
-  invitedBy: string;
+  invitedBy: InviteSource;
   invitedAt: string;
   activatedAt?: string;
   deactivatedAt?: string;

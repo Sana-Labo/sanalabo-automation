@@ -1,17 +1,19 @@
 import { config } from "../config.js";
+import { isActive, createUser } from "../domain/user.js";
 import type { UserRecord } from "../types.js";
 import { JsonFileStore } from "../utils/json-file-store.js";
 
 export interface UserStore {
+  /** 사용자 레코드 조회 (미등록 시 undefined) */
+  get(userId: string): UserRecord | undefined;
+  /** 사용자 레코드 저장 (생성 또는 갱신) */
+  set(userId: string, record: UserRecord): Promise<void>;
+  /** 시스템 관리자 여부 (config 의존 — 향후 auth 도메인으로 이동 예정) */
   isSystemAdmin(userId: string): boolean;
-  isActive(userId: string): boolean;
-  isInvited(userId: string): boolean;
+  /** active 상태 사용자 ID 목록 */
   getActiveUsers(): string[];
   getDefaultWorkspaceId(userId: string): string | undefined;
   setDefaultWorkspaceId(userId: string, workspaceId: string): Promise<void>;
-  invite(userId: string, invitedBy: string): Promise<void>;
-  activate(userId: string): Promise<void>;
-  deactivate(userId: string): Promise<void>;
 }
 
 export class JsonUserStore extends JsonFileStore<UserRecord> implements UserStore {
@@ -19,21 +21,22 @@ export class JsonUserStore extends JsonFileStore<UserRecord> implements UserStor
     super(path, "users");
   }
 
+  get(userId: string): UserRecord | undefined {
+    return this.data[userId];
+  }
+
+  async set(userId: string, record: UserRecord): Promise<void> {
+    this.data[userId] = record;
+    await this.save();
+  }
+
   isSystemAdmin(userId: string): boolean {
     return config.systemAdminIds.includes(userId);
   }
 
-  isActive(userId: string): boolean {
-    return this.data[userId]?.status === "active";
-  }
-
-  isInvited(userId: string): boolean {
-    return this.data[userId]?.status === "invited";
-  }
-
   getActiveUsers(): string[] {
     return Object.entries(this.data)
-      .filter(([, r]) => r.status === "active")
+      .filter(([, r]) => isActive(r))
       .map(([id]) => id);
   }
 
@@ -48,58 +51,11 @@ export class JsonUserStore extends JsonFileStore<UserRecord> implements UserStor
     await this.save();
   }
 
-  async invite(userId: string, invitedBy: string): Promise<void> {
-    const existing = this.data[userId];
-    if (existing && existing.status === "active") {
-      return; // 이미 활성 상태 — 무처리
-    }
-
-    this.data[userId] = {
-      status: "invited",
-      invitedBy,
-      invitedAt: new Date().toISOString(),
-    };
-    await this.save();
-    this.log.info("Invited user", { userId, invitedBy });
-  }
-
-  async activate(userId: string): Promise<void> {
-    const record = this.data[userId];
-    if (!record) return;
-    if (record.status === "active") return;
-
-    record.status = "active";
-    record.activatedAt = new Date().toISOString();
-    await this.save();
-    this.log.info("Activated user", { userId });
-  }
-
-  async deactivate(userId: string): Promise<void> {
-    const record = this.data[userId];
-    if (!record || record.status !== "active") return;
-
-    record.status = "inactive";
-    record.deactivatedAt = new Date().toISOString();
-    await this.save();
-    this.log.info("Deactivated user", { userId });
-  }
-
-  // 일괄 작업 후 호출자가 save()를 호출해야 함
-  private ensureSystemAdmin(userId: string): void {
-    const existing = this.data[userId];
-    if (!existing || existing.status !== "active") {
-      this.data[userId] = {
-        status: "active",
-        invitedBy: "system",
-        invitedAt: new Date().toISOString(),
-        activatedAt: new Date().toISOString(),
-      };
-    }
-  }
-
   async registerSystemAdmins(): Promise<void> {
     for (const adminId of config.systemAdminIds) {
-      this.ensureSystemAdmin(adminId);
+      if (!isActive(this.data[adminId])) {
+        this.data[adminId] = createUser("system");
+      }
     }
     await this.save();
     this.log.info("System admins registered", { count: config.systemAdminIds.length });
