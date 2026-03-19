@@ -9,7 +9,7 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.78.0",
+    "@anthropic-ai/sdk": "^0.80.0",
     "@line/line-bot-mcp-server": "^0.4.2",
     "@logtape/logtape": "^2.0.4",
     "@modelcontextprotocol/sdk": "^1.27.1",
