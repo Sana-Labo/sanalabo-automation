@@ -163,7 +163,7 @@ src/
 │   └── line.ts            # LINE Webhook 수신 + signature 검증 (Web Crypto)
 ├── agent/                 # 에이전트 코어
 │   ├── loop.ts            # tool_use 에이전트 루프 (AgentDependencies + ToolContext)
-│   ├── mcp.ts             # MCP Client 싱글톤 (폴백용 유지)
+│   ├── mcp.ts             # MCP 공유 프리미티브 (연결, 환경변수, 도구 필터링)
 │   ├── mcp-pool.ts        # MCP Connection Pool (least-inflight dispatch)
 │   └── system.ts          # 시스템 프롬프트 (워크스페이스 + 역할 인식)
 ├── users/                 # 사용자 관리
