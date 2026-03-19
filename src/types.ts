@@ -1,4 +1,5 @@
 import type Anthropic from "@anthropic-ai/sdk";
+import type { UserStore } from "./users/store.js";
 
 // --- 도구 시스템 ---
 
@@ -167,9 +168,12 @@ export interface AgentDependencies {
   registry: ToolRegistry;
   pendingActionStore: PendingActionStore;
   workspaceStore: WorkspaceStore;
+  userStore: UserStore;
 }
 
-// --- Store 인터페이스 (전방 선언) ---
+// --- Store 인터페이스 ---
+
+export type { UserStore } from "./users/store.js";
 
 export interface PendingActionStore {
   create(action: Omit<PendingAction, "id" | "status" | "createdAt">): Promise<PendingAction>;

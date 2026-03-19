@@ -41,16 +41,16 @@ describe("domain/workspace", () => {
       expect(validateWorkspaceName("팀123")).toEqual({ valid: true });
     });
 
-    test("빈 문자열 → valid: false", () => {
+    test("빈 문자열 → valid: false + error 메시지", () => {
       const result = validateWorkspaceName("");
       expect(result.valid).toBe(false);
-      expect(result.error).toBeDefined();
+      if (!result.valid) expect(result.error).toBeDefined();
     });
 
-    test("공백만 → valid: false", () => {
+    test("공백만 → valid: false + error 메시지", () => {
       const result = validateWorkspaceName("   ");
       expect(result.valid).toBe(false);
-      expect(result.error).toBeDefined();
+      if (!result.valid) expect(result.error).toBeDefined();
     });
 
     test("1글자 허용", () => {
@@ -61,10 +61,10 @@ describe("domain/workspace", () => {
       expect(validateWorkspaceName("A".repeat(MAX_WORKSPACE_NAME_LENGTH))).toEqual({ valid: true });
     });
 
-    test("MAX_WORKSPACE_NAME_LENGTH + 1 글자 → valid: false", () => {
+    test("MAX_WORKSPACE_NAME_LENGTH + 1 글자 → valid: false + error 메시지", () => {
       const result = validateWorkspaceName("A".repeat(MAX_WORKSPACE_NAME_LENGTH + 1));
       expect(result.valid).toBe(false);
-      expect(result.error).toBeDefined();
+      if (!result.valid) expect(result.error).toBeDefined();
     });
 
     test("앞뒤 공백은 트리밍 후 검증", () => {
