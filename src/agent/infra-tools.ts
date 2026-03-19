@@ -35,6 +35,7 @@ export interface InfraToolEntry {
 const noAction: InfraToolEntry = {
   def: {
     name: "no_action",
+    strict: true,
     description:
       "Call this tool when there is nothing to report. Calling this tool ends the task without sending any message to the user.",
     input_schema: {
@@ -46,6 +47,7 @@ const noAction: InfraToolEntry = {
         },
       },
       required: ["reason"],
+      additionalProperties: false,
     },
   },
   handler(input) {

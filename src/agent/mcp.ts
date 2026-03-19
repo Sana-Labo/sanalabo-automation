@@ -85,10 +85,12 @@ export function mapMcpToAnthropicTools(
     const { type: _type, ...rest } = t.inputSchema;
     return {
       name: t.name,
+      strict: true,
       description: t.description ?? "",
       input_schema: {
         type: "object" as const,
         ...rest,
+        additionalProperties: false,
       },
     };
   });

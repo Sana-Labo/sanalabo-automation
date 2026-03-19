@@ -34,6 +34,13 @@ describe("infraTools registry", () => {
     // Map size matches defs length
     expect(infraTools.size).toBe(infraToolDefs.length);
   });
+
+  test("모든 인프라 도구에 strict: true + additionalProperties: false 설정", () => {
+    for (const def of infraToolDefs) {
+      expect(def.strict).toBe(true);
+      expect(def.input_schema.additionalProperties).toBe(false);
+    }
+  });
 });
 
 describe("noAction handler", () => {
