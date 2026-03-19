@@ -4,8 +4,8 @@ import { notifyOwnerOfPending } from "../approvals/notify.js";
 import { config } from "../config.js";
 import { getGwsExecutors } from "../skills/gws/executor.js";
 import {
-  LINE_PUSH_FLEX_TOOL,
   LINE_PUSH_TEXT_TOOL,
+  MCP_ALLOWED_TOOLS,
   type AgentDependencies,
   type AgentResult,
   type ToolContext,
@@ -15,13 +15,13 @@ import {
 import { toErrorMessage } from "../utils/error.js";
 import { createLogger } from "../utils/logger.js";
 import { infraToolDefs, infraTools } from "./infra-tools.js";
+import { createLineExecutors } from "./line-tool-adapter.js";
 import { buildSystemPrompt } from "./system.js";
 
 const log = createLogger("agent");
 
 const MAX_TURNS = 15;
 const MODEL = "claude-haiku-4-5-20251001";
-const LINE_PUSH_TOOLS = new Set([LINE_PUSH_TEXT_TOOL, LINE_PUSH_FLEX_TOOL]);
 
 const client = new Anthropic({ apiKey: config.anthropicApiKey });
 
@@ -43,12 +43,17 @@ export async function runAgentLoop(
   const systemPrompt = buildSystemPrompt(context, workspace);
 
   // 요청별 executor 구성: 기본 레지스트리 + 워크스페이스별 GWS executor
+  // LINE push 도구는 래핑 executor (단순화 입력 → MCP 네이티브 변환 + userId 주입)
   const executors = new Map(deps.registry.executors);
   if (workspace) {
     const gwsExecs = getGwsExecutors(workspace.id, workspace.gwsConfigDir);
     for (const [name, exec] of gwsExecs) {
       executors.set(name, exec);
     }
+  }
+  const lineExecs = createLineExecutors(deps.registry.executors, context.userId);
+  for (const [name, exec] of lineExecs) {
+    executors.set(name, exec);
   }
 
   const messages: Anthropic.MessageParam[] = [
@@ -161,16 +166,9 @@ export async function runAgentLoop(
         }
 
         try {
-          const isLinePush = LINE_PUSH_TOOLS.has(block.name);
-          // 이중 안전장치: LINE push 도구의 user_id를 코드에서 강제 주입
-          if (isLinePush) {
-            toolInput.user_id = context.userId;
-            log.debug("Injected userId for LINE push", () => ({ tool: block.name, userId: context.userId }));
-          }
           const result = await executor(toolInput);
           log.debug("Tool succeeded", () => ({ tool: block.name, resultLength: result.length }));
-          // push 성공 시에만 설정 — 실패 시 ensureDelivery 폴백이 재시도할 수 있음
-          if (isLinePush) {
+          if (MCP_ALLOWED_TOOLS.has(block.name)) {
             delivery = "pushed";
           }
           return {
@@ -207,7 +205,8 @@ export async function runAgentLoop(
       return;
     }
     try {
-      await exec({ user_id: context.userId, text });
+      // 래핑 executor 사용: { text } → userId 자동 주입 + MCP 네이티브 변환
+      await exec({ text });
       delivery = "pushed";
     } catch (e) {
       log.error("ensureDelivery failed", { error: toErrorMessage(e) });
