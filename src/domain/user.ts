@@ -7,6 +7,20 @@
 
 import type { UserRecord } from "../types.js";
 
+// --- 상태 판별 ---
+
+/** 사용자가 active 상태인지 확인 */
+export function isActive(record: UserRecord | undefined): boolean {
+  return record?.status === "active";
+}
+
+/** 사용자가 invited 상태인지 확인 */
+export function isInvited(record: UserRecord | undefined): boolean {
+  return record?.status === "invited";
+}
+
+// --- 상태 전이 ---
+
 /**
  * follow 이벤트로 신규 사용자 레코드 생성
  *

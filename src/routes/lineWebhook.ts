@@ -1,6 +1,11 @@
 import { Hono } from "hono";
 import { runAgentLoop } from "../agent/loop.js";
 import { notifyActionResult } from "../approvals/notify.js";
+import {
+  isActive,
+  activate as activateUser,
+  deactivate as deactivateUser,
+} from "../domain/user.js";
 import { clearUrgentCheckpoint } from "../jobs/index.js";
 import {
   verifyLineSignature,
@@ -129,19 +134,25 @@ export function createLineWebhookRoute(
     event: LineFollowEvent,
     userId: string,
   ): void {
+    const record = userStore.get(userId);
+
+    // 이미 active — 중복 follow, 스킵
+    if (record?.status === "active") return;
+
     // 시스템 관리자 재팔로우: 초대 확인 없이 재활성화
-    if (userStore.isSystemAdmin(userId) && !userStore.isActive(userId)) {
+    if (userStore.isSystemAdmin(userId) && record) {
       enqueue(userId, async () => {
-        await userStore.activate(userId);
+        await userStore.set(userId, activateUser(record));
         await runAgentLoop(
           "An admin user has re-joined. Send a welcome-back message via LINE.",
           deps,
           resolveContextOrAdmin(userId),
         );
       });
-    } else if (userStore.isInvited(userId)) {
+    } else if (record?.status === "invited") {
+      // 초대된 사용자 팔로우: 활성화 + 워크스페이스 연결
       enqueue(userId, async () => {
-        await userStore.activate(userId);
+        await userStore.set(userId, activateUser(record));
         const context = resolveContext(userId);
         if (context) {
           await runAgentLoop(
@@ -153,15 +164,16 @@ export function createLineWebhookRoute(
           await sendWorkspaceSelectionPrompt(userId);
         }
       });
-    } else if (!userStore.isActive(userId)) {
+    } else if (!record) {
       log.info("Uninvited follow, ignoring", { userId });
     }
   }
 
   function handleUnfollow(userId: string): void {
-    if (userStore.isActive(userId)) {
+    const record = userStore.get(userId);
+    if (record?.status === "active") {
       enqueue(userId, async () => {
-        await userStore.deactivate(userId);
+        await userStore.set(userId, deactivateUser(record));
         clearUrgentCheckpoint(userId);
       });
     }
@@ -171,7 +183,7 @@ export function createLineWebhookRoute(
     event: LineMessageEvent,
     userId: string,
   ): void {
-    if (!userStore.isActive(userId)) {
+    if (!isActive(userStore.get(userId))) {
       log.debug("Ignoring message from inactive user", () => ({ userId }));
       return;
     }
@@ -284,7 +296,7 @@ export function createLineWebhookRoute(
 
     if (action === "approve") {
       const requesterRole = deps.workspaceStore.getUserRole(pendingAction.workspaceId, pendingAction.requesterId);
-      if (!requesterRole || !userStore.isActive(pendingAction.requesterId)) {
+      if (!requesterRole || !isActive(userStore.get(pendingAction.requesterId))) {
         await sendText(userId, "The requesting user is no longer a member of this workspace. The operation has been cancelled.");
         await deps.pendingActionStore.reject(actionId, userId, "Requester no longer a member");
         return;
@@ -324,7 +336,7 @@ export function createLineWebhookRoute(
     event: LinePostbackEvent,
     userId: string,
   ): void {
-    if (!userStore.isActive(userId)) return;
+    if (!isActive(userStore.get(userId))) return;
 
     const data = extractPostbackData(event);
 

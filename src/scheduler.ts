@@ -1,4 +1,5 @@
 import { Cron } from "croner";
+import { isActive } from "./domain/user.js";
 import { morningBriefing, urgentMailCheck, eveningSummary } from "./jobs/index.js";
 import type { AgentDependencies, ToolContext } from "./types.js";
 import type { UserStore } from "./users/store.js";
@@ -18,7 +19,7 @@ async function forAllWorkspaceUsers(
   await Promise.allSettled(
     workspaces.map(async (ws) => {
       const activeMembers = Object.entries(ws.members)
-        .filter(([userId]) => userStore.isActive(userId));
+        .filter(([userId]) => isActive(userStore.get(userId)));
 
       const results = await Promise.allSettled(
         activeMembers.map(([userId, m]) =>

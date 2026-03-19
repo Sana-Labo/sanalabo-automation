@@ -1,8 +1,36 @@
 import { describe, test, expect } from "bun:test";
-import { createFromFollow, activate, deactivate } from "./user.js";
+import { isActive, isInvited, createFromFollow, activate, deactivate } from "./user.js";
 import type { UserRecord } from "../types.js";
 
 describe("domain/user", () => {
+  describe("isActive", () => {
+    test("returns true for active record", () => {
+      expect(isActive({ status: "active", invitedBy: "self", invitedAt: "" })).toBe(true);
+    });
+
+    test("returns false for invited record", () => {
+      expect(isActive({ status: "invited", invitedBy: "self", invitedAt: "" })).toBe(false);
+    });
+
+    test("returns false for undefined", () => {
+      expect(isActive(undefined)).toBe(false);
+    });
+  });
+
+  describe("isInvited", () => {
+    test("returns true for invited record", () => {
+      expect(isInvited({ status: "invited", invitedBy: "self", invitedAt: "" })).toBe(true);
+    });
+
+    test("returns false for active record", () => {
+      expect(isInvited({ status: "active", invitedBy: "self", invitedAt: "" })).toBe(false);
+    });
+
+    test("returns false for undefined", () => {
+      expect(isInvited(undefined)).toBe(false);
+    });
+  });
+
   describe("createFromFollow", () => {
     test("returns active record with invitedBy 'self'", () => {
       const record = createFromFollow();
