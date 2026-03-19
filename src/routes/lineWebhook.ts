@@ -20,6 +20,7 @@ import { createLogger } from "../utils/logger.js";
 import {
   LINE_PUSH_TEXT_TOOL,
   type AgentDependencies,
+  type InviteSource,
   type LineFollowEvent,
   type LinePostbackEvent,
   type LineMessageEvent,
@@ -202,7 +203,7 @@ export function createLineWebhookRoute(
 
         if (ownerWs.length === 0) {
           if (userStore.isSystemAdmin(userId)) {
-            await userStore.invite(targetId, userId);
+            await userStore.invite(targetId, userId as InviteSource);
             await runAgentLoop(
               `User ${targetId} has been invited. Report the invitation completion via LINE.`,
               deps,
@@ -213,7 +214,7 @@ export function createLineWebhookRoute(
         }
 
         const ws = ownerWs.length === 1 ? ownerWs[0]! : ownerWs.find((w) => w.id === userStore.getDefaultWorkspaceId(userId)) ?? ownerWs[0]!;
-        await userStore.invite(targetId, userId);
+        await userStore.invite(targetId, userId as InviteSource);
         await deps.workspaceStore.inviteMember(ws.id, targetId, userId);
 
         if (!userStore.getDefaultWorkspaceId(targetId)) {
