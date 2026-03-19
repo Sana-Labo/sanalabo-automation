@@ -49,14 +49,19 @@ function extractText(content: Anthropic.ContentBlock[]): string {
 
 /**
  * end_turn 응답에서 JSON 파싱 → text 필드 추출
- * 파싱 실패 시 원본 텍스트를 그대로 반환 (폴백)
+ *
+ * output_config(json_schema)에 의해 `{ text: string }` 형식이 보장되지만,
+ * 파싱 실패 또는 text 필드 누락 시 원본 텍스트를 폴백으로 반환.
  */
 function extractJsonText(content: Anthropic.ContentBlock[]): string {
   const raw = extractText(content);
   if (!raw) return raw;
   try {
     const parsed = JSON.parse(raw) as { text?: string };
-    return parsed.text ?? raw;
+    if (typeof parsed.text === "string") return parsed.text;
+    // output_config 제약에도 불구하고 text 필드 누락 — 구조 불일치 경고
+    log.warning("JSON output missing text field", { keys: Object.keys(parsed) });
+    return raw;
   } catch {
     log.debug("JSON output parsing failed, using raw text");
     return raw;
