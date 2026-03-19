@@ -25,11 +25,42 @@ const MODEL = "claude-haiku-4-5-20251001";
 
 const client = new Anthropic({ apiKey: config.anthropicApiKey });
 
+/** end_turn 응답을 JSON Schema로 강제하는 설정 */
+const OUTPUT_CONFIG: Anthropic.Messages.OutputConfig = {
+  format: {
+    type: "json_schema",
+    schema: {
+      type: "object",
+      properties: {
+        text: { type: "string", description: "Message to send to user via LINE" },
+      },
+      required: ["text"],
+      additionalProperties: false,
+    },
+  },
+};
+
 function extractText(content: Anthropic.ContentBlock[]): string {
   return content
     .filter((b): b is Anthropic.TextBlock => b.type === "text")
     .map((b) => b.text)
     .join("\n");
+}
+
+/**
+ * end_turn 응답에서 JSON 파싱 → text 필드 추출
+ * 파싱 실패 시 원본 텍스트를 그대로 반환 (폴백)
+ */
+function extractJsonText(content: Anthropic.ContentBlock[]): string {
+  const raw = extractText(content);
+  if (!raw) return raw;
+  try {
+    const parsed = JSON.parse(raw) as { text?: string };
+    return parsed.text ?? raw;
+  } catch {
+    log.debug("JSON output parsing failed, using raw text");
+    return raw;
+  }
 }
 
 export async function runAgentLoop(
@@ -79,6 +110,7 @@ export async function runAgentLoop(
       max_tokens: 4096,
       system: systemPrompt,
       tools: allTools,
+      output_config: OUTPUT_CONFIG,
       messages,
     });
 
@@ -91,7 +123,8 @@ export async function runAgentLoop(
     }
 
     if (response.stop_reason !== "tool_use") {
-      const text = extractText(response.content);
+      // end_turn: output_config에 의해 JSON 형식 → text 필드 추출
+      const text = extractJsonText(response.content);
       await ensureDelivery(text);
       log.debug("Agent loop completed", () => ({ turns, toolCalls }));
       return { text, toolCalls };
