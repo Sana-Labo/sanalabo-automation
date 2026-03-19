@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import "../test-utils/setup-env.js";
 import { createTestDir } from "../test-utils/tmpdir.js";
-import { activate } from "../domain/user.js";
+import { createFromFollow, deactivate } from "../domain/user.js";
 
 const { JsonUserStore } = await import("./store.js");
 
@@ -23,50 +23,29 @@ describe("JsonUserStore", () => {
   });
 
   test("set: stores and retrieves a record", async () => {
-    const record = { status: "active" as const, invitedBy: "self" as const, invitedAt: "2024-01-01T00:00:00Z", activatedAt: "2024-01-01T00:00:00Z" };
+    const record = createFromFollow();
     await store.set("Uuser01", record);
 
     expect(store.get("Uuser01")).toEqual(record);
   });
 
   test("set: overwrites existing record", async () => {
-    await store.set("Uuser01", { status: "invited", invitedBy: "Uowner01", invitedAt: "2024-01-01T00:00:00Z" });
-    const updated = { status: "active" as const, invitedBy: "Uowner01" as const, invitedAt: "2024-01-01T00:00:00Z", activatedAt: "2024-01-02T00:00:00Z" };
-    await store.set("Uuser01", updated);
+    await store.set("Uuser01", createFromFollow());
+    const deactivated = deactivate(store.get("Uuser01")!);
+    await store.set("Uuser01", deactivated);
 
-    expect(store.get("Uuser01")).toEqual(updated);
-  });
-
-  // --- invite ---
-
-  test("invite: new user gets status 'invited'", async () => {
-    await store.invite("Uuser01", "Uowner01");
-
-    const record = store.get("Uuser01");
-    expect(record?.status).toBe("invited");
-    expect(record?.invitedBy).toBe("Uowner01");
-  });
-
-  test("invite: already active user is no-op", async () => {
-    await store.set("Uuser01", { status: "active", invitedBy: "Uowner01", invitedAt: "2024-01-01T00:00:00Z", activatedAt: "2024-01-01T00:00:00Z" });
-
-    await store.invite("Uuser01", "Uowner02");
-    expect(store.get("Uuser01")?.status).toBe("active");
-    expect(store.get("Uuser01")?.invitedBy).toBe("Uowner01"); // 원본 유지
+    expect(store.get("Uuser01")?.status).toBe("inactive");
   });
 
   // --- getActiveUsers ---
 
   test("getActiveUsers: returns only active user IDs", async () => {
-    await store.invite("Uuser01", "Uowner01");
-    await store.invite("Uuser02", "Uowner01");
-    await store.invite("Uuser03", "Uowner01");
+    await store.set("Uuser01", createFromFollow());
+    await store.set("Uuser02", createFromFollow());
+    await store.set("Uuser03", createFromFollow());
 
-    // domain 함수로 activate
-    const r1 = store.get("Uuser01")!;
-    await store.set("Uuser01", activate(r1));
-    const r3 = store.get("Uuser03")!;
-    await store.set("Uuser03", activate(r3));
+    // Uuser02 를 비활성화
+    await store.set("Uuser02", deactivate(store.get("Uuser02")!));
 
     const activeUsers = store.getActiveUsers();
     expect(activeUsers).toContain("Uuser01");
@@ -77,7 +56,7 @@ describe("JsonUserStore", () => {
   // --- defaultWorkspaceId ---
 
   test("setDefaultWorkspaceId: sets and retrieves workspace ID", async () => {
-    await store.set("Uuser01", { status: "active", invitedBy: "self", invitedAt: "2024-01-01T00:00:00Z", activatedAt: "2024-01-01T00:00:00Z" });
+    await store.set("Uuser01", createFromFollow());
 
     expect(store.getDefaultWorkspaceId("Uuser01")).toBeUndefined();
 

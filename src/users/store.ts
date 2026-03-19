@@ -1,5 +1,5 @@
 import { config } from "../config.js";
-import type { InviteSource, UserRecord } from "../types.js";
+import type { UserRecord } from "../types.js";
 import { JsonFileStore } from "../utils/json-file-store.js";
 
 export interface UserStore {
@@ -13,8 +13,6 @@ export interface UserStore {
   getActiveUsers(): string[];
   getDefaultWorkspaceId(userId: string): string | undefined;
   setDefaultWorkspaceId(userId: string, workspaceId: string): Promise<void>;
-  /** 사용자 초대 (invited 레코드 생성) */
-  invite(userId: string, invitedBy: InviteSource): Promise<void>;
 }
 
 export class JsonUserStore extends JsonFileStore<UserRecord> implements UserStore {
@@ -50,21 +48,6 @@ export class JsonUserStore extends JsonFileStore<UserRecord> implements UserStor
     if (!record) return;
     record.defaultWorkspaceId = workspaceId;
     await this.save();
-  }
-
-  async invite(userId: string, invitedBy: InviteSource): Promise<void> {
-    const existing = this.data[userId];
-    if (existing && existing.status === "active") {
-      return; // 이미 활성 상태 — 무처리
-    }
-
-    this.data[userId] = {
-      status: "invited",
-      invitedBy,
-      invitedAt: new Date().toISOString(),
-    };
-    await this.save();
-    this.log.info("Invited user", { userId, invitedBy });
   }
 
   async registerSystemAdmins(): Promise<void> {

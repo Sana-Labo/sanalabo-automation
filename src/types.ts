@@ -86,7 +86,7 @@ interface LineTextMessage {
 
 // --- 사용자 ---
 
-export type UserStatus = "invited" | "active" | "inactive";
+export type UserStatus = "active" | "inactive";
 
 /** 초대 출처 */
 export type InviteSource =

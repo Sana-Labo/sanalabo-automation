@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { isActive, isInvited, createFromFollow, activate, deactivate } from "./user.js";
+import { isActive, createFromFollow, activate, deactivate } from "./user.js";
 import type { UserRecord } from "../types.js";
 
 describe("domain/user", () => {
@@ -8,26 +8,12 @@ describe("domain/user", () => {
       expect(isActive({ status: "active", invitedBy: "self", invitedAt: "" })).toBe(true);
     });
 
-    test("returns false for invited record", () => {
-      expect(isActive({ status: "invited", invitedBy: "self", invitedAt: "" })).toBe(false);
+    test("returns false for inactive record", () => {
+      expect(isActive({ status: "inactive", invitedBy: "self", invitedAt: "" })).toBe(false);
     });
 
     test("returns false for undefined", () => {
       expect(isActive(undefined)).toBe(false);
-    });
-  });
-
-  describe("isInvited", () => {
-    test("returns true for invited record", () => {
-      expect(isInvited({ status: "invited", invitedBy: "self", invitedAt: "" })).toBe(true);
-    });
-
-    test("returns false for active record", () => {
-      expect(isInvited({ status: "active", invitedBy: "self", invitedAt: "" })).toBe(false);
-    });
-
-    test("returns false for undefined", () => {
-      expect(isInvited(undefined)).toBe(false);
     });
   });
 
@@ -50,31 +36,32 @@ describe("domain/user", () => {
   });
 
   describe("activate", () => {
-    test("invited → active with activatedAt set", () => {
-      const invited: UserRecord = {
-        status: "invited",
-        invitedBy: "Uowner1234567890abcdef1234567890",
+    test("inactive → active with activatedAt set", () => {
+      const inactive: UserRecord = {
+        status: "inactive",
+        invitedBy: "self",
         invitedAt: "2024-01-01T00:00:00.000Z",
+        deactivatedAt: "2024-01-02T00:00:00.000Z",
       };
 
-      const result = activate(invited);
+      const result = activate(inactive);
 
       expect(result.status).toBe("active");
       expect(result.activatedAt).toBeDefined();
       // 원본 불변 확인
-      expect(invited.status).toBe("invited");
-      expect(invited.activatedAt).toBeUndefined();
+      expect(inactive.status).toBe("inactive");
+      expect(inactive.activatedAt).toBeUndefined();
     });
 
     test("preserves existing fields", () => {
-      const invited: UserRecord = {
-        status: "invited",
+      const inactive: UserRecord = {
+        status: "inactive",
         invitedBy: "Uowner1234567890abcdef1234567890",
         invitedAt: "2024-01-01T00:00:00.000Z",
         defaultWorkspaceId: "ws-001",
       };
 
-      const result = activate(invited);
+      const result = activate(inactive);
 
       expect(result.invitedBy).toBe("Uowner1234567890abcdef1234567890");
       expect(result.invitedAt).toBe("2024-01-01T00:00:00.000Z");

@@ -14,11 +14,6 @@ export function isActive(record: UserRecord | undefined): boolean {
   return record?.status === "active";
 }
 
-/** 사용자가 invited 상태인지 확인 */
-export function isInvited(record: UserRecord | undefined): boolean {
-  return record?.status === "invited";
-}
-
 // --- 상태 전이 ---
 
 /**
@@ -37,7 +32,7 @@ export function createFromFollow(): UserRecord {
 }
 
 /**
- * invited → active 상태 전이
+ * inactive → active 상태 전이 (재활성화)
  *
  * @param record - 전이 대상 UserRecord
  * @returns 새 UserRecord (status: "active", activatedAt 설정)
