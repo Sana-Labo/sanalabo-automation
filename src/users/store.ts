@@ -1,4 +1,5 @@
 import { config } from "../config.js";
+import { isActive, createUser } from "../domain/user.js";
 import type { UserRecord } from "../types.js";
 import { JsonFileStore } from "../utils/json-file-store.js";
 
@@ -35,7 +36,7 @@ export class JsonUserStore extends JsonFileStore<UserRecord> implements UserStor
 
   getActiveUsers(): string[] {
     return Object.entries(this.data)
-      .filter(([, r]) => r.status === "active")
+      .filter(([, r]) => isActive(r))
       .map(([id]) => id);
   }
 
@@ -52,14 +53,8 @@ export class JsonUserStore extends JsonFileStore<UserRecord> implements UserStor
 
   async registerSystemAdmins(): Promise<void> {
     for (const adminId of config.systemAdminIds) {
-      const existing = this.data[adminId];
-      if (!existing || existing.status !== "active") {
-        this.data[adminId] = {
-          status: "active",
-          invitedBy: "system",
-          invitedAt: new Date().toISOString(),
-          activatedAt: new Date().toISOString(),
-        };
+      if (!isActive(this.data[adminId])) {
+        this.data[adminId] = createUser("system");
       }
     }
     await this.save();

@@ -5,7 +5,25 @@
  * 모든 함수는 새 객체를 반환하며 입력을 변경하지 않음 (불변).
  */
 
-import type { UserRecord } from "../types.js";
+import type { InviteSource, UserRecord } from "../types.js";
+
+// --- 레코드 생성 ---
+
+/**
+ * 신규 사용자 레코드 생성
+ *
+ * @param source - 등록 출처 (InviteSource)
+ * @returns status: "active"인 새 UserRecord
+ */
+export function createUser(source: InviteSource): UserRecord {
+  const now = new Date().toISOString();
+  return {
+    status: "active",
+    invitedBy: source,
+    invitedAt: now,
+    activatedAt: now,
+  };
+}
 
 // --- 상태 판별 ---
 
@@ -22,13 +40,7 @@ export function isActive(record: UserRecord | undefined): boolean {
  * @returns status: "active", invitedBy: "self"인 새 UserRecord
  */
 export function createFromFollow(): UserRecord {
-  const now = new Date().toISOString();
-  return {
-    status: "active",
-    invitedBy: "self",
-    invitedAt: now,
-    activatedAt: now,
-  };
+  return createUser("self");
 }
 
 /**
