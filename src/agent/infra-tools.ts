@@ -14,8 +14,6 @@ export interface InfraToolSignal {
   exitLoop?: boolean;
   /** exitLoop 시 AgentResult.text (exitLoop: true일 때 필수) */
   exitText: string;
-  /** delivery 상태 갱신 (ensureDelivery 스킵용) */
-  delivery?: "pushed" | "no_action";
 }
 
 /** 인프라 도구 핸들러 (동기 — 외부 시스템 호출 없음) */
@@ -57,7 +55,6 @@ const noAction: InfraToolEntry = {
       toolResult: "no_action acknowledged",
       exitLoop: true,
       exitText: "",
-      delivery: "no_action",
     };
   },
 };

@@ -44,12 +44,11 @@ describe("infraTools registry", () => {
 });
 
 describe("noAction handler", () => {
-  test("returns exitLoop: true with delivery no_action", () => {
+  test("returns exitLoop: true with empty exitText", () => {
     const entry = infraTools.get("no_action")!;
     const signal = entry.handler({ reason: "no new mail" }, makeContext());
 
     expect(signal.exitLoop).toBe(true);
-    expect(signal.delivery).toBe("no_action");
     expect(signal.exitText).toBe("");
     expect(signal.toolResult).toBeString();
   });
@@ -59,7 +58,6 @@ describe("noAction handler", () => {
     const signal = entry.handler({}, makeContext());
 
     expect(signal.exitLoop).toBe(true);
-    expect(signal.delivery).toBe("no_action");
   });
 
   test("receives context (future extensibility)", () => {
