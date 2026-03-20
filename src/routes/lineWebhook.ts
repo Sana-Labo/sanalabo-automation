@@ -182,19 +182,6 @@ export function createLineWebhookRoute(
     const text = extractTextMessage(event);
     log.debug("Processing text message", () => ({ userId, preview: text.slice(0, 50) }));
 
-    // 시스템 관리자: 워크스페이스 생성 명령
-    const createWsMatch = /^create-workspace\s+(.+?)\s+(U[0-9a-f]{32})$/i.exec(text);
-    if (userStore.isSystemAdmin(userId) && createWsMatch) {
-      const [, wsName, ownerId] = createWsMatch;
-      enqueue(userId, async () => {
-        const ws = await deps.workspaceStore.create(wsName!, ownerId!);
-        await sendText(userId, 
-          `Workspace "${ws.name}" (${ws.id}) has been created.\nOwner: ${ownerId}\nGWS auth: docker exec -it assistant gws auth login --config-dir ${ws.gwsConfigDir}`,
-        );
-      });
-      return;
-    }
-
     // 초대 명령 — 워크스페이스 owner만 사용 가능
     const inviteMatch = INVITE_PATTERN.exec(text);
     if (inviteMatch) {
