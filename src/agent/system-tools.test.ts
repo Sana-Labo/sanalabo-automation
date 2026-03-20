@@ -36,6 +36,11 @@ function makeDeps(overrides?: {
   ownedWorkspaces?: WorkspaceRecord[];
   createdWorkspace?: WorkspaceRecord;
   setDefaultCalls?: Array<{ userId: string; workspaceId: string }>;
+  allWorkspaces?: WorkspaceRecord[];
+  memberWorkspaces?: WorkspaceRecord[];
+  getWorkspace?: (id: string) => WorkspaceRecord | undefined;
+  getUserRole?: (wsId: string, userId: string) => "owner" | "member" | undefined;
+  isSystemAdmin?: (userId: string) => boolean;
 }): AgentDependencies {
   const setDefaultCalls = overrides?.setDefaultCalls ?? [];
   const createdWs = overrides?.createdWorkspace ?? makeWorkspace();
@@ -46,11 +51,16 @@ function makeDeps(overrides?: {
     workspaceStore: {
       getByOwner: () => overrides?.ownedWorkspaces ?? [],
       create: async () => createdWs,
+      getAll: () => overrides?.allWorkspaces ?? [],
+      getByMember: () => overrides?.memberWorkspaces ?? [],
+      get: overrides?.getWorkspace ?? (() => undefined),
+      getUserRole: overrides?.getUserRole ?? (() => undefined),
     } as unknown as WorkspaceStore,
     userStore: {
       setDefaultWorkspaceId: async (userId: string, workspaceId: string) => {
         setDefaultCalls.push({ userId, workspaceId });
       },
+      isSystemAdmin: overrides?.isSystemAdmin ?? (() => false),
     } as unknown as UserStore,
   };
 }
@@ -131,7 +141,7 @@ describe("create_workspace handler", () => {
     expect(signal.toolResult).toContain("already own");
   });
 
-  test("이름 앞뒤 공백은 트리밍되어 생성", async () => {
+  test("이름 앞뒤 공백은 트리밍되어 생성 (owner_user_id null)", async () => {
     const setDefaultCalls: Array<{ userId: string; workspaceId: string }> = [];
     const createCalls: Array<{ name: string; ownerId: string }> = [];
     const createdWs = makeWorkspace({ id: "ws-trimmed", name: "Trimmed" });
@@ -157,5 +167,54 @@ describe("create_workspace handler", () => {
     await entry.handler({ name: "  Trimmed  " }, makeContext(), deps);
 
     expect(createCalls[0]!.name).toBe("Trimmed");
+  });
+});
+
+// --- list_workspaces 핸들러 테스트 ---
+
+describe("list_workspaces handler", () => {
+  test("admin: 전체 워크스페이스 반환 (getAll)", async () => {
+    const ws1 = makeWorkspace({ id: "ws-001", name: "WS1", ownerId: "Uowner1" });
+    const ws2 = makeWorkspace({ id: "ws-002", name: "WS2", ownerId: "Uowner2" });
+    const deps = makeDeps({
+      allWorkspaces: [ws1, ws2],
+      isSystemAdmin: (id) => id === "Uadmin001",
+    });
+    const ctx = makeContext({ userId: "Uadmin001", role: "admin" });
+
+    const entry = systemTools.get("list_workspaces")!;
+    const signal = await entry.handler({}, ctx, deps);
+    const result = JSON.parse(signal.toolResult);
+
+    expect(result.workspaces).toHaveLength(2);
+    expect(result.workspaces[0].id).toBe("ws-001");
+    expect(result.workspaces[1].id).toBe("ws-002");
+    // gwsConfigDir 미포함
+    expect(result.workspaces[0].gwsConfigDir).toBeUndefined();
+  });
+
+  test("일반 사용자: 소속 워크스페이스만 반환 (getByMember)", async () => {
+    const ws1 = makeWorkspace({ id: "ws-001", name: "WS1" });
+    const deps = makeDeps({ memberWorkspaces: [ws1] });
+    const ctx = makeContext({ userId: "Umember001", role: "member" });
+
+    const entry = systemTools.get("list_workspaces")!;
+    const signal = await entry.handler({}, ctx, deps);
+    const result = JSON.parse(signal.toolResult);
+
+    expect(result.workspaces).toHaveLength(1);
+    expect(result.workspaces[0].id).toBe("ws-001");
+    expect(result.workspaces[0].memberCount).toBe(1);
+  });
+
+  test("빈 목록: 빈 배열 메시지", async () => {
+    const deps = makeDeps({ memberWorkspaces: [] });
+    const ctx = makeContext({ role: "member" });
+
+    const entry = systemTools.get("list_workspaces")!;
+    const signal = await entry.handler({}, ctx, deps);
+    const result = JSON.parse(signal.toolResult);
+
+    expect(result.workspaces).toHaveLength(0);
   });
 });

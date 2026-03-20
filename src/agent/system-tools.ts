@@ -90,9 +90,46 @@ const createWorkspace: SystemToolEntry = {
   },
 };
 
+/** WorkspaceRecord → 요약 객체 (gwsConfigDir 제외) */
+function summarizeWorkspace(ws: import("../types.js").WorkspaceRecord) {
+  return {
+    id: ws.id,
+    name: ws.name,
+    ownerId: ws.ownerId,
+    memberCount: Object.keys(ws.members).length,
+  };
+}
+
+const listWorkspaces: SystemToolEntry = {
+  def: {
+    name: "list_workspaces",
+    strict: true,
+    description:
+      "List workspaces. Admins see all workspaces; regular users see only workspaces they belong to.",
+    input_schema: {
+      type: "object" as const,
+      properties: {},
+      required: [] as string[],
+      additionalProperties: false,
+    },
+  },
+  async handler(_input, context, deps) {
+    const isAdmin = deps.userStore.isSystemAdmin(context.userId);
+    const workspaces = isAdmin
+      ? deps.workspaceStore.getAll()
+      : deps.workspaceStore.getByMember(context.userId);
+
+    return {
+      toolResult: JSON.stringify({
+        workspaces: workspaces.map(summarizeWorkspace),
+      }),
+    };
+  },
+};
+
 // --- 레지스트리 ---
 
-const entries: SystemToolEntry[] = [createWorkspace];
+const entries: SystemToolEntry[] = [createWorkspace, listWorkspaces];
 
 /** 이름 키 Map (O(1) lookup) */
 export const systemTools: ReadonlyMap<string, SystemToolEntry> = new Map(
