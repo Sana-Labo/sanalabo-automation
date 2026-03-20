@@ -1,5 +1,11 @@
 import type { ToolContext, WorkspaceRecord } from "../types.js";
 
+const MESSAGE_DELIVERY = `## Message Delivery
+Your text responses are automatically delivered to the user via LINE.
+Use push_text_message or push_flex_message only when:
+- Sending a message before performing additional tool calls
+- Rich formatting (Flex Message) is needed`;
+
 const NO_ACTION_GUIDANCE = `## No-Action Guidance
 - When there is nothing to report or notify, use the no_action tool to exit.`;
 
@@ -28,6 +34,7 @@ export function buildSystemPrompt(
   });
 
   const commonSections = [
+    MESSAGE_DELIVERY,
     NO_ACTION_GUIDANCE,
     MESSAGE_FORMAT,
     LANGUAGE_RULES,

@@ -90,14 +90,15 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("no_action");
   });
 
-  test("prompt does not contain push_text_message or Response Rules", () => {
+  test("prompt contains message delivery guidance", () => {
     const prompt = buildSystemPrompt(makeContext(), makeWorkspace());
-    expect(prompt).not.toContain("push_text_message");
-    expect(prompt).not.toContain("Response Rules");
+    expect(prompt).toContain("automatically delivered");
+    expect(prompt).toContain("Message Delivery");
   });
 
-  test("prompt does not contain userId (채널 어댑터가 주입)", () => {
+  test("prompt does not contain Response Rules or userId", () => {
     const prompt = buildSystemPrompt(makeContext({ userId: "Uxyz9999" }), makeWorkspace());
+    expect(prompt).not.toContain("Response Rules");
     expect(prompt).not.toContain("Uxyz9999");
   });
 

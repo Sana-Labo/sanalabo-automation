@@ -41,7 +41,7 @@ export interface InternalToolEntry<H> {
 // --- 에이전트 ---
 
 /** 채널 스킬 도구 — 에이전트가 직접 채널 전달한 경우 식별용 */
-export const CHANNEL_SKILL_TOOLS = new Set([LINE_PUSH_FLEX_TOOL]);
+export const CHANNEL_SKILL_TOOLS = new Set([LINE_PUSH_TEXT_TOOL, LINE_PUSH_FLEX_TOOL]);
 
 export interface AgentResult {
   text: string;
