@@ -9,6 +9,9 @@
  */
 import type Anthropic from "@anthropic-ai/sdk";
 import { LINE_PUSH_TEXT_TOOL, LINE_PUSH_FLEX_TOOL, type ToolExecutor } from "../types.js";
+import { createLogger } from "../utils/logger.js";
+
+const log = createLogger("channel");
 
 /** LLM에 노출할 LINE 채널 스킬 도구 스키마 (strict: true) */
 export const LINE_CHANNEL_SKILL_TOOLS: Anthropic.Tool[] = [
@@ -106,7 +109,10 @@ export function createChannelTextSender(
   return async (text) => {
     if (!text) return;
     const exec = origExecutors.get(LINE_PUSH_TEXT_TOOL);
-    if (!exec) return;
+    if (!exec) {
+      log.warning("push_text_message executor not found — channel delivery skipped");
+      return;
+    }
     await exec({
       user_id: userId,
       messages: [{ type: "text", text }],

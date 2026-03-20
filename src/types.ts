@@ -7,8 +7,14 @@ import type { UserStore } from "./users/store.js";
 export const LINE_PUSH_TEXT_TOOL = "push_text_message";
 export const LINE_PUSH_FLEX_TOOL = "push_flex_message";
 
-/** MCP Server에서 에이전트에 노출할 도구 화이트리스트 */
-export const MCP_ALLOWED_TOOLS = new Set([
+/**
+ * 채널 스킬 도구 이름 Set
+ *
+ * 용도:
+ * - MCP Server 도구 필터링 (mcp.ts)
+ * - 에이전트 루프에서 channelDelivered 판정 (loop.ts)
+ */
+export const CHANNEL_SKILL_TOOL_NAMES = new Set([
   LINE_PUSH_TEXT_TOOL,
   LINE_PUSH_FLEX_TOOL,
 ]);
@@ -40,13 +46,10 @@ export interface InternalToolEntry<H> {
 
 // --- 에이전트 ---
 
-/** 채널 스킬 도구 — 에이전트가 직접 채널 전달한 경우 식별용 */
-export const CHANNEL_SKILL_TOOLS = new Set([LINE_PUSH_TEXT_TOOL, LINE_PUSH_FLEX_TOOL]);
-
 export interface AgentResult {
   text: string;
   toolCalls: number;
-  /** 에이전트가 채널 스킬 도구(push_flex_message)로 이미 전달했는지 여부 */
+  /** 에이전트가 채널 스킬 도구로 이미 전달했는지 여부 */
   channelDelivered: boolean;
 }
 

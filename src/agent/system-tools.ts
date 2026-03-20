@@ -73,8 +73,8 @@ const createWorkspace: SystemToolEntry = {
       };
     }
 
-    // 3. 워크스페이스 생성 (Store I/O)
-    const ws = await deps.workspaceStore.create(name.trim(), context.userId);
+    // 3. 워크스페이스 생성 (Store I/O) — validation.name은 트리밍 완료
+    const ws = await deps.workspaceStore.create(validation.name, context.userId);
     log.info("Workspace created", { workspaceId: ws.id, ownerId: context.userId });
 
     // 4. 기본 워크스페이스 설정 (Store I/O)

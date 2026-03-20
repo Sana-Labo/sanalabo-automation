@@ -4,7 +4,7 @@ import { notifyOwnerOfPending } from "../approvals/notify.js";
 import { config } from "../config.js";
 import { getGwsExecutors } from "../skills/gws/executor.js";
 import {
-  CHANNEL_SKILL_TOOLS,
+  CHANNEL_SKILL_TOOL_NAMES,
   type AgentDependencies,
   type AgentResult,
   type ToolContext,
@@ -14,7 +14,7 @@ import {
 import { toErrorMessage } from "../utils/error.js";
 import { createLogger } from "../utils/logger.js";
 import { infraToolDefs, infraTools } from "./infra-tools.js";
-import { createLineExecutors } from "./line-tool-adapter.js";
+import { createChannelTextSender, createLineExecutors } from "./line-tool-adapter.js";
 import { systemToolDefs, systemTools } from "./system-tools.js";
 import { buildSystemPrompt } from "./system.js";
 
@@ -142,6 +142,7 @@ export async function runAgentLoop(
 
     // [1단계] Infra tool 선처리: 루프 제어 (exitLoop 가능)
     const handled = new Set<string>();
+    const infraToolResults: Anthropic.ToolResultBlockParam[] = [];
     for (const block of toolUseBlocks) {
       const entry = infraTools.get(block.name);
       if (!entry) continue;
@@ -155,6 +156,12 @@ export async function runAgentLoop(
       if (signal.exitLoop) {
         return { text: signal.exitText, toolCalls, channelDelivered };
       }
+      // non-exit infra tool: tool_result를 메시지 히스토리에 포함
+      infraToolResults.push({
+        type: "tool_result",
+        tool_use_id: block.id,
+        content: signal.toolResult,
+      });
     }
 
     // [2단계] System tool: 내부 시스템 관리 (비동기, deps 접근)
@@ -227,7 +234,7 @@ export async function runAgentLoop(
         try {
           const result = await executor(toolInput);
           log.debug("Tool succeeded", () => ({ tool: block.name, resultLength: result.length }));
-          if (CHANNEL_SKILL_TOOLS.has(block.name)) {
+          if (CHANNEL_SKILL_TOOL_NAMES.has(block.name)) {
             channelDelivered = true;
           }
           return {
@@ -247,13 +254,32 @@ export async function runAgentLoop(
       }),
     );
 
-    const toolResults = [...systemToolResults, ...skillToolResults];
+    const toolResults = [...infraToolResults, ...systemToolResults, ...skillToolResults];
     messages.push({ role: "assistant", content: response.content });
     messages.push({ role: "user", content: toolResults });
   }
 
   const text = "Reached the maximum number of tool calls. Aborting.";
   return { text, toolCalls, channelDelivered };
+}
+
+/**
+ * 에이전트 루프 실행 + 채널 전달
+ *
+ * runAgentLoop 후 channelDelivered가 false이고 text가 있으면
+ * 채널 어댑터를 통해 결정론적으로 전달.
+ */
+export async function runAgentAndDeliver(
+  userMessage: string,
+  deps: AgentDependencies,
+  context: ToolContext,
+): Promise<AgentResult> {
+  const result = await runAgentLoop(userMessage, deps, context);
+  if (!result.channelDelivered && result.text) {
+    const sendText = createChannelTextSender(deps.registry.executors, context.userId);
+    await sendText(result.text);
+  }
+  return result;
 }
 
 export function buildToolRegistry(

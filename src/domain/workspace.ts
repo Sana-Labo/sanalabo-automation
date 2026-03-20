@@ -26,7 +26,7 @@ export function canCreateWorkspace(ownedCount: number, limit: number): boolean {
  */
 export function validateWorkspaceName(
   name: string,
-): { valid: true } | { valid: false; error: string } {
+): { valid: true; name: string } | { valid: false; error: string } {
   const trimmed = name.trim();
 
   if (trimmed.length === 0) {
@@ -40,5 +40,5 @@ export function validateWorkspaceName(
     };
   }
 
-  return { valid: true };
+  return { valid: true, name: trimmed };
 }

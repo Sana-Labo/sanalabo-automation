@@ -2,7 +2,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { config } from "../config.js";
-import { MCP_ALLOWED_TOOLS, type ToolExecutor } from "../types.js";
+import { CHANNEL_SKILL_TOOL_NAMES, type ToolExecutor } from "../types.js";
 import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("mcp");
@@ -109,6 +109,6 @@ export function filterAndMapTools(mcpTools: McpToolList): {
   filtered: McpToolList;
   tools: Anthropic.Tool[];
 } {
-  const filtered = mcpTools.filter(t => MCP_ALLOWED_TOOLS.has(t.name));
+  const filtered = mcpTools.filter(t => CHANNEL_SKILL_TOOL_NAMES.has(t.name));
   return { filtered, tools: mapMcpToAnthropicTools(filtered) };
 }

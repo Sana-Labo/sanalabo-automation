@@ -29,16 +29,16 @@ describe("domain/workspace", () => {
   });
 
   describe("validateWorkspaceName", () => {
-    test("유효한 이름 → valid: true", () => {
-      expect(validateWorkspaceName("동아리A")).toEqual({ valid: true });
+    test("유효한 이름 → valid: true + 트리밍된 이름 반환", () => {
+      expect(validateWorkspaceName("동아리A")).toEqual({ valid: true, name: "동아리A" });
     });
 
     test("영문 이름 허용", () => {
-      expect(validateWorkspaceName("MyWorkspace")).toEqual({ valid: true });
+      expect(validateWorkspaceName("MyWorkspace")).toEqual({ valid: true, name: "MyWorkspace" });
     });
 
     test("숫자 포함 허용", () => {
-      expect(validateWorkspaceName("팀123")).toEqual({ valid: true });
+      expect(validateWorkspaceName("팀123")).toEqual({ valid: true, name: "팀123" });
     });
 
     test("빈 문자열 → valid: false + error 메시지", () => {
@@ -54,11 +54,12 @@ describe("domain/workspace", () => {
     });
 
     test("1글자 허용", () => {
-      expect(validateWorkspaceName("A")).toEqual({ valid: true });
+      expect(validateWorkspaceName("A")).toEqual({ valid: true, name: "A" });
     });
 
     test("MAX_WORKSPACE_NAME_LENGTH 글자 허용", () => {
-      expect(validateWorkspaceName("A".repeat(MAX_WORKSPACE_NAME_LENGTH))).toEqual({ valid: true });
+      const name = "A".repeat(MAX_WORKSPACE_NAME_LENGTH);
+      expect(validateWorkspaceName(name)).toEqual({ valid: true, name });
     });
 
     test("MAX_WORKSPACE_NAME_LENGTH + 1 글자 → valid: false + error 메시지", () => {
@@ -68,7 +69,7 @@ describe("domain/workspace", () => {
     });
 
     test("앞뒤 공백은 트리밍 후 검증", () => {
-      expect(validateWorkspaceName("  동아리A  ")).toEqual({ valid: true });
+      expect(validateWorkspaceName("  동아리A  ")).toEqual({ valid: true, name: "동아리A" });
     });
 
     test("트리밍 후 빈 문자열 → valid: false", () => {

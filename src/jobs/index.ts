@@ -1,5 +1,4 @@
-import { createChannelTextSender } from "../agent/line-tool-adapter.js";
-import { runAgentLoop } from "../agent/loop.js";
+import { runAgentAndDeliver } from "../agent/loop.js";
 import type { AgentDependencies, AgentResult, ToolContext } from "../types.js";
 import { toErrorMessage } from "../utils/error.js";
 import { createLogger } from "../utils/logger.js";
@@ -22,14 +21,9 @@ function withJobLogging(
 }
 
 function createJob(label: string, prompt: string) {
-  return withJobLogging(label, async (deps, context) => {
-    const result = await runAgentLoop(prompt, deps, context);
-    if (!result.channelDelivered && result.text) {
-      const sendText = createChannelTextSender(deps.registry.executors, context.userId);
-      await sendText(result.text);
-    }
-    return result;
-  });
+  return withJobLogging(label, (deps, context) =>
+    runAgentAndDeliver(prompt, deps, context),
+  );
 }
 
 export const morningBriefing = createJob(
@@ -61,11 +55,7 @@ export const urgentMailCheck = withJobLogging("urgent mail check", async (deps, 
 
   const prompt = `Check Gmail for important emails (query: is:important after:${sinceEpoch}). If any, notify the user. If none, use the no_action tool to exit.`;
 
-  const result = await runAgentLoop(prompt, deps, context);
-  if (!result.channelDelivered && result.text) {
-    const sendText = createChannelTextSender(deps.registry.executors, context.userId);
-    await sendText(result.text);
-  }
+  const result = await runAgentAndDeliver(prompt, deps, context);
   // 성공 시에만 체크포인트를 전진 — 실패 시 동일 기간을 재시도
   lastUrgentCheckMap.set(context.userId, checkpoint);
   return result;
