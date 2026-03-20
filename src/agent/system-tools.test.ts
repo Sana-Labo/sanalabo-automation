@@ -190,12 +190,12 @@ describe("create_workspace handler", () => {
     const ctx = makeContext({ userId: "Uadmin001", role: "admin" });
 
     const entry = systemTools.get("create_workspace")!;
-    await entry.handler({ name: "Delegated", owner_user_id: "Utarget001" }, ctx, deps);
+    await entry.handler({ name: "Delegated", owner_user_id: "Ua0000000000000000000000000000001" }, ctx, deps);
 
     // owner는 대상 사용자
-    expect(createCalls[0]!.ownerId).toBe("Utarget001");
+    expect(createCalls[0]!.ownerId).toBe("Ua0000000000000000000000000000001");
     // defaultWorkspaceId는 대상 사용자에게 설정
-    expect(setDefaultCalls[0]!.userId).toBe("Utarget001");
+    expect(setDefaultCalls[0]!.userId).toBe("Ua0000000000000000000000000000001");
   });
 
   test("admin + owner_user_id null: 자기 자신을 owner로 생성", async () => {
@@ -230,7 +230,7 @@ describe("create_workspace handler", () => {
     const ctx = makeContext({ userId: "Uregular001", role: "member" });
 
     const entry = systemTools.get("create_workspace")!;
-    await entry.handler({ name: "SelfWS", owner_user_id: "Uother999" }, ctx, deps);
+    await entry.handler({ name: "SelfWS", owner_user_id: "Ub0000000000000000000000000000002" }, ctx, deps);
 
     // owner_user_id 무시, 자기 자신이 owner
     expect(createCalls[0]!.ownerId).toBe("Uregular001");
@@ -249,6 +249,44 @@ describe("create_workspace handler", () => {
 
     expect(signal.toolResult).toContain("Error");
     expect(signal.toolResult).toContain("already own");
+  });
+
+  test("admin + owner_user_id 지정: 대상 사용자의 소유 제한 적용", async () => {
+    const deps = makeDeps({ isSystemAdmin: (id) => id === "Uadmin001" });
+    const getByOwnerCalls: string[] = [];
+    (deps.workspaceStore as any).getByOwner = (ownerId: string) => {
+      getByOwnerCalls.push(ownerId);
+      return [makeWorkspace({ ownerId })]; // 대상이 이미 소유 중
+    };
+    const ctx = makeContext({ userId: "Uadmin001", role: "admin" });
+
+    const entry = systemTools.get("create_workspace")!;
+    const signal = await entry.handler(
+      { name: "WS", owner_user_id: "Ua0000000000000000000000000000001" },
+      ctx,
+      deps,
+    );
+
+    // getByOwner는 대상 사용자 기준으로 호출
+    expect(getByOwnerCalls[0]).toBe("Ua0000000000000000000000000000001");
+    expect(signal.toolResult).toContain("Error");
+    // admin 위임 시 대상 사용자 ID가 메시지에 포함
+    expect(signal.toolResult).toContain("Ua0000000000000000000000000000001");
+  });
+
+  test("admin + owner_user_id 형식 불량: 에러", async () => {
+    const deps = makeDeps({ isSystemAdmin: (id) => id === "Uadmin001" });
+    const ctx = makeContext({ userId: "Uadmin001", role: "admin" });
+
+    const entry = systemTools.get("create_workspace")!;
+    const signal = await entry.handler(
+      { name: "WS", owner_user_id: "invalid-id" },
+      ctx,
+      deps,
+    );
+
+    expect(signal.toolResult).toContain("Error");
+    expect(signal.toolResult).toContain("Invalid LINE userId");
   });
 });
 

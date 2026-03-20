@@ -67,7 +67,14 @@ const createWorkspace: SystemToolEntry = {
     // 1. owner 결정: admin이 owner_user_id를 지정하면 대상 사용자, 그 외 자기 자신
     const isAdmin = deps.userStore.isSystemAdmin(context.userId);
     const rawOwner = input.owner_user_id as string | null;
-    const ownerId = (isAdmin && rawOwner) ? rawOwner : context.userId;
+    const delegated = isAdmin && rawOwner;
+
+    // owner_user_id 형식 검증 (LINE userId: U + 32 hex chars)
+    if (delegated && !/^U[0-9a-f]{32}$/.test(rawOwner)) {
+      return { toolResult: `Error: Invalid LINE userId format: ${rawOwner}` };
+    }
+
+    const ownerId = delegated ? rawOwner : context.userId;
 
     // 2. 이름 검증 (순수 함수)
     const validation = validateWorkspaceName(name);
@@ -78,9 +85,10 @@ const createWorkspace: SystemToolEntry = {
     // 3. 소유 제한 검증 (순수 함수 + Store 조회) — owner 기준
     const owned = deps.workspaceStore.getByOwner(ownerId);
     if (!canCreateWorkspace(owned.length, MAX_OWNED_WORKSPACES)) {
-      return {
-        toolResult: "Error: You already own a workspace. Each user can own at most one workspace.",
-      };
+      const msg = delegated
+        ? `Error: User ${ownerId} already owns a workspace. Each user can own at most one workspace.`
+        : "Error: You already own a workspace. Each user can own at most one workspace.";
+      return { toolResult: msg };
     }
 
     // 4. 워크스페이스 생성 (Store I/O) — validation.name은 트리밍 완료
