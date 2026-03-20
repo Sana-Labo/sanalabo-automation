@@ -104,7 +104,7 @@ describe("create_workspace handler", () => {
     const ctx = makeContext({ userId: "Unewuser0001" });
 
     const entry = systemTools.get("create_workspace")!;
-    const signal = await entry.handler({ name: "MyWorkspace" }, ctx, deps);
+    const signal = await entry.handler({ name: "MyWorkspace", owner_user_id: null }, ctx, deps);
 
     const result = JSON.parse(signal.toolResult);
     expect(result.workspaceId).toBe("ws-new");
@@ -124,7 +124,7 @@ describe("create_workspace handler", () => {
     const ctx = makeContext();
 
     const entry = systemTools.get("create_workspace")!;
-    const signal = await entry.handler({ name: "  " }, ctx, deps);
+    const signal = await entry.handler({ name: "  ", owner_user_id: null }, ctx, deps);
 
     expect(signal.toolResult).toContain("Error");
     expect(signal.toolResult).toContain("empty");
@@ -136,7 +136,7 @@ describe("create_workspace handler", () => {
     const ctx = makeContext({ userId: "Uowner1234" });
 
     const entry = systemTools.get("create_workspace")!;
-    const signal = await entry.handler({ name: "SecondWorkspace" }, ctx, deps);
+    const signal = await entry.handler({ name: "SecondWorkspace", owner_user_id: null }, ctx, deps);
 
     expect(signal.toolResult).toContain("Error");
     expect(signal.toolResult).toContain("already own");
@@ -161,13 +161,94 @@ describe("create_workspace handler", () => {
         setDefaultWorkspaceId: async (userId: string, workspaceId: string) => {
           setDefaultCalls.push({ userId, workspaceId });
         },
+        isSystemAdmin: () => false,
       } as unknown as UserStore,
     };
 
     const entry = systemTools.get("create_workspace")!;
-    await entry.handler({ name: "  Trimmed  " }, makeContext(), deps);
+    await entry.handler({ name: "  Trimmed  ", owner_user_id: null }, makeContext(), deps);
 
     expect(createCalls[0]!.name).toBe("Trimmed");
+  });
+
+  test("admin + owner_user_id 지정: 대상 사용자를 owner로 생성", async () => {
+    const setDefaultCalls: Array<{ userId: string; workspaceId: string }> = [];
+    const createCalls: Array<{ name: string; ownerId: string }> = [];
+    const createdWs = makeWorkspace({ id: "ws-delegated", name: "Delegated" });
+
+    const deps = makeDeps({
+      ownedWorkspaces: [],
+      setDefaultCalls,
+      isSystemAdmin: (id) => id === "Uadmin001",
+    });
+    // getByOwner를 대상 사용자 기준으로 호출하므로 mock을 오버라이드
+    (deps.workspaceStore as any).getByOwner = () => [];
+    (deps.workspaceStore as any).create = async (name: string, ownerId: string) => {
+      createCalls.push({ name, ownerId });
+      return createdWs;
+    };
+    const ctx = makeContext({ userId: "Uadmin001", role: "admin" });
+
+    const entry = systemTools.get("create_workspace")!;
+    await entry.handler({ name: "Delegated", owner_user_id: "Utarget001" }, ctx, deps);
+
+    // owner는 대상 사용자
+    expect(createCalls[0]!.ownerId).toBe("Utarget001");
+    // defaultWorkspaceId는 대상 사용자에게 설정
+    expect(setDefaultCalls[0]!.userId).toBe("Utarget001");
+  });
+
+  test("admin + owner_user_id null: 자기 자신을 owner로 생성", async () => {
+    const createCalls: Array<{ name: string; ownerId: string }> = [];
+    const createdWs = makeWorkspace({ id: "ws-admin", name: "AdminWS" });
+
+    const deps = makeDeps({
+      ownedWorkspaces: [],
+      isSystemAdmin: (id) => id === "Uadmin001",
+    });
+    (deps.workspaceStore as any).create = async (name: string, ownerId: string) => {
+      createCalls.push({ name, ownerId });
+      return createdWs;
+    };
+    const ctx = makeContext({ userId: "Uadmin001", role: "admin" });
+
+    const entry = systemTools.get("create_workspace")!;
+    await entry.handler({ name: "AdminWS", owner_user_id: null }, ctx, deps);
+
+    expect(createCalls[0]!.ownerId).toBe("Uadmin001");
+  });
+
+  test("일반 사용자 + owner_user_id 지정: 무시, 자기 소유로 생성", async () => {
+    const createCalls: Array<{ name: string; ownerId: string }> = [];
+    const createdWs = makeWorkspace({ id: "ws-self", name: "SelfWS" });
+
+    const deps = makeDeps({ ownedWorkspaces: [] });
+    (deps.workspaceStore as any).create = async (name: string, ownerId: string) => {
+      createCalls.push({ name, ownerId });
+      return createdWs;
+    };
+    const ctx = makeContext({ userId: "Uregular001", role: "member" });
+
+    const entry = systemTools.get("create_workspace")!;
+    await entry.handler({ name: "SelfWS", owner_user_id: "Uother999" }, ctx, deps);
+
+    // owner_user_id 무시, 자기 자신이 owner
+    expect(createCalls[0]!.ownerId).toBe("Uregular001");
+  });
+
+  test("admin도 소유 제한 동일 적용 (1개 초과 시 거부)", async () => {
+    const existingWs = makeWorkspace({ id: "ws-admin-existing", ownerId: "Uadmin001" });
+    const deps = makeDeps({
+      ownedWorkspaces: [existingWs],
+      isSystemAdmin: (id) => id === "Uadmin001",
+    });
+    const ctx = makeContext({ userId: "Uadmin001", role: "admin" });
+
+    const entry = systemTools.get("create_workspace")!;
+    const signal = await entry.handler({ name: "SecondWS", owner_user_id: null }, ctx, deps);
+
+    expect(signal.toolResult).toContain("Error");
+    expect(signal.toolResult).toContain("already own");
   });
 });
 

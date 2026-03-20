@@ -43,7 +43,7 @@ const createWorkspace: SystemToolEntry = {
     name: "create_workspace",
     strict: true,
     description:
-      "Create a new workspace for the user. The user can have at most one workspace.",
+      "Create a new workspace. Each user can own at most one workspace. Admins can specify an owner; regular users always own the workspace themselves.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -51,34 +51,44 @@ const createWorkspace: SystemToolEntry = {
           type: "string",
           description: "Name of the workspace to create",
         },
+        owner_user_id: {
+          anyOf: [{ type: "string" }, { type: "null" }],
+          description:
+            "LINE userId of the owner. If null, the caller becomes the owner. Non-admin callers: this field is ignored.",
+        },
       },
-      required: ["name"],
+      required: ["name", "owner_user_id"],
       additionalProperties: false,
     },
   },
   async handler(input, context, deps) {
     const name = input.name as string;
 
-    // 1. 이름 검증 (순수 함수)
+    // 1. owner 결정: admin이 owner_user_id를 지정하면 대상 사용자, 그 외 자기 자신
+    const isAdmin = deps.userStore.isSystemAdmin(context.userId);
+    const rawOwner = input.owner_user_id as string | null;
+    const ownerId = (isAdmin && rawOwner) ? rawOwner : context.userId;
+
+    // 2. 이름 검증 (순수 함수)
     const validation = validateWorkspaceName(name);
     if (!validation.valid) {
       return { toolResult: `Error: ${validation.error}` };
     }
 
-    // 2. 소유 제한 검증 (순수 함수 + Store 조회)
-    const owned = deps.workspaceStore.getByOwner(context.userId);
+    // 3. 소유 제한 검증 (순수 함수 + Store 조회) — owner 기준
+    const owned = deps.workspaceStore.getByOwner(ownerId);
     if (!canCreateWorkspace(owned.length, MAX_OWNED_WORKSPACES)) {
       return {
         toolResult: "Error: You already own a workspace. Each user can own at most one workspace.",
       };
     }
 
-    // 3. 워크스페이스 생성 (Store I/O) — validation.name은 트리밍 완료
-    const ws = await deps.workspaceStore.create(validation.name, context.userId);
-    log.info("Workspace created", { workspaceId: ws.id, ownerId: context.userId });
+    // 4. 워크스페이스 생성 (Store I/O) — validation.name은 트리밍 완료
+    const ws = await deps.workspaceStore.create(validation.name, ownerId);
+    log.info("Workspace created", { workspaceId: ws.id, ownerId });
 
-    // 4. 기본 워크스페이스 설정 (Store I/O)
-    await deps.userStore.setDefaultWorkspaceId(context.userId, ws.id);
+    // 5. 기본 워크스페이스 설정 (Store I/O) — owner에게 설정
+    await deps.userStore.setDefaultWorkspaceId(ownerId, ws.id);
 
     return {
       toolResult: JSON.stringify({
