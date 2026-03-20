@@ -62,8 +62,8 @@
 
 - **검증 기준**: 코드 변경 후 `bun run typecheck` + `bun test` 모두 통과 필수
 
-## 워크스페이스 생성
+## 워크스페이스 관리 (System Tool)
 
-- **일반 사용자**: 에이전트와 대화 → `create_workspace` System Tool (사용자당 1개 제한)
-- **시스템 관리자 (CLI)**: `bun run src/workspaces/cli.ts create "이름" Uowner...`
+- **일반 사용자**: 에이전트와 대화 → `create_workspace` (사용자당 1개 제한), `list_workspaces`, `get_workspace_info` (소유 WS만)
+- **시스템 관리자**: 동일 System Tool 사용. `create_workspace`에서 `owner_user_id`로 대상 지정 가능. `list_workspaces`/`get_workspace_info`는 전체 조회
 - **GWS 인증**: `docker exec -it assistant gws auth login --config-dir data/workspaces/{id}/gws-config/`
