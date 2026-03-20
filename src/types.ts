@@ -1,4 +1,5 @@
 import type Anthropic from "@anthropic-ai/sdk";
+import type { UserStore } from "./users/store.js";
 
 // --- 도구 시스템 ---
 
@@ -6,8 +7,14 @@ import type Anthropic from "@anthropic-ai/sdk";
 export const LINE_PUSH_TEXT_TOOL = "push_text_message";
 export const LINE_PUSH_FLEX_TOOL = "push_flex_message";
 
-/** MCP Server에서 에이전트에 노출할 도구 화이트리스트 */
-export const MCP_ALLOWED_TOOLS = new Set([
+/**
+ * 채널 스킬 도구 이름 Set
+ *
+ * 용도:
+ * - MCP Server 도구 필터링 (mcp.ts)
+ * - 에이전트 루프에서 channelDelivered 판정 (loop.ts)
+ */
+export const CHANNEL_SKILL_TOOL_NAMES = new Set([
   LINE_PUSH_TEXT_TOOL,
   LINE_PUSH_FLEX_TOOL,
 ]);
@@ -21,11 +28,29 @@ export interface ToolRegistry {
   executors: Map<string, ToolExecutor>;
 }
 
+// --- 에이전트 내부 도구 공통 규격 ---
+
+/** 에이전트 내부 도구(Infra, System) 핸들러의 공통 반환 시그널 */
+export interface InternalToolSignal {
+  /** Claude에 반환할 tool_result content */
+  toolResult: string;
+}
+
+/** 에이전트 내부 도구(Infra, System) 공통 등록 엔트리 */
+export interface InternalToolEntry<H> {
+  /** Claude에게 보여줄 도구 스키마 */
+  def: Anthropic.Tool;
+  /** 도구 실행 핸들러 */
+  handler: H;
+}
+
 // --- 에이전트 ---
 
 export interface AgentResult {
   text: string;
   toolCalls: number;
+  /** 에이전트가 채널 스킬 도구로 이미 전달했는지 여부 */
+  channelDelivered: boolean;
 }
 
 // --- GWS ---
@@ -167,9 +192,12 @@ export interface AgentDependencies {
   registry: ToolRegistry;
   pendingActionStore: PendingActionStore;
   workspaceStore: WorkspaceStore;
+  userStore: UserStore;
 }
 
-// --- Store 인터페이스 (전방 선언) ---
+// --- Store 인터페이스 ---
+
+export type { UserStore } from "./users/store.js";
 
 export interface PendingActionStore {
   create(action: Omit<PendingAction, "id" | "status" | "createdAt">): Promise<PendingAction>;

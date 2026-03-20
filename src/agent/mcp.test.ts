@@ -1,11 +1,11 @@
 import "../test-utils/setup-env.js";
 import { describe, expect, test } from "bun:test";
-import { MCP_ALLOWED_TOOLS } from "../types.js";
+import { CHANNEL_SKILL_TOOL_NAMES } from "../types.js";
 import { filterAndMapTools, mapMcpToAnthropicTools } from "./mcp.js";
 
-describe("MCP_ALLOWED_TOOLS", () => {
+describe("CHANNEL_SKILL_TOOL_NAMES", () => {
   test("push_text_message과 push_flex_message만 포함", () => {
-    expect([...MCP_ALLOWED_TOOLS].sort()).toEqual([
+    expect([...CHANNEL_SKILL_TOOL_NAMES].sort()).toEqual([
       "push_flex_message",
       "push_text_message",
     ]);

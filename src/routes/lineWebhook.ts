@@ -1,5 +1,6 @@
 import { Hono } from "hono";
-import { runAgentLoop } from "../agent/loop.js";
+import { createChannelTextSender } from "../agent/line-tool-adapter.js";
+import { runAgentAndDeliver } from "../agent/loop.js";
 import { notifyActionResult } from "../approvals/notify.js";
 import {
   isActive,
@@ -24,8 +25,8 @@ import { getGwsExecutors } from "../skills/gws/executor.js";
 import { toErrorMessage } from "../utils/error.js";
 import { createLogger } from "../utils/logger.js";
 import {
-  LINE_PUSH_TEXT_TOOL,
   type AgentDependencies,
+  type AgentResult,
   type LineFollowEvent,
   type LinePostbackEvent,
   type LineMessageEvent,
@@ -46,9 +47,9 @@ export function createLineWebhookRoute(
 
   // --- 공통 헬퍼 ---
 
-  async function sendText(userId: string, text: string): Promise<void> {
-    const exec = deps.registry.executors.get(LINE_PUSH_TEXT_TOOL);
-    if (exec) await exec({ user_id: userId, text });
+  /** 채널 outbound adapter — MCP 네이티브 스키마 + userId 주입 */
+  function sendText(userId: string, text: string): Promise<void> {
+    return createChannelTextSender(deps.registry.executors, userId)(text);
   }
 
   // 사용자별 큐: 같은 사용자 내 순차 처리 (대화 순서 보장),
@@ -106,16 +107,16 @@ export function createLineWebhookRoute(
     enqueue(userId, async () => {
       const context = resolveContext(userId);
       if (!context) {
-        // System Admin + 워크스페이스 미소속 → admin 컨텍스트로 에이전트 실행
+        // System Admin + 워크스페이스 미소속 → admin 컨텍스트
         if (userStore.isSystemAdmin(userId)) {
-          await runAgentLoop(prompt, deps, { userId, role: "admin" });
+          await runAgentAndDeliver(prompt, deps, { userId, role: "admin" });
           return;
         }
         // 일반 사용자 + 워크스페이스 미소속 → 온보딩 컨텍스트
-        await runAgentLoop(prompt, deps, { userId, role: "member" });
+        await runAgentAndDeliver(prompt, deps, { userId, role: "member" });
         return;
       }
-      await runAgentLoop(prompt, deps, context);
+      await runAgentAndDeliver(prompt, deps, context);
     });
   }
 
@@ -142,13 +143,13 @@ export function createLineWebhookRoute(
         const isAdmin = userStore.isSystemAdmin(userId);
         const context = isAdmin ? resolveContextOrAdmin(userId) : resolveContext(userId) ?? { userId, role: "member" };
         const prompt = isAdmin
-          ? "An admin user has re-joined. Send a welcome-back message via LINE."
-          : "A returning user has re-joined. Send a welcome-back message via LINE.";
-        await runAgentLoop(prompt, deps, context);
+          ? "An admin user has re-joined. Send a welcome-back message."
+          : "A returning user has re-joined. Send a welcome-back message.";
+        await runAgentAndDeliver(prompt, deps, context);
       } else {
         // 신규 사용자: 즉시 활성화 + 온보딩
         await userStore.set(userId, createFromFollow());
-        await runAgentLoop(
+        await runAgentAndDeliver(
           "A new user has just joined. Greet them, introduce the service, and guide them on how to get started.",
           deps,
           { userId, role: "member" },
@@ -181,20 +182,6 @@ export function createLineWebhookRoute(
     const text = extractTextMessage(event);
     log.debug("Processing text message", () => ({ userId, preview: text.slice(0, 50) }));
 
-    // 시스템 관리자: 워크스페이스 생성 명령
-    const createWsMatch = /^create-workspace\s+(.+?)\s+(U[0-9a-f]{32})$/i.exec(text);
-    if (userStore.isSystemAdmin(userId) && createWsMatch) {
-      const [, wsName, ownerId] = createWsMatch;
-      enqueue(userId, async () => {
-        const ws = await deps.workspaceStore.create(wsName!, ownerId!);
-        await sendText(
-          userId,
-          `Workspace "${ws.name}" (${ws.id}) has been created.\nOwner: ${ownerId}\nGWS auth: docker exec -it assistant gws auth login --config-dir ${ws.gwsConfigDir}`,
-        );
-      });
-      return;
-    }
-
     // 초대 명령 — 워크스페이스 owner만 사용 가능
     const inviteMatch = INVITE_PATTERN.exec(text);
     if (inviteMatch) {
@@ -216,8 +203,8 @@ export function createLineWebhookRoute(
 
         // owner는 반드시 워크스페이스 소속 → resolveContext 보장
         const context = resolveContext(userId)!;
-        await runAgentLoop(
-          `User ${targetId} has been invited to workspace "${ws.name}". Report the invitation completion via LINE.`,
+        await runAgentAndDeliver(
+          `User ${targetId} has been invited to workspace "${ws.name}". Report the invitation completion.`,
           deps,
           context,
         );

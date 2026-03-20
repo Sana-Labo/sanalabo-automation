@@ -1,5 +1,5 @@
-import { runAgentLoop } from "../agent/loop.js";
-import type { AgentDependencies, ToolContext } from "../types.js";
+import { runAgentAndDeliver } from "../agent/loop.js";
+import type { AgentDependencies, AgentResult, ToolContext } from "../types.js";
 import { toErrorMessage } from "../utils/error.js";
 import { createLogger } from "../utils/logger.js";
 
@@ -7,7 +7,7 @@ const log = createLogger("cron");
 
 function withJobLogging(
   label: string,
-  fn: (deps: AgentDependencies, context: ToolContext) => Promise<{ toolCalls: number }>,
+  fn: (deps: AgentDependencies, context: ToolContext) => Promise<AgentResult>,
 ): (deps: AgentDependencies, context: ToolContext) => Promise<void> {
   return async (deps, context) => {
     log.info("Running job", { job: label, userId: context.userId });
@@ -22,18 +22,18 @@ function withJobLogging(
 
 function createJob(label: string, prompt: string) {
   return withJobLogging(label, (deps, context) =>
-    runAgentLoop(prompt, deps, context),
+    runAgentAndDeliver(prompt, deps, context),
   );
 }
 
 export const morningBriefing = createJob(
   "morning briefing",
-  "Check unread emails and today's schedule, then send a summary via LINE.",
+  "Check unread emails and today's schedule, then summarize.",
 );
 
 export const eveningSummary = createJob(
   "evening summary",
-  "Summarize today's activities along with tomorrow's schedule, and send via LINE.",
+  "Summarize today's activities along with tomorrow's schedule.",
 );
 
 // urgentMailCheck: 사용자별 타임스탬프 기반 중복 방지
@@ -53,9 +53,9 @@ export const urgentMailCheck = withJobLogging("urgent mail check", async (deps, 
   const checkpoint = new Date();
   const sinceEpoch = Math.floor(since.getTime() / 1000);
 
-  const prompt = `Check Gmail for important emails (query: is:important after:${sinceEpoch}). If any, notify the user via LINE. If none, use the no_action tool to exit.`;
+  const prompt = `Check Gmail for important emails (query: is:important after:${sinceEpoch}). If any, notify the user. If none, use the no_action tool to exit.`;
 
-  const result = await runAgentLoop(prompt, deps, context);
+  const result = await runAgentAndDeliver(prompt, deps, context);
   // 성공 시에만 체크포인트를 전진 — 실패 시 동일 기간을 재시도
   lastUrgentCheckMap.set(context.userId, checkpoint);
   return result;

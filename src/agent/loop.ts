@@ -4,8 +4,7 @@ import { notifyOwnerOfPending } from "../approvals/notify.js";
 import { config } from "../config.js";
 import { getGwsExecutors } from "../skills/gws/executor.js";
 import {
-  LINE_PUSH_TEXT_TOOL,
-  MCP_ALLOWED_TOOLS,
+  CHANNEL_SKILL_TOOL_NAMES,
   type AgentDependencies,
   type AgentResult,
   type ToolContext,
@@ -15,7 +14,8 @@ import {
 import { toErrorMessage } from "../utils/error.js";
 import { createLogger } from "../utils/logger.js";
 import { infraToolDefs, infraTools } from "./infra-tools.js";
-import { createLineExecutors } from "./line-tool-adapter.js";
+import { createChannelTextSender, createLineExecutors } from "./line-tool-adapter.js";
+import { systemToolDefs, systemTools } from "./system-tools.js";
 import { buildSystemPrompt } from "./system.js";
 
 const log = createLogger("agent");
@@ -98,10 +98,11 @@ export async function runAgentLoop(
 
   let turns = 0;
   let toolCalls = 0;
-  let delivery: "pending" | "pushed" | "no_action" = "pending";
-  // executor가 존재하는 도구 + 인프라 도구만 Claude에게 전달
-  const allTools = [...deps.registry.tools, ...infraToolDefs]
-    .filter(t => executors.has(t.name) || infraTools.has(t.name));
+  let channelDelivered = false;
+
+  // executor가 존재하는 도구 + 내부 도구(infra, system)만 Claude에게 전달
+  const allTools = [...deps.registry.tools, ...infraToolDefs, ...systemToolDefs]
+    .filter(t => executors.has(t.name) || infraTools.has(t.name) || systemTools.has(t.name));
 
   log.debug("Agent loop started", () => ({ userId: context.userId, workspaceId: context.workspaceId, role: context.role }));
 
@@ -123,24 +124,25 @@ export async function runAgentLoop(
 
     if (response.stop_reason === "max_tokens") {
       const text = extractText(response.content) || "The response was too long and has been truncated.";
-      await ensureDelivery(text);
-      return { text, toolCalls };
+      return { text, toolCalls, channelDelivered };
     }
 
     if (response.stop_reason !== "tool_use") {
       // end_turn: output_config에 의해 JSON 형식 → text 필드 추출
       const text = extractJsonText(response.content);
-      await ensureDelivery(text);
       log.debug("Agent loop completed", () => ({ turns, toolCalls }));
-      return { text, toolCalls };
+      return { text, toolCalls, channelDelivered };
     }
 
     const toolUseBlocks = response.content.filter(
       (b): b is Anthropic.ToolUseBlock => b.type === "tool_use",
     );
 
-    // 인프라 도구 선처리: 스킬 도구보다 먼저 디스패치
+    // --- 3단계 디스패치 ---
+
+    // [1단계] Infra tool 선처리: 루프 제어 (exitLoop 가능)
     const handled = new Set<string>();
+    const infraToolResults: Anthropic.ToolResultBlockParam[] = [];
     for (const block of toolUseBlocks) {
       const entry = infraTools.get(block.name);
       if (!entry) continue;
@@ -151,15 +153,41 @@ export async function runAgentLoop(
         block.input as Record<string, unknown>,
         context,
       );
-      if (signal.delivery) delivery = signal.delivery;
       if (signal.exitLoop) {
-        return { text: signal.exitText, toolCalls };
+        return { text: signal.exitText, toolCalls, channelDelivered };
       }
+      // non-exit infra tool: tool_result를 메시지 히스토리에 포함
+      infraToolResults.push({
+        type: "tool_result",
+        tool_use_id: block.id,
+        content: signal.toolResult,
+      });
     }
 
-    // 이미 처리된 블록을 제외한 나머지 도구 실행
+    // [2단계] System tool: 내부 시스템 관리 (비동기, deps 접근)
+    const systemToolResults: Anthropic.ToolResultBlockParam[] = [];
+    for (const block of toolUseBlocks) {
+      if (handled.has(block.id)) continue;
+      const entry = systemTools.get(block.name);
+      if (!entry) continue;
+      toolCalls++;
+      handled.add(block.id);
+      log.debug("System tool handled", () => ({ tool: block.name, toolUseId: block.id }));
+      const signal = await entry.handler(
+        block.input as Record<string, unknown>,
+        context,
+        deps,
+      );
+      systemToolResults.push({
+        type: "tool_result",
+        tool_use_id: block.id,
+        content: signal.toolResult,
+      });
+    }
+
+    // [3단계] Skill tool: 외부 시스템 통신 (handled 제외)
     const remaining = toolUseBlocks.filter((b) => !handled.has(b.id));
-    const toolResults = await Promise.all(
+    const skillToolResults = await Promise.all(
       remaining.map(async (block) => {
         toolCalls++;
         log.debug("Tool call", () => ({ tool: block.name, toolUseId: block.id }));
@@ -206,8 +234,8 @@ export async function runAgentLoop(
         try {
           const result = await executor(toolInput);
           log.debug("Tool succeeded", () => ({ tool: block.name, resultLength: result.length }));
-          if (MCP_ALLOWED_TOOLS.has(block.name)) {
-            delivery = "pushed";
+          if (CHANNEL_SKILL_TOOL_NAMES.has(block.name)) {
+            channelDelivered = true;
           }
           return {
             type: "tool_result" as const,
@@ -226,30 +254,32 @@ export async function runAgentLoop(
       }),
     );
 
+    const toolResults = [...infraToolResults, ...systemToolResults, ...skillToolResults];
     messages.push({ role: "assistant", content: response.content });
     messages.push({ role: "user", content: toolResults });
   }
 
   const text = "Reached the maximum number of tool calls. Aborting.";
-  await ensureDelivery(text);
-  return { text, toolCalls };
+  return { text, toolCalls, channelDelivered };
+}
 
-  /** 에이전트가 직접 push하지 않은 경우 LINE으로 응답 전송 */
-  async function ensureDelivery(text: string): Promise<void> {
-    if (delivery !== "pending" || !text) return;
-    const exec = executors.get(LINE_PUSH_TEXT_TOOL);
-    if (!exec) {
-      log.warning("push_text_message executor not found — response not delivered");
-      return;
-    }
-    try {
-      // 래핑 executor 사용: { text } → userId 자동 주입 + MCP 네이티브 변환
-      await exec({ text });
-      delivery = "pushed";
-    } catch (e) {
-      log.error("ensureDelivery failed", { error: toErrorMessage(e) });
-    }
+/**
+ * 에이전트 루프 실행 + 채널 전달
+ *
+ * runAgentLoop 후 channelDelivered가 false이고 text가 있으면
+ * 채널 어댑터를 통해 결정론적으로 전달.
+ */
+export async function runAgentAndDeliver(
+  userMessage: string,
+  deps: AgentDependencies,
+  context: ToolContext,
+): Promise<AgentResult> {
+  const result = await runAgentLoop(userMessage, deps, context);
+  if (!result.channelDelivered && result.text) {
+    const sendText = createChannelTextSender(deps.registry.executors, context.userId);
+    await sendText(result.text);
   }
+  return result;
 }
 
 export function buildToolRegistry(

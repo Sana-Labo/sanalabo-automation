@@ -1,31 +1,53 @@
 import { describe, expect, test } from "bun:test";
-import { LINE_SIMPLIFIED_TOOLS, createLineExecutors } from "./line-tool-adapter.js";
+import {
+  LINE_CHANNEL_SKILL_TOOLS,
+  createLineExecutors,
+  createChannelTextSender,
+} from "./line-tool-adapter.js";
 import { LINE_PUSH_TEXT_TOOL, LINE_PUSH_FLEX_TOOL } from "../types.js";
+
+// --- 공통 픽스처 ---
+
+function makeMockExecutors() {
+  const calls: Array<{ name: string; input: Record<string, unknown> }> = [];
+  const executors = new Map<string, (input: Record<string, unknown>) => Promise<string>>();
+
+  executors.set(LINE_PUSH_TEXT_TOOL, async (input) => {
+    calls.push({ name: LINE_PUSH_TEXT_TOOL, input });
+    return "ok";
+  });
+  executors.set(LINE_PUSH_FLEX_TOOL, async (input) => {
+    calls.push({ name: LINE_PUSH_FLEX_TOOL, input });
+    return "ok";
+  });
+
+  return { executors, calls };
+}
 
 // --- 스키마 정의 검증 ---
 
-describe("LINE_SIMPLIFIED_TOOLS", () => {
+describe("LINE_CHANNEL_SKILL_TOOLS", () => {
   test("push_text_message와 push_flex_message 2개 정의", () => {
-    expect(LINE_SIMPLIFIED_TOOLS).toHaveLength(2);
-    const names = LINE_SIMPLIFIED_TOOLS.map((t) => t.name);
+    expect(LINE_CHANNEL_SKILL_TOOLS).toHaveLength(2);
+    const names = LINE_CHANNEL_SKILL_TOOLS.map((t) => t.name);
     expect(names).toContain(LINE_PUSH_TEXT_TOOL);
     expect(names).toContain(LINE_PUSH_FLEX_TOOL);
   });
 
   test("모든 도구에 strict: true 설정", () => {
-    for (const tool of LINE_SIMPLIFIED_TOOLS) {
+    for (const tool of LINE_CHANNEL_SKILL_TOOLS) {
       expect(tool.strict).toBe(true);
     }
   });
 
   test("모든 도구에 additionalProperties: false 설정", () => {
-    for (const tool of LINE_SIMPLIFIED_TOOLS) {
+    for (const tool of LINE_CHANNEL_SKILL_TOOLS) {
       expect(tool.input_schema.additionalProperties).toBe(false);
     }
   });
 
   test("push_text_message 스키마는 text만 required", () => {
-    const tool = LINE_SIMPLIFIED_TOOLS.find((t) => t.name === LINE_PUSH_TEXT_TOOL)!;
+    const tool = LINE_CHANNEL_SKILL_TOOLS.find((t) => t.name === LINE_PUSH_TEXT_TOOL)!;
     expect(tool.input_schema.required).toEqual(["text"]);
     const props = tool.input_schema.properties as Record<string, unknown>;
     expect(props).toHaveProperty("text");
@@ -34,7 +56,7 @@ describe("LINE_SIMPLIFIED_TOOLS", () => {
   });
 
   test("push_flex_message 스키마는 altText, contents만 required", () => {
-    const tool = LINE_SIMPLIFIED_TOOLS.find((t) => t.name === LINE_PUSH_FLEX_TOOL)!;
+    const tool = LINE_CHANNEL_SKILL_TOOLS.find((t) => t.name === LINE_PUSH_FLEX_TOOL)!;
     expect(tool.input_schema.required).toEqual(["altText", "contents"]);
     const props = tool.input_schema.properties as Record<string, unknown>;
     expect(props).toHaveProperty("altText");
@@ -46,22 +68,6 @@ describe("LINE_SIMPLIFIED_TOOLS", () => {
 // --- executor 래핑 검증 ---
 
 describe("createLineExecutors", () => {
-  function makeMockExecutors() {
-    const calls: Array<{ name: string; input: Record<string, unknown> }> = [];
-    const executors = new Map<string, (input: Record<string, unknown>) => Promise<string>>();
-
-    executors.set(LINE_PUSH_TEXT_TOOL, async (input) => {
-      calls.push({ name: LINE_PUSH_TEXT_TOOL, input });
-      return "ok";
-    });
-    executors.set(LINE_PUSH_FLEX_TOOL, async (input) => {
-      calls.push({ name: LINE_PUSH_FLEX_TOOL, input });
-      return "ok";
-    });
-
-    return { executors, calls };
-  }
-
   test("push_text_message: text → MCP 네이티브 스키마로 변환 + userId 주입", async () => {
     const { executors, calls } = makeMockExecutors();
     const wrapped = createLineExecutors(executors, "U_user_123");
@@ -93,7 +99,6 @@ describe("createLineExecutors", () => {
   test("원본 executor에 없는 도구는 래핑하지 않음", () => {
     const executors = new Map<string, (input: Record<string, unknown>) => Promise<string>>();
     executors.set(LINE_PUSH_TEXT_TOOL, async () => "ok");
-    // push_flex_message가 없음
 
     const wrapped = createLineExecutors(executors, "U_user_789");
 
@@ -111,5 +116,40 @@ describe("createLineExecutors", () => {
     const exec = wrapped.get(LINE_PUSH_TEXT_TOOL)!;
 
     await expect(exec({ text: "test" })).rejects.toThrow("MCP pool exhausted");
+  });
+});
+
+// --- 채널 outbound adapter 검증 ---
+
+describe("createChannelTextSender", () => {
+  test("MCP 네이티브 스키마로 변환 + userId 주입", async () => {
+    const { executors, calls } = makeMockExecutors();
+    const sendText = createChannelTextSender(executors, "U_channel_001");
+
+    await sendText("Hello from channel");
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.name).toBe(LINE_PUSH_TEXT_TOOL);
+    expect(calls[0]!.input).toEqual({
+      user_id: "U_channel_001",
+      messages: [{ type: "text", text: "Hello from channel" }],
+    });
+  });
+
+  test("빈 문자열은 전송하지 않음", async () => {
+    const { executors, calls } = makeMockExecutors();
+    const sendText = createChannelTextSender(executors, "U_channel_002");
+
+    await sendText("");
+
+    expect(calls).toHaveLength(0);
+  });
+
+  test("push_text_message executor 미존재 시 무시", async () => {
+    const executors = new Map<string, (input: Record<string, unknown>) => Promise<string>>();
+    const sendText = createChannelTextSender(executors, "U_channel_003");
+
+    // 에러 없이 완료
+    await sendText("test");
   });
 });

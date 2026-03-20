@@ -9,9 +9,12 @@
  */
 import type Anthropic from "@anthropic-ai/sdk";
 import { LINE_PUSH_TEXT_TOOL, LINE_PUSH_FLEX_TOOL, type ToolExecutor } from "../types.js";
+import { createLogger } from "../utils/logger.js";
 
-/** LLM에 노출할 단순화된 LINE 도구 스키마 (strict: true) */
-export const LINE_SIMPLIFIED_TOOLS: Anthropic.Tool[] = [
+const log = createLogger("channel");
+
+/** LLM에 노출할 LINE 채널 스킬 도구 스키마 (strict: true) */
+export const LINE_CHANNEL_SKILL_TOOLS: Anthropic.Tool[] = [
   {
     name: LINE_PUSH_TEXT_TOOL,
     strict: true,
@@ -87,4 +90,32 @@ export function createLineExecutors(
   }
 
   return wrapped;
+}
+
+/**
+ * 채널 outbound adapter용 텍스트 전송 함수 생성
+ *
+ * MCP 네이티브 스키마로 변환 + userId 주입.
+ * webhook/cron 등 호출자가 에이전트 루프 종료 후 채널 전달에 사용.
+ *
+ * @param origExecutors - MCP Pool에서 제공하는 원본 executor Map
+ * @param userId - LINE userId (코드에서 강제 주입)
+ * @returns 텍스트 전송 함수 (빈 문자열이면 전송하지 않음)
+ */
+export function createChannelTextSender(
+  origExecutors: Map<string, ToolExecutor>,
+  userId: string,
+): (text: string) => Promise<void> {
+  return async (text) => {
+    if (!text) return;
+    const exec = origExecutors.get(LINE_PUSH_TEXT_TOOL);
+    if (!exec) {
+      log.warning("push_text_message executor not found — channel delivery skipped");
+      return;
+    }
+    await exec({
+      user_id: userId,
+      messages: [{ type: "text", text }],
+    });
+  };
 }
