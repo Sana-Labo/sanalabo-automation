@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { LINE_SIMPLIFIED_TOOLS } from "./agent/line-tool-adapter.js";
+import { LINE_CHANNEL_SKILL_TOOLS } from "./agent/line-tool-adapter.js";
 import { buildToolRegistry } from "./agent/loop.js";
 import { connectMcpPool } from "./agent/mcp-pool.js";
 import { createPendingActionStore } from "./approvals/store.js";
@@ -53,7 +53,7 @@ async function main() {
   //   → loop.ts에서 createLineExecutors()로 래핑하여 입력 변환
   const registry: ToolRegistry = buildToolRegistry(
     { tools: gwsTools, executors: new Map() },
-    { tools: LINE_SIMPLIFIED_TOOLS, executors: mcp.executors },
+    { tools: LINE_CHANNEL_SKILL_TOOLS, executors: mcp.executors },
   );
   log.info("Tool registry built", { toolCount: registry.tools.length });
 
@@ -62,6 +62,7 @@ async function main() {
     registry,
     pendingActionStore,
     workspaceStore,
+    userStore,
   };
 
   // 6. Hono 앱 생성
