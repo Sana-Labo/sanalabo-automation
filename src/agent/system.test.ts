@@ -64,20 +64,6 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("MyClub");
   });
 
-  test("context userId is included in prompt", () => {
-    const userId = "Uowner1234";
-    const prompt = buildSystemPrompt(makeContext({ userId }), makeWorkspace());
-    expect(prompt).toContain(userId);
-  });
-
-  test("different userId is reflected", () => {
-    const prompt = buildSystemPrompt(
-      makeContext({ userId: "Uxyz9999" }),
-      makeWorkspace(),
-    );
-    expect(prompt).toContain("Uxyz9999");
-  });
-
   test("undefined workspace shows 'Unknown'", () => {
     const prompt = buildSystemPrompt(makeContext(), undefined);
     expect(prompt).toContain("Unknown");
@@ -99,11 +85,40 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("2000 characters");
   });
 
-  test("prompt explains two valid exit paths", () => {
+  test("prompt contains no_action guidance", () => {
     const prompt = buildSystemPrompt(makeContext(), makeWorkspace());
-    expect(prompt).toContain("push_text_message");
     expect(prompt).toContain("no_action");
-    expect(prompt).toContain("Response Rules");
+  });
+
+  test("prompt does not contain push_text_message or Response Rules", () => {
+    const prompt = buildSystemPrompt(makeContext(), makeWorkspace());
+    expect(prompt).not.toContain("push_text_message");
+    expect(prompt).not.toContain("Response Rules");
+  });
+
+  test("prompt does not contain userId (채널 어댑터가 주입)", () => {
+    const prompt = buildSystemPrompt(makeContext({ userId: "Uxyz9999" }), makeWorkspace());
+    expect(prompt).not.toContain("Uxyz9999");
+  });
+
+  describe("GWS authentication notice", () => {
+    test("gwsAuthenticated: false → 인증 필요 안내 포함", () => {
+      const prompt = buildSystemPrompt(
+        makeContext(),
+        makeWorkspace({ gwsAuthenticated: false }),
+      );
+      expect(prompt).toContain("authentication");
+      expect(prompt).toContain("unavailable");
+    });
+
+    test("gwsAuthenticated: true → 인증 안내 미포함", () => {
+      const prompt = buildSystemPrompt(
+        makeContext(),
+        makeWorkspace({ gwsAuthenticated: true }),
+      );
+      expect(prompt).not.toContain("Authentication");
+      expect(prompt).not.toContain("unavailable");
+    });
   });
 
   describe("admin role (no workspace)", () => {
@@ -119,23 +134,13 @@ describe("buildSystemPrompt", () => {
       expect(prompt).not.toContain("Safety Rules");
     });
 
-    test("admin prompt contains response rules and message format", () => {
+    test("admin prompt contains no_action guidance and message format", () => {
       const prompt = buildSystemPrompt(
         makeContext({ role: "admin", workspaceId: undefined }),
         undefined,
       );
-      expect(prompt).toContain("push_text_message");
       expect(prompt).toContain("no_action");
-      expect(prompt).toContain("Response Rules");
       expect(prompt).toContain("2000 characters");
-    });
-
-    test("admin prompt contains userId", () => {
-      const prompt = buildSystemPrompt(
-        makeContext({ role: "admin", userId: "Uadmin9999", workspaceId: undefined }),
-        undefined,
-      );
-      expect(prompt).toContain("Uadmin9999");
     });
 
     test("admin prompt contains current time", () => {
@@ -176,6 +181,14 @@ describe("buildSystemPrompt", () => {
       expect(prompt).toContain("onboarding");
     });
 
+    test("contains create_workspace guidance", () => {
+      const prompt = buildSystemPrompt(
+        makeContext({ role: "member", workspaceId: undefined }),
+        undefined,
+      );
+      expect(prompt).toContain("create_workspace");
+    });
+
     test("does not contain GWS-specific content", () => {
       const prompt = buildSystemPrompt(
         makeContext({ role: "member", workspaceId: undefined }),
@@ -186,22 +199,13 @@ describe("buildSystemPrompt", () => {
       expect(prompt).not.toContain("Your role:");
     });
 
-    test("contains response rules and message format", () => {
+    test("contains no_action guidance and message format", () => {
       const prompt = buildSystemPrompt(
         makeContext({ role: "member", workspaceId: undefined }),
         undefined,
       );
-      expect(prompt).toContain("push_text_message");
-      expect(prompt).toContain("Response Rules");
+      expect(prompt).toContain("no_action");
       expect(prompt).toContain("2000 characters");
-    });
-
-    test("contains userId", () => {
-      const prompt = buildSystemPrompt(
-        makeContext({ role: "member", userId: "Unewuser9999", workspaceId: undefined }),
-        undefined,
-      );
-      expect(prompt).toContain("Unewuser9999");
     });
 
     test("mentions workspace as next step", () => {
