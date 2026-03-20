@@ -105,7 +105,7 @@ const listWorkspaces: SystemToolEntry = {
     name: "list_workspaces",
     strict: true,
     description:
-      "List workspaces. Admins see all workspaces; regular users see only workspaces they belong to.",
+      "List workspaces. Admins see all workspaces; regular users see only workspaces they own.",
     input_schema: {
       type: "object" as const,
       properties: {},
@@ -117,7 +117,7 @@ const listWorkspaces: SystemToolEntry = {
     const isAdmin = deps.userStore.isSystemAdmin(context.userId);
     const workspaces = isAdmin
       ? deps.workspaceStore.getAll()
-      : deps.workspaceStore.getByMember(context.userId);
+      : deps.workspaceStore.getByOwner(context.userId);
 
     return {
       toolResult: JSON.stringify({
@@ -127,9 +127,69 @@ const listWorkspaces: SystemToolEntry = {
   },
 };
 
+/** WorkspaceRecord → 상세 객체 (gwsConfigDir 제외, members 배열화) */
+function detailWorkspace(ws: WorkspaceRecord) {
+  return {
+    id: ws.id,
+    name: ws.name,
+    ownerId: ws.ownerId,
+    gwsAuthenticated: ws.gwsAuthenticated,
+    createdAt: ws.createdAt,
+    memberCount: Object.keys(ws.members).length,
+    members: Object.entries(ws.members).map(([userId, m]) => ({
+      userId,
+      role: m.role,
+      joinedAt: m.joinedAt,
+      invitedBy: m.invitedBy,
+    })),
+  };
+}
+
+const getWorkspaceInfo: SystemToolEntry = {
+  def: {
+    name: "get_workspace_info",
+    strict: true,
+    description:
+      "Get detailed workspace information. Admins can view any workspace; regular users can only view workspaces they own.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        workspace_id: {
+          anyOf: [{ type: "string" }, { type: "null" }],
+          description:
+            "Workspace ID to query. If null, uses the current workspace context.",
+        },
+      },
+      required: ["workspace_id"],
+      additionalProperties: false,
+    },
+  },
+  async handler(input, context, deps) {
+    const wsId = (input.workspace_id as string | null) ?? context.workspaceId;
+    if (!wsId) {
+      return {
+        toolResult: "Error: No workspace specified and no current workspace context.",
+      };
+    }
+
+    const ws = deps.workspaceStore.get(wsId);
+    if (!ws) {
+      return { toolResult: `Error: Workspace not found: ${wsId}` };
+    }
+
+    // 접근 제어: admin은 모든 WS, 일반 사용자는 자기 소유만
+    const isAdmin = deps.userStore.isSystemAdmin(context.userId);
+    if (!isAdmin && ws.ownerId !== context.userId) {
+      return { toolResult: "Error: You do not have access to this workspace." };
+    }
+
+    return { toolResult: JSON.stringify(detailWorkspace(ws)) };
+  },
+};
+
 // --- 레지스트리 ---
 
-const entries: SystemToolEntry[] = [createWorkspace, listWorkspaces];
+const entries: SystemToolEntry[] = [createWorkspace, listWorkspaces, getWorkspaceInfo];
 
 /** 이름 키 Map (O(1) lookup) */
 export const systemTools: ReadonlyMap<string, SystemToolEntry> = new Map(

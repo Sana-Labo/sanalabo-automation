@@ -194,10 +194,10 @@ describe("list_workspaces handler", () => {
     expect(result.workspaces[0].gwsConfigDir).toBeUndefined();
   });
 
-  test("일반 사용자: 소속 워크스페이스만 반환 (getByMember)", async () => {
-    const ws1 = makeWorkspace({ id: "ws-001", name: "WS1" });
-    const deps = makeDeps({ memberWorkspaces: [ws1] });
-    const ctx = makeContext({ userId: "Umember001", role: "member" });
+  test("일반 사용자: 소유한 워크스페이스만 반환 (getByOwner)", async () => {
+    const ws1 = makeWorkspace({ id: "ws-001", name: "WS1", ownerId: "Uowner001" });
+    const deps = makeDeps({ ownedWorkspaces: [ws1] });
+    const ctx = makeContext({ userId: "Uowner001", role: "owner" });
 
     const entry = systemTools.get("list_workspaces")!;
     const signal = await entry.handler({}, ctx, deps);
@@ -208,8 +208,8 @@ describe("list_workspaces handler", () => {
     expect(result.workspaces[0].memberCount).toBe(1);
   });
 
-  test("빈 목록: 빈 배열 메시지", async () => {
-    const deps = makeDeps({ memberWorkspaces: [] });
+  test("빈 목록: 빈 배열", async () => {
+    const deps = makeDeps({ ownedWorkspaces: [] });
     const ctx = makeContext({ role: "member" });
 
     const entry = systemTools.get("list_workspaces")!;
@@ -217,5 +217,113 @@ describe("list_workspaces handler", () => {
     const result = JSON.parse(signal.toolResult);
 
     expect(result.workspaces).toHaveLength(0);
+  });
+});
+
+// --- get_workspace_info 핸들러 테스트 ---
+
+describe("get_workspace_info handler", () => {
+  test("admin + workspace_id 지정: 상세 정보 반환 (gwsConfigDir 미포함)", async () => {
+    const ws = makeWorkspace({
+      id: "ws-001",
+      name: "WS1",
+      gwsAuthenticated: true,
+      members: {
+        Uowner1234: { role: "owner", joinedAt: "2024-01-01T00:00:00Z", invitedBy: "system" },
+        Umember001: { role: "member", joinedAt: "2024-02-01T00:00:00Z", invitedBy: "Uowner1234" },
+      },
+    });
+    const deps = makeDeps({
+      getWorkspace: (id) => (id === "ws-001" ? ws : undefined),
+      isSystemAdmin: (id) => id === "Uadmin001",
+    });
+    const ctx = makeContext({ userId: "Uadmin001", role: "admin" });
+
+    const entry = systemTools.get("get_workspace_info")!;
+    const signal = await entry.handler({ workspace_id: "ws-001" }, ctx, deps);
+    const result = JSON.parse(signal.toolResult);
+
+    expect(result.id).toBe("ws-001");
+    expect(result.name).toBe("WS1");
+    expect(result.gwsAuthenticated).toBe(true);
+    expect(result.memberCount).toBe(2);
+    expect(result.members).toHaveLength(2);
+    expect(result.gwsConfigDir).toBeUndefined();
+  });
+
+  test("owner + workspace_id null: 현재 워크스페이스(자기 소유) 상세", async () => {
+    const ws = makeWorkspace({ id: "ws-current", ownerId: "Uowner1234" });
+    const deps = makeDeps({
+      getWorkspace: (id) => (id === "ws-current" ? ws : undefined),
+    });
+    const ctx = makeContext({ userId: "Uowner1234", role: "owner", workspaceId: "ws-current" });
+
+    const entry = systemTools.get("get_workspace_info")!;
+    const signal = await entry.handler({ workspace_id: null }, ctx, deps);
+    const result = JSON.parse(signal.toolResult);
+
+    expect(result.id).toBe("ws-current");
+  });
+
+  test("소유하지 않은 워크스페이스: 접근 거부", async () => {
+    const ws = makeWorkspace({ id: "ws-other", ownerId: "Uother" });
+    const deps = makeDeps({
+      getWorkspace: (id) => (id === "ws-other" ? ws : undefined),
+    });
+    const ctx = makeContext({ userId: "Ustranger", role: "member", workspaceId: "ws-mine" });
+
+    const entry = systemTools.get("get_workspace_info")!;
+    const signal = await entry.handler({ workspace_id: "ws-other" }, ctx, deps);
+
+    expect(signal.toolResult).toContain("Error");
+  });
+
+  test("workspace_id null + workspaceId 미설정: 에러", async () => {
+    const deps = makeDeps();
+    const ctx = makeContext({ userId: "Uuser001", role: "member" });
+
+    const entry = systemTools.get("get_workspace_info")!;
+    const signal = await entry.handler({ workspace_id: null }, ctx, deps);
+
+    expect(signal.toolResult).toContain("Error");
+  });
+
+  test("존재하지 않는 workspace_id: 에러", async () => {
+    const deps = makeDeps({
+      getWorkspace: () => undefined,
+      isSystemAdmin: () => true,
+    });
+    const ctx = makeContext({ userId: "Uadmin001", role: "admin" });
+
+    const entry = systemTools.get("get_workspace_info")!;
+    const signal = await entry.handler({ workspace_id: "ws-nonexistent" }, ctx, deps);
+
+    expect(signal.toolResult).toContain("Error");
+    expect(signal.toolResult).toContain("not found");
+  });
+
+  test("members 배열에 userId, role, joinedAt, invitedBy 포함", async () => {
+    const ws = makeWorkspace({
+      id: "ws-001",
+      ownerId: "Uowner1234",
+      members: {
+        Uowner1234: { role: "owner", joinedAt: "2024-01-01T00:00:00Z", invitedBy: "system" },
+      },
+    });
+    const deps = makeDeps({
+      getWorkspace: (id) => (id === "ws-001" ? ws : undefined),
+    });
+    const ctx = makeContext({ userId: "Uowner1234", role: "owner", workspaceId: "ws-001" });
+
+    const entry = systemTools.get("get_workspace_info")!;
+    const signal = await entry.handler({ workspace_id: "ws-001" }, ctx, deps);
+    const result = JSON.parse(signal.toolResult);
+
+    expect(result.members[0]).toEqual({
+      userId: "Uowner1234",
+      role: "owner",
+      joinedAt: "2024-01-01T00:00:00Z",
+      invitedBy: "system",
+    });
   });
 });
