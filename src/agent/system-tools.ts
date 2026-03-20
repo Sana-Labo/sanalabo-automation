@@ -7,7 +7,12 @@
  * - 결정론적 처리 (LLM 판단에 의존하지 않음)
  */
 import type Anthropic from "@anthropic-ai/sdk";
-import type { AgentDependencies, ToolContext } from "../types.js";
+import type {
+  AgentDependencies,
+  InternalToolEntry,
+  InternalToolSignal,
+  ToolContext,
+} from "../types.js";
 import { canCreateWorkspace, validateWorkspaceName } from "../domain/workspace.js";
 import { createLogger } from "../utils/logger.js";
 
@@ -18,11 +23,8 @@ const MAX_OWNED_WORKSPACES = 1;
 
 // --- 타입 ---
 
-/** 시스템 도구 핸들러가 루프에 반환하는 시그널 */
-export interface SystemToolSignal {
-  /** Claude에 반환할 tool_result content */
-  toolResult: string;
-}
+/** 시스템 도구 시그널 — 현재는 공통 규격과 동일 */
+export type SystemToolSignal = InternalToolSignal;
 
 /** 시스템 도구 핸들러 (비동기 — Store I/O 수행) */
 export type SystemToolHandler = (
@@ -32,10 +34,7 @@ export type SystemToolHandler = (
 ) => Promise<SystemToolSignal>;
 
 /** 시스템 도구 등록 엔트리 */
-export interface SystemToolEntry {
-  def: Anthropic.Tool;
-  handler: SystemToolHandler;
-}
+export type SystemToolEntry = InternalToolEntry<SystemToolHandler>;
 
 // --- 엔트리 ---
 

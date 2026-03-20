@@ -1,15 +1,13 @@
 import type Anthropic from "@anthropic-ai/sdk";
-import type { ToolContext } from "../types.js";
+import type { InternalToolSignal, InternalToolEntry, ToolContext } from "../types.js";
 import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("agent");
 
 // --- 타입 ---
 
-/** 인프라 도구 핸들러가 루프에 반환하는 시그널 */
-export interface InfraToolSignal {
-  /** Claude에 반환할 tool_result content */
-  toolResult: string;
+/** 인프라 도구 시그널 — 루프 제어 필드 확장 */
+export interface InfraToolSignal extends InternalToolSignal {
   /** true면 루프 즉시 종료 */
   exitLoop?: boolean;
   /** exitLoop 시 AgentResult.text (exitLoop: true일 때 필수) */
@@ -23,10 +21,7 @@ export type InfraToolHandler = (
 ) => InfraToolSignal;
 
 /** 인프라 도구 등록 엔트리 */
-export interface InfraToolEntry {
-  def: Anthropic.Tool;
-  handler: InfraToolHandler;
-}
+export type InfraToolEntry = InternalToolEntry<InfraToolHandler>;
 
 // --- 엔트리 ---
 

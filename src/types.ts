@@ -22,11 +22,32 @@ export interface ToolRegistry {
   executors: Map<string, ToolExecutor>;
 }
 
+// --- 에이전트 내부 도구 공통 규격 ---
+
+/** 에이전트 내부 도구(Infra, System) 핸들러의 공통 반환 시그널 */
+export interface InternalToolSignal {
+  /** Claude에 반환할 tool_result content */
+  toolResult: string;
+}
+
+/** 에이전트 내부 도구(Infra, System) 공통 등록 엔트리 */
+export interface InternalToolEntry<H> {
+  /** Claude에게 보여줄 도구 스키마 */
+  def: Anthropic.Tool;
+  /** 도구 실행 핸들러 */
+  handler: H;
+}
+
 // --- 에이전트 ---
+
+/** 채널 스킬 도구 — 에이전트가 직접 채널 전달한 경우 식별용 */
+export const CHANNEL_SKILL_TOOLS = new Set([LINE_PUSH_FLEX_TOOL]);
 
 export interface AgentResult {
   text: string;
   toolCalls: number;
+  /** 에이전트가 채널 스킬 도구(push_flex_message)로 이미 전달했는지 여부 */
+  channelDelivered: boolean;
 }
 
 // --- GWS ---
