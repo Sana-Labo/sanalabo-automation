@@ -1,6 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import { notifyOwnerOfPending, notifyActionResult } from "./notify.js";
-import { LINE_PUSH_FLEX_TOOL, LINE_PUSH_TEXT_TOOL, type PendingAction, type ToolRegistry, type WorkspaceStore, type WorkspaceRecord } from "../types.js";
+import type { WorkspaceRecord } from "../domain/workspace.js";
+import { LINE_PUSH_FLEX_TOOL, LINE_PUSH_TEXT_TOOL, type PendingAction, type ToolRegistry, type WorkspaceStore } from "../types.js";
 
 function makePendingAction(overrides: Partial<PendingAction> = {}): PendingAction {
   return {

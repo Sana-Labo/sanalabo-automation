@@ -1,5 +1,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import type { UserStore } from "./users/store.js";
+import type { WorkspaceRecord, WorkspaceRole } from "./domain/workspace.js";
 
 // --- 도구 시스템 ---
 
@@ -131,35 +132,11 @@ export interface UserRecord {
 // --- 역할 ---
 //
 // 2층 구조: WorkspaceRole ⊂ Role
-// - WorkspaceRole: 워크스페이스 내 역할. WorkspaceMembership에 영속 저장.
-//   "admin"이 저장되면 안 되므로 별도 타입으로 제한.
-// - Role: 에이전트 루프 진입 시 결정되는 런타임 권한.
-//   ToolContext.role과 canExecute() 등 접근 제어에 사용.
-//   System Admin(워크스페이스 미소속)은 "admin"으로 진입.
-
-/** 워크스페이스 내 역할 (영속 저장 대상) */
-export type WorkspaceRole = "owner" | "member";
+// - WorkspaceRole: 워크스페이스 내 역할 (domain/workspace.ts에서 정의)
+// - Role: 에이전트 루프 진입 시 결정되는 런타임 권한 (크로스커팅)
 
 /** 통합 역할 계층: admin > owner > member (ToolContext, 접근 제어용) */
 export type Role = "admin" | WorkspaceRole;
-
-// --- 워크스페이스 ---
-
-export interface WorkspaceMembership {
-  role: WorkspaceRole;
-  joinedAt: string;
-  invitedBy: string;
-}
-
-export interface WorkspaceRecord {
-  id: string;
-  name: string;
-  ownerId: string;
-  gwsConfigDir: string;
-  gwsAuthenticated: boolean;
-  createdAt: string;
-  members: Record<string, WorkspaceMembership>;
-}
 
 // --- PendingAction (쓰기 승인) ---
 

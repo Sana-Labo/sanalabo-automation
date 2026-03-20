@@ -1,6 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import { buildSystemPrompt } from "./system.js";
-import type { ToolContext, WorkspaceRecord } from "../types.js";
+import type { WorkspaceRecord } from "../domain/workspace.js";
+import type { ToolContext } from "../types.js";
 
 // --- 픽스처 ---
 

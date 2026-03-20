@@ -1,6 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import { systemToolDefs, systemTools } from "./system-tools.js";
-import type { AgentDependencies, ToolContext, WorkspaceRecord, WorkspaceStore } from "../types.js";
+import type { WorkspaceRecord } from "../domain/workspace.js";
+import type { AgentDependencies, ToolContext, WorkspaceStore } from "../types.js";
 import type { UserStore } from "../users/store.js";
 
 // --- 픽스처 ---

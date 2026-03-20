@@ -13,7 +13,7 @@ import type {
   InternalToolSignal,
   ToolContext,
 } from "../types.js";
-import { canCreateWorkspace, validateWorkspaceName } from "../domain/workspace.js";
+import { canCreateWorkspace, validateWorkspaceName, type WorkspaceRecord } from "../domain/workspace.js";
 import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("agent");
@@ -91,7 +91,7 @@ const createWorkspace: SystemToolEntry = {
 };
 
 /** WorkspaceRecord → 요약 객체 (gwsConfigDir 제외) */
-function summarizeWorkspace(ws: import("../types.js").WorkspaceRecord) {
+function summarizeWorkspace(ws: WorkspaceRecord) {
   return {
     id: ws.id,
     name: ws.name,
