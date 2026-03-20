@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { runAgentLoop } from "../agent/loop.js";
+import { createChannelTextSender } from "../agent/line-tool-adapter.js";
 import { notifyActionResult } from "../approvals/notify.js";
 import {
   isActive,
@@ -24,8 +25,8 @@ import { getGwsExecutors } from "../skills/gws/executor.js";
 import { toErrorMessage } from "../utils/error.js";
 import { createLogger } from "../utils/logger.js";
 import {
-  LINE_PUSH_TEXT_TOOL,
   type AgentDependencies,
+  type AgentResult,
   type LineFollowEvent,
   type LinePostbackEvent,
   type LineMessageEvent,
@@ -46,9 +47,22 @@ export function createLineWebhookRoute(
 
   // --- 공통 헬퍼 ---
 
-  async function sendText(userId: string, text: string): Promise<void> {
-    const exec = deps.registry.executors.get(LINE_PUSH_TEXT_TOOL);
-    if (exec) await exec({ user_id: userId, text });
+  /** 채널 outbound adapter — MCP 네이티브 스키마 + userId 주입 */
+  function sendText(userId: string): (text: string) => Promise<void> {
+    return createChannelTextSender(deps.registry.executors, userId);
+  }
+
+  /** 에이전트 루프 실행 후 채널 전달 */
+  async function runAndDeliver(
+    prompt: string,
+    userId: string,
+    context: ToolContext,
+  ): Promise<AgentResult> {
+    const result = await runAgentLoop(prompt, deps, context);
+    if (!result.channelDelivered && result.text) {
+      await sendText(userId)(result.text);
+    }
+    return result;
   }
 
   // 사용자별 큐: 같은 사용자 내 순차 처리 (대화 순서 보장),
@@ -106,16 +120,16 @@ export function createLineWebhookRoute(
     enqueue(userId, async () => {
       const context = resolveContext(userId);
       if (!context) {
-        // System Admin + 워크스페이스 미소속 → admin 컨텍스트로 에이전트 실행
+        // System Admin + 워크스페이스 미소속 → admin 컨텍스트
         if (userStore.isSystemAdmin(userId)) {
-          await runAgentLoop(prompt, deps, { userId, role: "admin" });
+          await runAndDeliver(prompt, userId, { userId, role: "admin" });
           return;
         }
         // 일반 사용자 + 워크스페이스 미소속 → 온보딩 컨텍스트
-        await runAgentLoop(prompt, deps, { userId, role: "member" });
+        await runAndDeliver(prompt, userId, { userId, role: "member" });
         return;
       }
-      await runAgentLoop(prompt, deps, context);
+      await runAndDeliver(prompt, userId, context);
     });
   }
 
@@ -142,15 +156,15 @@ export function createLineWebhookRoute(
         const isAdmin = userStore.isSystemAdmin(userId);
         const context = isAdmin ? resolveContextOrAdmin(userId) : resolveContext(userId) ?? { userId, role: "member" };
         const prompt = isAdmin
-          ? "An admin user has re-joined. Send a welcome-back message via LINE."
-          : "A returning user has re-joined. Send a welcome-back message via LINE.";
-        await runAgentLoop(prompt, deps, context);
+          ? "An admin user has re-joined. Send a welcome-back message."
+          : "A returning user has re-joined. Send a welcome-back message.";
+        await runAndDeliver(prompt, userId, context);
       } else {
         // 신규 사용자: 즉시 활성화 + 온보딩
         await userStore.set(userId, createFromFollow());
-        await runAgentLoop(
+        await runAndDeliver(
           "A new user has just joined. Greet them, introduce the service, and guide them on how to get started.",
-          deps,
+          userId,
           { userId, role: "member" },
         );
       }
@@ -187,8 +201,7 @@ export function createLineWebhookRoute(
       const [, wsName, ownerId] = createWsMatch;
       enqueue(userId, async () => {
         const ws = await deps.workspaceStore.create(wsName!, ownerId!);
-        await sendText(
-          userId,
+        await sendText(userId)(
           `Workspace "${ws.name}" (${ws.id}) has been created.\nOwner: ${ownerId}\nGWS auth: docker exec -it assistant gws auth login --config-dir ${ws.gwsConfigDir}`,
         );
       });
@@ -203,7 +216,7 @@ export function createLineWebhookRoute(
         const ownerWs = deps.workspaceStore.getByOwner(userId);
 
         if (ownerWs.length === 0) {
-          await sendText(userId, "You do not own any workspaces. Create a workspace first before inviting members.");
+          await sendText(userId)("You do not own any workspaces. Create a workspace first before inviting members.");
           return;
         }
 
@@ -216,9 +229,9 @@ export function createLineWebhookRoute(
 
         // owner는 반드시 워크스페이스 소속 → resolveContext 보장
         const context = resolveContext(userId)!;
-        await runAgentLoop(
-          `User ${targetId} has been invited to workspace "${ws.name}". Report the invitation completion via LINE.`,
-          deps,
+        await runAndDeliver(
+          `User ${targetId} has been invited to workspace "${ws.name}". Report the invitation completion.`,
+          userId,
           context,
         );
       });
@@ -242,11 +255,11 @@ export function createLineWebhookRoute(
       enqueue(userId, async () => {
         const ws = deps.workspaceStore.get(wsId);
         if (!ws || !deps.workspaceStore.getUserRole(wsId, userId)) {
-          await sendText(userId, "The specified workspace was not found, or you do not have access.");
+          await sendText(userId)("The specified workspace was not found, or you do not have access.");
           return;
         }
         await userStore.setDefaultWorkspaceId(userId, wsId);
-        await sendText(userId, `Default workspace has been set to "${ws.name}".`);
+        await sendText(userId)(`Default workspace has been set to "${ws.name}".`);
       });
       return;
     }
@@ -262,7 +275,7 @@ export function createLineWebhookRoute(
   ): Promise<void> {
     const pendingAction = deps.pendingActionStore.get(actionId);
     if (!pendingAction) {
-      await sendText(userId, `Approval request ${actionId} was not found.`);
+      await sendText(userId)(`Approval request ${actionId} was not found.`);
       return;
     }
 
@@ -271,14 +284,14 @@ export function createLineWebhookRoute(
     // 해당 데이터의 소유자(오너)만이 승인 권한을 가짐.
     const role = deps.workspaceStore.getUserRole(pendingAction.workspaceId, userId);
     if (role !== "owner") {
-      await sendText(userId, "Only the workspace owner can perform this operation.");
+      await sendText(userId)("Only the workspace owner can perform this operation.");
       return;
     }
 
     if (action === "approve") {
       const requesterRole = deps.workspaceStore.getUserRole(pendingAction.workspaceId, pendingAction.requesterId);
       if (!requesterRole || !isActive(userStore.get(pendingAction.requesterId))) {
-        await sendText(userId, "The requesting user is no longer a member of this workspace. The operation has been cancelled.");
+        await sendText(userId)("The requesting user is no longer a member of this workspace. The operation has been cancelled.");
         await deps.pendingActionStore.reject(actionId, userId, "Requester no longer a member");
         return;
       }

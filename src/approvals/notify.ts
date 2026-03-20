@@ -16,7 +16,7 @@ export async function notifyOwnerOfPending(
 
     await textExecutor({
       user_id: workspace.ownerId,
-      text: buildApprovalText(action, workspace.name),
+      messages: [{ type: "text", text: buildApprovalText(action, workspace.name) }],
     });
     return;
   }
@@ -42,7 +42,7 @@ export async function notifyActionResult(
 
   await executor({
     user_id: targetUserId,
-    text: `[${statusText}] ${action.toolName}\n${action.requestContext}${reason}${errorNote}`,
+    messages: [{ type: "text", text: `[${statusText}] ${action.toolName}\n${action.requestContext}${reason}${errorNote}` }],
   });
 }
 
