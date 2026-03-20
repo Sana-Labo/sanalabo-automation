@@ -62,8 +62,8 @@
 
 - **검증 기준**: 코드 변경 후 `bun run typecheck` + `bun test` 모두 통과 필수
 
-## 워크스페이스 프로비저닝 (시스템 관리자)
+## 워크스페이스 생성
 
-1. CLI: `bun run src/workspaces/cli.ts create "이름" Uowner...`
-2. 또는 LINE: `create-workspace 이름 Uowner...`
-3. GWS 인증: `docker exec -it assistant gws auth login --config-dir data/workspaces/{id}/gws-config/`
+- **일반 사용자**: 에이전트와 대화 → `create_workspace` System Tool (사용자당 1개 제한)
+- **시스템 관리자 (CLI)**: `bun run src/workspaces/cli.ts create "이름" Uowner...`
+- **GWS 인증**: `docker exec -it assistant gws auth login --config-dir data/workspaces/{id}/gws-config/`
