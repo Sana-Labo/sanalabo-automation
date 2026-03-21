@@ -54,12 +54,6 @@ export interface AgentResult {
   channelDelivered: boolean;
 }
 
-// --- GWS ---
-
-export type GwsCommandResult =
-  | { success: true; data: unknown }
-  | { success: false; data: null; error: string };
-
 // --- LINE Webhook ---
 
 export interface LineWebhookBody {
@@ -170,6 +164,8 @@ export interface AgentDependencies {
   pendingActionStore: PendingActionStore;
   workspaceStore: WorkspaceStore;
   userStore: UserStore;
+  /** 워크스페이스별 GWS 도구 executor 조회 (DI). 토큰 미설정 시 null */
+  getGwsExecutors: (workspaceId: string) => Promise<Map<string, ToolExecutor> | null>;
 }
 
 // --- Store 인터페이스 ---

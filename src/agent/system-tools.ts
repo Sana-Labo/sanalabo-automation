@@ -17,7 +17,6 @@ import type {
 import { isActive, isValidLineUserId } from "../domain/user.js";
 import { canCreateWorkspace, getMaxOwnedWorkspaces, validateWorkspaceName, type WorkspaceRecord } from "../domain/workspace.js";
 import { notifyActionResult } from "../approvals/notify.js";
-import { getGwsExecutors } from "../skills/gws/executor.js";
 import { toErrorMessage } from "../utils/error.js";
 import { createLogger } from "../utils/logger.js";
 
@@ -437,7 +436,7 @@ const approveAction: SystemToolEntry = {
     // GWS 도구 실행 — workspace가 있으면 GWS executor 우선, 없으면 registry 폴백
     const workspace = deps.workspaceStore.get(resolved.workspaceId);
     let executionError: string | undefined;
-    const gwsExecs = workspace ? getGwsExecutors(workspace.id, workspace.gwsConfigDir) : new Map();
+    const gwsExecs = workspace ? (await deps.getGwsExecutors(workspace.id)) ?? new Map() : new Map();
     const executor = gwsExecs.get(resolved.toolName) ?? deps.registry.executors.get(resolved.toolName);
     if (executor) {
       try {

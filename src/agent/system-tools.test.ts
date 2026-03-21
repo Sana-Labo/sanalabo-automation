@@ -50,6 +50,7 @@ function makeDeps(overrides?: {
   return {
     registry: { tools: [], executors: new Map() },
     pendingActionStore: {} as AgentDependencies["pendingActionStore"],
+    getGwsExecutors: async () => new Map(),
     workspaceStore: {
       getByOwner: () => overrides?.ownedWorkspaces ?? [],
       create: async () => createdWs,
@@ -154,6 +155,7 @@ describe("create_workspace handler", () => {
     const deps: AgentDependencies = {
       registry: { tools: [], executors: new Map() },
       pendingActionStore: {} as AgentDependencies["pendingActionStore"],
+      getGwsExecutors: async () => new Map(),
       workspaceStore: {
         getByOwner: () => [],
         create: async (name: string, ownerId: string) => {

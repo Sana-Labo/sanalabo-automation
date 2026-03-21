@@ -7,6 +7,9 @@ import { config } from "./config.js";
 import { createHealthRoute } from "./routes/health.js";
 import { createLineWebhookRoute } from "./routes/lineWebhook.js";
 import { startScheduler } from "./scheduler.js";
+import { AesGcmEncryption } from "./skills/gws/encryption.js";
+import { createGwsExecutorFactory } from "./skills/gws/executor.js";
+import { JsonFileTokenStore } from "./skills/gws/token-store.js";
 import { gwsTools } from "./skills/gws/tools.js";
 import type { AgentDependencies, ToolRegistry } from "./types.js";
 import { createUserStore } from "./users/store.js";
@@ -57,20 +60,36 @@ async function main() {
   );
   log.info("Tool registry built", { toolCount: registry.tools.length });
 
-  // 5. 에이전트 의존성 (webhook + scheduler 공유)
+  // 5. GWS executor 팩토리 (TokenStore + OAuth2Client → API executor)
+  const tokenEncryption = config.tokenEncryptionKey
+    ? new AesGcmEncryption(config.tokenEncryptionKey)
+    : undefined;
+  const tokenStore = tokenEncryption
+    ? new JsonFileTokenStore(config.workspaceDataDir, tokenEncryption)
+    : undefined;
+  const getGwsExecutors = tokenStore
+    ? createGwsExecutorFactory(tokenStore, {
+        clientId: config.googleClientId,
+        clientSecret: config.googleClientSecret,
+        redirectUri: config.googleRedirectUri,
+      })
+    : async () => null;
+
+  // 6. 에이전트 의존성 (webhook + scheduler 공유)
   const deps: AgentDependencies = {
     registry,
     pendingActionStore,
     workspaceStore,
     userStore,
+    getGwsExecutors,
   };
 
-  // 6. Hono 앱 생성
+  // 7. Hono 앱 생성
   const app = new Hono();
   app.route("/", createHealthRoute(mcp));
   app.route("/", createLineWebhookRoute(deps, userStore));
 
-  // 7. 스케줄러 시작
+  // 8. 스케줄러 시작
   cronJobs = startScheduler(deps, userStore);
 
   log.info("Server starting", { port });
