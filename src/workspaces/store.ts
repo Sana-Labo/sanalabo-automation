@@ -1,11 +1,7 @@
 import { mkdir } from "node:fs/promises";
 import { config } from "../config.js";
-import type {
-  WorkspaceMembership,
-  WorkspaceRecord,
-  WorkspaceRole,
-  WorkspaceStore,
-} from "../types.js";
+import type { WorkspaceMembership, WorkspaceRecord, WorkspaceRole } from "../domain/workspace.js";
+import type { WorkspaceStore } from "../types.js";
 import { JsonFileStore } from "../utils/json-file-store.js";
 
 export class JsonWorkspaceStore extends JsonFileStore<WorkspaceRecord> implements WorkspaceStore {
@@ -37,7 +33,7 @@ export class JsonWorkspaceStore extends JsonFileStore<WorkspaceRecord> implement
   async create(name: string, ownerId: string): Promise<WorkspaceRecord> {
     let id: string;
     do {
-      id = crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+      id = crypto.randomUUID();
     } while (this.data[id]);
     const gwsConfigDir = `${this.dataDir}/${id}/gws-config`;
 

@@ -90,12 +90,7 @@ docker compose up -d # Docker 프로덕션 배포
 - 모든 작업은 별도 worktree에서 처리. PR 재개 시에도 적용
 - 작업 시작 전 열린 PR과의 파일 겹침 검토
 
-### 원칙 3: 단계별 승인 (Step-by-Step Approval)
-
-- 각 태스크는 **설명 → 승인 → 구현** 순서로 진행
-- 설계 대안이 있으면 제시하고 사용자 선택 대기. 승인 없이 코드 작성 착수 금지
-
-### 원칙 4: 지시파일 정합성 유지 (Instructions Freshness)
+### 원칙 3: 지시파일 정합성 유지 (Instructions Freshness)
 
 - 작업 수행 시 관련 지시파일(`CLAUDE.md`, `rules/`)의 내용이 현재 코드와 일치하는지 확인
 - 코드 변경으로 지시파일 내용이 stale해지면 해당 작업 내에서 갱신

@@ -1,11 +1,52 @@
 /**
- * 워크스페이스 도메인 — 순수 함수 (Functional Core)
+ * 워크스페이스 도메인 — 데이터 타입 + 순수 함수 (Functional Core)
  *
- * 워크스페이스 생성 관련 검증 규칙만 담당. I/O 없음.
+ * 워크스페이스 관련 도메인 타입 정의 및 검증 규칙 담당. I/O 없음.
  */
+
+// --- 도메인 타입 ---
+
+/** 워크스페이스 내 역할 (영속 저장 대상) */
+export type WorkspaceRole = "owner" | "member";
+
+/** 워크스페이스 멤버십 */
+export interface WorkspaceMembership {
+  role: WorkspaceRole;
+  joinedAt: string;
+  invitedBy: string;
+}
+
+/** 워크스페이스 레코드 */
+export interface WorkspaceRecord {
+  id: string;
+  name: string;
+  ownerId: string;
+  gwsConfigDir: string;
+  gwsAuthenticated: boolean;
+  createdAt: string;
+  members: Record<string, WorkspaceMembership>;
+}
+
+// --- 순수 함수 ---
 
 /** 워크스페이스 이름 최대 길이 */
 export const MAX_WORKSPACE_NAME_LENGTH = 64;
+
+/** admin 워크스페이스 소유 상한 */
+const ADMIN_MAX_OWNED = 64;
+
+/** 일반 사용자 워크스페이스 소유 상한 */
+const USER_MAX_OWNED = 8;
+
+/**
+ * 역할에 따른 워크스페이스 소유 상한 반환
+ *
+ * @param isAdmin - 시스템 관리자 여부
+ * @returns 최대 소유 가능 워크스페이스 수
+ */
+export function getMaxOwnedWorkspaces(isAdmin: boolean): number {
+  return isAdmin ? ADMIN_MAX_OWNED : USER_MAX_OWNED;
+}
 
 /**
  * 사용자가 새 워크스페이스를 생성할 수 있는지 판정

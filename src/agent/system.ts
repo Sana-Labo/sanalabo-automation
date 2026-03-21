@@ -1,4 +1,5 @@
-import type { ToolContext, WorkspaceRecord } from "../types.js";
+import type { WorkspaceRecord } from "../domain/workspace.js";
+import type { ToolContext } from "../types.js";
 
 const MESSAGE_DELIVERY = `## Message Delivery
 Your text responses are automatically delivered to the user via LINE.

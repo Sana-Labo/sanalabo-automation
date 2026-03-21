@@ -124,13 +124,13 @@ src/
 ├── agent/
 │   ├── loop.ts               # tool_use agent loop
 │   ├── system.ts             # System prompt (workspace + role aware)
+│   ├── system-tools.ts       # System Tools (workspace CRUD via agent)
 │   ├── mcp.ts                # MCP client singleton
 │   └── mcp-pool.ts           # MCP connection pool (least-inflight dispatch)
 ├── users/store.ts            # User store (invite → active → inactive)
 ├── workspaces/
 │   ├── store.ts              # Workspace store (CRUD, member management)
-│   ├── migrate.ts            # Flat → workspace migration
-│   └── cli.ts                # Provisioning CLI
+│   └── migrate.ts            # Flat → workspace migration
 ├── approvals/
 │   ├── store.ts              # PendingAction store
 │   ├── interceptor.ts        # Write interception (member → owner approval)
@@ -157,15 +157,11 @@ src/
 
 ## Workspace Management
 
-```bash
-# CLI
-bun run src/workspaces/cli.ts create "Workspace Name" Uowner1234...
-bun run src/workspaces/cli.ts list
-bun run src/workspaces/cli.ts status {id}
+Workspaces are managed through **System Tools** via the LINE agent conversation:
 
-# Or via LINE (System Admin only)
-create-workspace WorkspaceName Uowner1234...
-```
+- `create_workspace` — Create a new workspace (1 per user). Admins can specify `owner_user_id`
+- `list_workspaces` — List workspaces (admin: all, regular user: owned only)
+- `get_workspace_info` — View workspace details (admin: any, regular user: owned only)
 
 ## Testing
 

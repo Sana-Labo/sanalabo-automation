@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { isActive, createFromFollow, activate, deactivate } from "./user.js";
+import { isActive, isValidLineUserId, createFromFollow, activate, deactivate } from "./user.js";
 import type { UserRecord } from "../types.js";
 
 describe("domain/user", () => {
@@ -14,6 +14,28 @@ describe("domain/user", () => {
 
     test("returns false for undefined", () => {
       expect(isActive(undefined)).toBe(false);
+    });
+  });
+
+  describe("isValidLineUserId", () => {
+    test("유효한 LINE userId (U + 32 hex)", () => {
+      expect(isValidLineUserId("Ua0000000000000000000000000000001")).toBe(true);
+    });
+
+    test("빈 문자열: false", () => {
+      expect(isValidLineUserId("")).toBe(false);
+    });
+
+    test("U 없음: false", () => {
+      expect(isValidLineUserId("a0000000000000000000000000000001")).toBe(false);
+    });
+
+    test("31자 hex: false (짧음)", () => {
+      expect(isValidLineUserId("U000000000000000000000000000001")).toBe(false);
+    });
+
+    test("대문자 hex: false (소문자만 허용)", () => {
+      expect(isValidLineUserId("UA000000000000000000000000000001")).toBe(false);
     });
   });
 

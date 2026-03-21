@@ -1,6 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import {
   canCreateWorkspace,
+  getMaxOwnedWorkspaces,
   validateWorkspaceName,
   MAX_WORKSPACE_NAME_LENGTH,
 } from "./workspace.js";
@@ -25,6 +26,16 @@ describe("domain/workspace", () => {
 
     test("소유 3개 + 제한 3 → false", () => {
       expect(canCreateWorkspace(3, 3)).toBe(false);
+    });
+  });
+
+  describe("getMaxOwnedWorkspaces", () => {
+    test("admin: 64", () => {
+      expect(getMaxOwnedWorkspaces(true)).toBe(64);
+    });
+
+    test("일반 사용자: 8", () => {
+      expect(getMaxOwnedWorkspaces(false)).toBe(8);
     });
   });
 
