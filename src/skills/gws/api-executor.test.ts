@@ -139,7 +139,7 @@ function createMockDrive() {
   } as unknown as drive_v3.Drive;
 }
 
-// --- テスト ---
+// --- 테스트 ---
 
 describe("createApiExecutors", () => {
   let executors: Map<string, ToolExecutor>;
@@ -147,7 +147,7 @@ describe("createApiExecutors", () => {
   let mockCalendar: calendar_v3.Calendar;
   let mockDrive: drive_v3.Drive;
 
-  // ToolExecutor 型をインポートせずに推論
+  // ToolExecutor 타입을 import 없이 추론
   type ToolExecutor = (input: Record<string, unknown>) => Promise<string>;
 
   beforeEach(() => {

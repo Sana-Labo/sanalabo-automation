@@ -28,6 +28,7 @@ function createMockDeps(): GoogleOAuthRouteDeps {
         authenticatedWs.push(workspaceId);
       },
     } as unknown as WorkspaceStore,
+    invalidateExecutors: () => {},
     authConfig: {
       clientId: "test-client",
       clientSecret: "test-secret",

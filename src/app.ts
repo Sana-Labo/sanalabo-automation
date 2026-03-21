@@ -68,13 +68,15 @@ async function main() {
   const tokenStore = tokenEncryption
     ? new JsonFileTokenStore(config.workspaceDataDir, tokenEncryption)
     : undefined;
-  const getGwsExecutors = tokenStore
-    ? createGwsExecutorFactory(tokenStore, {
+  const gwsOAuthConfigured = !!(tokenStore && config.googleClientId && config.googleClientSecret);
+  const gwsFactory = gwsOAuthConfigured
+    ? createGwsExecutorFactory(tokenStore!, {
         clientId: config.googleClientId,
         clientSecret: config.googleClientSecret,
         redirectUri: config.googleRedirectUri,
       })
-    : async () => null;
+    : undefined;
+  const getGwsExecutors = gwsFactory?.getExecutors ?? (async () => null);
 
   // 6. 에이전트 의존성 (webhook + scheduler 공유)
   const deps: AgentDependencies = {
@@ -89,7 +91,7 @@ async function main() {
   const app = new Hono();
   app.route("/", createHealthRoute(mcp));
   app.route("/", createLineWebhookRoute(deps, userStore));
-  if (tokenStore) {
+  if (gwsFactory && tokenStore) {
     app.route("/", createGoogleOAuthRoute({
       tokenStore,
       workspaceStore,
@@ -99,6 +101,7 @@ async function main() {
         redirectUri: config.googleRedirectUri,
       },
       registry,
+      invalidateExecutors: (wsId) => gwsFactory.invalidate(wsId),
     }));
   }
 

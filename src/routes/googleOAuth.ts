@@ -12,7 +12,6 @@ import {
   exchangeCode,
   type GoogleAuthConfig,
 } from "../skills/gws/google-auth.js";
-import { invalidateGwsExecutors } from "../skills/gws/executor.js";
 import { consumePendingAuth } from "../skills/gws/oauth-state.js";
 import type { TokenStore } from "../skills/gws/token-store.js";
 import {
@@ -31,15 +30,28 @@ export interface GoogleOAuthRouteDeps {
   workspaceStore: WorkspaceStore;
   authConfig: GoogleAuthConfig;
   registry: ToolRegistry;
+  /** GWS executor 캐시 무효화 (새 토큰으로 재생성 유도) */
+  invalidateExecutors: (workspaceId: string) => void;
+}
+
+/** HTML 이스케이프 (XSS 방지) */
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 /** 성공/에러 HTML 응답 */
 function htmlResponse(title: string, message: string): Response {
+  const t = escapeHtml(title);
+  const m = escapeHtml(message);
   return new Response(
     `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>${title}</title>
+<html><head><meta charset="utf-8"><title>${t}</title>
 <style>body{font-family:sans-serif;text-align:center;padding:60px 20px}h1{font-size:24px}p{color:#666}</style>
-</head><body><h1>${title}</h1><p>${message}</p></body></html>`,
+</head><body><h1>${t}</h1><p>${m}</p></body></html>`,
     { headers: { "Content-Type": "text/html; charset=utf-8" } },
   );
 }
@@ -86,7 +98,7 @@ export function createGoogleOAuthRoute(deps: GoogleOAuthRouteDeps): Hono {
       await deps.workspaceStore.setGwsAuthenticated(auth.workspaceId, true);
 
       // 6. GWS executor 캐시 무효화 (새 토큰으로 재생성 유도)
-      invalidateGwsExecutors(auth.workspaceId);
+      deps.invalidateExecutors(auth.workspaceId);
 
       log.info("OAuth completed", {
         userId: auth.userId,

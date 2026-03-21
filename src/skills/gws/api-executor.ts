@@ -32,7 +32,9 @@ function optString(input: Record<string, unknown>, key: string): string | undefi
 function optNumber(input: Record<string, unknown>, key: string): number | undefined {
   const val = input[key];
   if (val == null) return undefined;
-  return Number(val);
+  const n = Number(val);
+  if (Number.isNaN(n)) return undefined;
+  return n;
 }
 
 function optStringArray(input: Record<string, unknown>, key: string): string[] | undefined {
@@ -109,7 +111,7 @@ function buildRawEmail(params: {
 
 // --- Drive 헬퍼 ---
 
-/** Google Apps MIME → エクスポート MIME 変換 */
+/** Google Apps MIME → 내보내기 MIME 변환 */
 function getExportMimeType(googleMimeType: string): string {
   switch (googleMimeType) {
     case "application/vnd.google-apps.document":
@@ -463,7 +465,7 @@ function driveGetContent(drive: drive_v3.Drive): ToolExecutor {
   return async (input) => {
     const fileId = getString(input, "fileId");
 
-    // メタデータ取得
+    // 메타데이터 조회
     const meta = await drive.files.get({
       fileId,
       fields: "id,name,mimeType,size,webViewLink",

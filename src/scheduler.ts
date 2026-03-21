@@ -1,6 +1,7 @@
 import { Cron } from "croner";
 import { isActive } from "./domain/user.js";
 import { morningBriefing, urgentMailCheck, eveningSummary } from "./jobs/index.js";
+import { cleanupExpiredAuths } from "./skills/gws/oauth-state.js";
 import type { AgentDependencies, ToolContext } from "./types.js";
 import type { UserStore } from "./users/store.js";
 import { toErrorMessage } from "./utils/error.js";
@@ -66,6 +67,9 @@ export function startScheduler(
         if (expired > 0) log.info("Expired pending actions", { count: expired });
         const purged = await deps.pendingActionStore.purgeResolved(7);
         if (purged > 0) log.info("Purged resolved actions", { count: purged, olderThanDays: 7 });
+        // OAuth 인증 대기 만료 정리 (10분 TTL)
+        const authsCleaned = cleanupExpiredAuths();
+        if (authsCleaned > 0) log.info("Cleaned expired OAuth states", { count: authsCleaned });
       } },
   ];
 

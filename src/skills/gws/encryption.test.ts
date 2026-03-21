@@ -2,7 +2,7 @@ import { describe, test, expect } from "bun:test";
 import { AesGcmEncryption } from "./encryption.js";
 import { randomBytes } from "node:crypto";
 
-/** テスト用 32バイト鍵 (hex) */
+/** 테스트용 32바이트 키 (hex) */
 const TEST_KEY = randomBytes(32).toString("hex");
 
 describe("AesGcmEncryption", () => {
