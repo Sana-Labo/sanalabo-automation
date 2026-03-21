@@ -32,6 +32,22 @@ export interface WorkspaceRecord {
 /** 워크스페이스 이름 최대 길이 */
 export const MAX_WORKSPACE_NAME_LENGTH = 64;
 
+/** admin 워크스페이스 소유 상한 */
+const ADMIN_MAX_OWNED = 64;
+
+/** 일반 사용자 워크스페이스 소유 상한 */
+const USER_MAX_OWNED = 8;
+
+/**
+ * 역할에 따른 워크스페이스 소유 상한 반환
+ *
+ * @param isAdmin - 시스템 관리자 여부
+ * @returns 최대 소유 가능 워크스페이스 수
+ */
+export function getMaxOwnedWorkspaces(isAdmin: boolean): number {
+  return isAdmin ? ADMIN_MAX_OWNED : USER_MAX_OWNED;
+}
+
 /**
  * 사용자가 새 워크스페이스를 생성할 수 있는지 판정
  *
