@@ -202,7 +202,13 @@ export function createLineWebhookRoute(
           await sendText(userId, `Approval request ${actionId} was not found.`);
           return;
         }
-        const context: ToolContext = { userId, workspaceId: pa.workspaceId, role: "owner" };
+        // defense-in-depth: postback 발신자가 실제 owner인지 검증
+        const userRole = deps.workspaceStore.getUserRole(pa.workspaceId, userId);
+        if (userRole !== "owner") {
+          await sendText(userId, "Only the workspace owner can approve or reject actions.");
+          return;
+        }
+        const context: ToolContext = { userId, workspaceId: pa.workspaceId, role: userRole };
 
         if (action === "approve") {
           const signal = await approveActionHandler({ action_id: actionId }, context, deps);

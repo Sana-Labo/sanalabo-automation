@@ -411,6 +411,9 @@ const approveAction: SystemToolEntry = {
     if (!pendingAction) {
       return { toolResult: `Error: Pending action not found: ${actionId}` };
     }
+    if (pendingAction.status !== "pending") {
+      return { toolResult: `Error: Action ${actionId} has already been ${pendingAction.status}.` };
+    }
 
     // Owner 권한 검증 — System Admin이라도 불가 (오너의 Google 데이터)
     const role = deps.workspaceStore.getUserRole(pendingAction.workspaceId, context.userId);
@@ -440,6 +443,9 @@ const approveAction: SystemToolEntry = {
           executionError = toErrorMessage(e);
           log.error("Execution after approval failed", { actionId, tool: resolved.toolName, error: executionError });
         }
+      } else {
+        executionError = `Executor not found for tool: ${resolved.toolName}`;
+        log.warn("No executor for approved tool", { actionId, tool: resolved.toolName });
       }
     }
 
@@ -491,6 +497,9 @@ const rejectAction: SystemToolEntry = {
     const pendingAction = deps.pendingActionStore.get(actionId);
     if (!pendingAction) {
       return { toolResult: `Error: Pending action not found: ${actionId}` };
+    }
+    if (pendingAction.status !== "pending") {
+      return { toolResult: `Error: Action ${actionId} has already been ${pendingAction.status}.` };
     }
 
     const role = deps.workspaceStore.getUserRole(pendingAction.workspaceId, context.userId);

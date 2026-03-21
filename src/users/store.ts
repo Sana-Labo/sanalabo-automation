@@ -1,5 +1,5 @@
 import { config } from "../config.js";
-import { isActive, createUser } from "../domain/user.js";
+import { isActive, createUser, setLastWorkspaceId as domainSetLastWsId } from "../domain/user.js";
 import type { UserRecord } from "../types.js";
 import { JsonFileStore } from "../utils/json-file-store.js";
 
@@ -47,7 +47,7 @@ export class JsonUserStore extends JsonFileStore<UserRecord> implements UserStor
   async setLastWorkspaceId(userId: string, workspaceId: string): Promise<void> {
     const record = this.data[userId];
     if (!record) return;
-    record.lastWorkspaceId = workspaceId;
+    this.data[userId] = domainSetLastWsId(record, workspaceId);
     await this.save();
   }
 
