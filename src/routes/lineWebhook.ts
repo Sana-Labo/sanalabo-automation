@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { createChannelTextSender } from "../agent/line-tool-adapter.js";
 import { runAgentAndDeliver } from "../agent/loop.js";
-import { notifyActionResult } from "../approvals/notify.js";
+import { approveActionHandler, rejectActionHandler } from "../agent/system-tools.js";
 import {
   isActive,
   createFromFollow,
@@ -21,7 +21,6 @@ import {
   isTextMessageEvent,
 } from "../channels/line.js";
 import { config } from "../config.js";
-import { getGwsExecutors } from "../skills/gws/executor.js";
 import { toErrorMessage } from "../utils/error.js";
 import { createLogger } from "../utils/logger.js";
 import {
@@ -34,9 +33,6 @@ import {
   type ToolContext,
 } from "../types.js";
 import type { UserStore } from "../users/store.js";
-
-const INVITE_PATTERN = /^invite\s+(U[0-9a-f]{32})$/i;
-const APPROVAL_PATTERN = /^(approve|reject)\s+(\S+)(?:\s+(.*))?$/i;
 
 export function createLineWebhookRoute(
   deps: AgentDependencies,
@@ -112,7 +108,7 @@ export function createLineWebhookRoute(
           await runAgentAndDeliver(prompt, deps, { userId, role: "admin" });
           return;
         }
-        // 일반 사용자 + 워크스페이스 미소속 → 온보딩 컨텍스트
+        // 일반 사용자 + 워크스페이스 미진입 → out-stage 컨텍스트
         await runAgentAndDeliver(prompt, deps, { userId, role: "member" });
         return;
       }
@@ -182,122 +178,9 @@ export function createLineWebhookRoute(
     const text = extractTextMessage(event);
     log.debug("Processing text message", () => ({ userId, preview: text.slice(0, 50) }));
 
-    // 초대 명령 — 워크스페이스 owner만 사용 가능
-    const inviteMatch = INVITE_PATTERN.exec(text);
-    if (inviteMatch) {
-      const targetId = inviteMatch[1]!;
-      enqueue(userId, async () => {
-        const ownerWs = deps.workspaceStore.getByOwner(userId);
-
-        if (ownerWs.length === 0) {
-          await sendText(userId, "You do not own any workspaces. Create a workspace first before inviting members.");
-          return;
-        }
-
-        const ws = ownerWs.length === 1 ? ownerWs[0]! : ownerWs.find((w) => w.id === userStore.getLastWorkspaceId(userId)) ?? ownerWs[0]!;
-        await deps.workspaceStore.inviteMember(ws.id, targetId, userId);
-
-        if (!userStore.getLastWorkspaceId(targetId)) {
-          await userStore.setLastWorkspaceId(targetId, ws.id);
-        }
-
-        // owner는 반드시 워크스페이스 소속 → resolveContext 보장
-        const context = resolveContext(userId)!;
-        await runAgentAndDeliver(
-          `User ${targetId} has been invited to workspace "${ws.name}". Report the invitation completion.`,
-          deps,
-          context,
-        );
-      });
-      return;
-    }
-
-    // 승인/거부 명령
-    const approvalMatch = APPROVAL_PATTERN.exec(text);
-    if (approvalMatch) {
-      const [, action, actionId, reason] = approvalMatch;
-      enqueue(userId, async () => {
-        await handleApprovalCommand(userId, action!.toLowerCase(), actionId!, reason);
-      });
-      return;
-    }
-
-    // 워크스페이스 선택 명령
-    const useMatch = /^use\s+(\S+)$/i.exec(text);
-    if (useMatch) {
-      const wsId = useMatch[1]!;
-      enqueue(userId, async () => {
-        const ws = deps.workspaceStore.get(wsId);
-        if (!ws || !deps.workspaceStore.getUserRole(wsId, userId)) {
-          await sendText(userId, "The specified workspace was not found, or you do not have access.");
-          return;
-        }
-        await userStore.setLastWorkspaceId(userId, wsId);
-        await sendText(userId, `Default workspace has been set to "${ws.name}".`);
-      });
-      return;
-    }
-
+    // 정규식 명령 제거 — 모든 텍스트를 에이전트 루프로 전달
+    // invite, approve/reject, use 명령은 System Tool로 전환됨
     enqueueAgent(text, userId);
-  }
-
-  async function handleApprovalCommand(
-    userId: string,
-    action: string,
-    actionId: string,
-    reason?: string,
-  ): Promise<void> {
-    const pendingAction = deps.pendingActionStore.get(actionId);
-    if (!pendingAction) {
-      await sendText(userId, `Approval request ${actionId} was not found.`);
-      return;
-    }
-
-    // 승인은 워크스페이스 오너만 가능 — System Admin이라도 불가.
-    // 이유: PendingAction은 오너의 Google 데이터에 대한 write이므로,
-    // 해당 데이터의 소유자(오너)만이 승인 권한을 가짐.
-    const role = deps.workspaceStore.getUserRole(pendingAction.workspaceId, userId);
-    if (role !== "owner") {
-      await sendText(userId, "Only the workspace owner can perform this operation.");
-      return;
-    }
-
-    if (action === "approve") {
-      const requesterRole = deps.workspaceStore.getUserRole(pendingAction.workspaceId, pendingAction.requesterId);
-      if (!requesterRole || !isActive(userStore.get(pendingAction.requesterId))) {
-        await sendText(userId, "The requesting user is no longer a member of this workspace. The operation has been cancelled.");
-        await deps.pendingActionStore.reject(actionId, userId, "Requester no longer a member");
-        return;
-      }
-
-      const resolved = await deps.pendingActionStore.approve(actionId, userId);
-
-      const workspace = deps.workspaceStore.get(resolved.workspaceId);
-      let executionError: string | undefined;
-      if (workspace) {
-        const gwsExecs = getGwsExecutors(workspace.id, workspace.gwsConfigDir);
-        const executor = gwsExecs.get(resolved.toolName) ?? deps.registry.executors.get(resolved.toolName);
-        if (executor) {
-          try {
-            await executor(resolved.toolInput);
-          } catch (e) {
-            executionError = toErrorMessage(e);
-            log.error("Execution after approval failed", { actionId, tool: resolved.toolName, error: toErrorMessage(e) });
-          }
-        }
-      }
-
-      await Promise.all([
-        notifyActionResult(resolved, deps.registry, userId, executionError),
-        notifyActionResult(resolved, deps.registry, resolved.requesterId, executionError),
-      ]);
-    } else {
-      const resolved = await deps.pendingActionStore.reject(actionId, userId, reason);
-      await Promise.all([
-        notifyActionResult(resolved, deps.registry, userId),
-        notifyActionResult(resolved, deps.registry, resolved.requesterId),
-      ]);
-    }
   }
 
   function handlePostback(
@@ -308,16 +191,34 @@ export function createLineWebhookRoute(
 
     const data = extractPostbackData(event);
 
+    // approve/reject postback → System Tool 핸들러 직접 호출 (LLM 미경유)
     const params = new URLSearchParams(data);
     const action = params.get("action");
     const actionId = params.get("id");
     if ((action === "approve" || action === "reject") && actionId) {
       enqueue(userId, async () => {
-        await handleApprovalCommand(userId, action, actionId);
+        const pa = deps.pendingActionStore.get(actionId);
+        if (!pa) {
+          await sendText(userId, `Approval request ${actionId} was not found.`);
+          return;
+        }
+        const context: ToolContext = { userId, workspaceId: pa.workspaceId, role: "owner" };
+
+        if (action === "approve") {
+          const signal = await approveActionHandler({ action_id: actionId }, context, deps);
+          const result = JSON.parse(signal.toolResult);
+          await sendText(userId, result.executionError
+            ? `Approved, but execution failed: ${result.executionError}`
+            : `Action ${actionId} approved and executed.`);
+        } else {
+          await rejectActionHandler({ action_id: actionId, reason: null }, context, deps);
+          await sendText(userId, `Action ${actionId} rejected.`);
+        }
       });
       return;
     }
 
+    // 기타 postback → 에이전트 루프
     enqueueAgent(
       `[Postback] The user pressed a button. Data: ${data}`,
       userId,
