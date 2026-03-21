@@ -614,3 +614,76 @@ describe("enter_workspace handler", () => {
     expect(signal.toolResult).toContain("access");
   });
 });
+
+// --- invite_member 핸들러 테스트 ---
+
+describe("invite_member handler", () => {
+  test("성공: owner가 멤버 초대 + 결과 반환", async () => {
+    const ws = makeWorkspace({ id: "ws-001", name: "MyClub", ownerId: "Uowner1234" });
+    const inviteCalls: Array<{ wsId: string; userId: string; invitedBy: string }> = [];
+    const deps = makeDeps({
+      getWorkspace: (id) => id === "ws-001" ? ws : undefined,
+    });
+    (deps.workspaceStore as any).inviteMember = async (wsId: string, userId: string, invitedBy: string) => {
+      inviteCalls.push({ wsId, userId, invitedBy });
+    };
+    const ctx = makeContext({ userId: "Uowner1234", workspaceId: "ws-001", role: "owner" });
+
+    const entry = systemTools.get("invite_member")!;
+    const signal = await entry.handler(
+      { user_id: "Ua0000000000000000000000000000001", workspace_id: null },
+      ctx, deps,
+    );
+
+    const result = JSON.parse(signal.toolResult);
+    expect(result.invitedUserId).toBe("Ua0000000000000000000000000000001");
+    expect(result.workspaceName).toBe("MyClub");
+    expect(inviteCalls).toHaveLength(1);
+  });
+
+  test("실패: 잘못된 LINE userId", async () => {
+    const deps = makeDeps();
+    const ctx = makeContext({ userId: "Uowner1234", workspaceId: "ws-001", role: "owner" });
+
+    const entry = systemTools.get("invite_member")!;
+    const signal = await entry.handler(
+      { user_id: "invalid-id", workspace_id: null },
+      ctx, deps,
+    );
+
+    expect(signal.toolResult).toContain("Error");
+    expect(signal.toolResult).toContain("Invalid LINE userId");
+  });
+
+  test("실패: 비소유자 초대 시도", async () => {
+    const ws = makeWorkspace({ id: "ws-001", ownerId: "Uowner1234" });
+    const deps = makeDeps({
+      getWorkspace: (id) => id === "ws-001" ? ws : undefined,
+    });
+    const ctx = makeContext({ userId: "Umember001", workspaceId: "ws-001", role: "member" });
+
+    const entry = systemTools.get("invite_member")!;
+    const signal = await entry.handler(
+      { user_id: "Ua0000000000000000000000000000001", workspace_id: "ws-001" },
+      ctx, deps,
+    );
+
+    expect(signal.toolResult).toContain("Error");
+    expect(signal.toolResult).toContain("owner");
+  });
+
+  test("실패: 워크스페이스 미소유 + workspace_id null + context에도 없음", async () => {
+    const deps = makeDeps({ ownedWorkspaces: [] });
+    (deps.workspaceStore as any).getByOwner = () => [];
+    const ctx = makeContext({ userId: "Uuser001", workspaceId: undefined, role: "member" });
+
+    const entry = systemTools.get("invite_member")!;
+    const signal = await entry.handler(
+      { user_id: "Ua0000000000000000000000000000001", workspace_id: null },
+      ctx, deps,
+    );
+
+    expect(signal.toolResult).toContain("Error");
+    expect(signal.toolResult).toContain("do not own");
+  });
+});

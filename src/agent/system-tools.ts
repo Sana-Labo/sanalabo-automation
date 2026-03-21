@@ -308,9 +308,83 @@ const enterWorkspace: SystemToolEntry = {
   },
 };
 
+// --- invite_member ---
+
+const inviteMember: SystemToolEntry = {
+  def: {
+    name: "invite_member",
+    strict: true,
+    description:
+      "Invite a user to a workspace. Only workspace owners can invite. The invited user is added as a member immediately. Use push_text_message to notify the invited user after calling this tool.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        user_id: {
+          type: "string",
+          description: "LINE userId of the user to invite",
+        },
+        workspace_id: {
+          anyOf: [{ type: "string" }, { type: "null" }],
+          description:
+            "Workspace ID to invite to. If null, uses the current workspace context or the caller's only owned workspace.",
+        },
+      },
+      required: ["user_id", "workspace_id"],
+      additionalProperties: false,
+    },
+  },
+  async handler(input, context, deps) {
+    const targetId = input.user_id as string;
+
+    // 1. LINE userId 형식 검증
+    if (!isValidLineUserId(targetId)) {
+      return { toolResult: `Error: Invalid LINE userId format: ${targetId}` };
+    }
+
+    // 2. 워크스페이스 해석
+    const rawWsId = input.workspace_id as string | null;
+    let wsId = rawWsId ?? context.workspaceId;
+
+    // context에도 없으면 소유 WS가 1개인 경우 자동 선택
+    if (!wsId) {
+      const ownedWs = deps.workspaceStore.getByOwner(context.userId);
+      if (ownedWs.length === 0) {
+        return { toolResult: "Error: You do not own any workspaces. Create a workspace first." };
+      }
+      if (ownedWs.length === 1) {
+        wsId = ownedWs[0]!.id;
+      } else {
+        return { toolResult: "Error: You own multiple workspaces. Specify workspace_id." };
+      }
+    }
+
+    // 3. 워크스페이스 존재 + Owner 권한 검증
+    const ws = deps.workspaceStore.get(wsId);
+    if (!ws) {
+      return { toolResult: `Error: Workspace not found: ${wsId}` };
+    }
+    if (ws.ownerId !== context.userId && !deps.userStore.isSystemAdmin(context.userId)) {
+      return { toolResult: "Error: Only the workspace owner can invite members." };
+    }
+
+    // 4. 멤버 추가 (Store I/O)
+    await deps.workspaceStore.inviteMember(wsId, targetId, context.userId);
+    log.info("Member invited", { workspaceId: wsId, targetId, invitedBy: context.userId });
+
+    return {
+      toolResult: JSON.stringify({
+        workspaceId: ws.id,
+        workspaceName: ws.name,
+        invitedUserId: targetId,
+        message: `User ${targetId} has been invited to workspace "${ws.name}". Send them a notification via push_text_message.`,
+      }),
+    };
+  },
+};
+
 // --- 레지스트리 ---
 
-const entries: SystemToolEntry[] = [createWorkspace, listWorkspaces, getWorkspaceInfo, enterWorkspace];
+const entries: SystemToolEntry[] = [createWorkspace, listWorkspaces, getWorkspaceInfo, enterWorkspace, inviteMember];
 
 /** 이름 키 Map (O(1) lookup) */
 export const systemTools: ReadonlyMap<string, SystemToolEntry> = new Map(
