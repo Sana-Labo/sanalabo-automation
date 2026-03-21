@@ -13,13 +13,10 @@ import type {
   InternalToolSignal,
   ToolContext,
 } from "../types.js";
-import { canCreateWorkspace, validateWorkspaceName, type WorkspaceRecord } from "../domain/workspace.js";
+import { canCreateWorkspace, getMaxOwnedWorkspaces, validateWorkspaceName, type WorkspaceRecord } from "../domain/workspace.js";
 import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("agent");
-
-/** 사용자당 워크스페이스 소유 제한 */
-const MAX_OWNED_WORKSPACES = 1;
 
 // --- 타입 ---
 
@@ -43,7 +40,7 @@ const createWorkspace: SystemToolEntry = {
     name: "create_workspace",
     strict: true,
     description:
-      "Create a new workspace. Each user can own at most one workspace. Admins can specify an owner; regular users always own the workspace themselves.",
+      "Create a new workspace. Admins can specify an owner; regular users always own the workspace themselves. Ownership limits apply per role.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -83,11 +80,13 @@ const createWorkspace: SystemToolEntry = {
     }
 
     // 3. 소유 제한 검증 (순수 함수 + Store 조회) — owner 기준
+    //    admin 위임 시에도 대상 사용자에게 일반 사용자 제한 적용
+    const limit = getMaxOwnedWorkspaces(delegated ? false : isAdmin);
     const owned = deps.workspaceStore.getByOwner(ownerId);
-    if (!canCreateWorkspace(owned.length, MAX_OWNED_WORKSPACES)) {
+    if (!canCreateWorkspace(owned.length, limit)) {
       const msg = delegated
-        ? `Error: User ${ownerId} already owns a workspace. Each user can own at most one workspace.`
-        : "Error: You already own a workspace. Each user can own at most one workspace.";
+        ? `Error: User ${ownerId} already owns ${owned.length} workspace(s). Maximum: ${limit}.`
+        : `Error: You already own ${owned.length} workspace(s). Maximum: ${limit}.`;
       return { toolResult: msg };
     }
 

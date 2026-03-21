@@ -130,16 +130,18 @@ describe("create_workspace handler", () => {
     expect(signal.toolResult).toContain("empty");
   });
 
-  test("소유 제한: 이미 1개 소유 시 거부", async () => {
-    const existingWs = makeWorkspace({ id: "ws-existing", ownerId: "Uowner1234" });
-    const deps = makeDeps({ ownedWorkspaces: [existingWs] });
+  test("일반 사용자 소유 제한: 8개 소유 시 거부", async () => {
+    const existing = Array.from({ length: 8 }, (_, i) =>
+      makeWorkspace({ id: `ws-${i}`, ownerId: "Uowner1234" }),
+    );
+    const deps = makeDeps({ ownedWorkspaces: existing });
     const ctx = makeContext({ userId: "Uowner1234" });
 
     const entry = systemTools.get("create_workspace")!;
-    const signal = await entry.handler({ name: "SecondWorkspace", owner_user_id: null }, ctx, deps);
+    const signal = await entry.handler({ name: "NinthWS", owner_user_id: null }, ctx, deps);
 
     expect(signal.toolResult).toContain("Error");
-    expect(signal.toolResult).toContain("already own");
+    expect(signal.toolResult).toContain("Maximum: 8");
   });
 
   test("이름 앞뒤 공백은 트리밍되어 생성 (owner_user_id null)", async () => {
@@ -236,27 +238,30 @@ describe("create_workspace handler", () => {
     expect(createCalls[0]!.ownerId).toBe("Uregular001");
   });
 
-  test("admin도 소유 제한 동일 적용 (1개 초과 시 거부)", async () => {
-    const existingWs = makeWorkspace({ id: "ws-admin-existing", ownerId: "Uadmin001" });
+  test("admin 소유 제한: 64개 소유 시 거부", async () => {
+    const existing = Array.from({ length: 64 }, (_, i) =>
+      makeWorkspace({ id: `ws-${i}`, ownerId: "Uadmin001" }),
+    );
     const deps = makeDeps({
-      ownedWorkspaces: [existingWs],
+      ownedWorkspaces: existing,
       isSystemAdmin: (id) => id === "Uadmin001",
     });
     const ctx = makeContext({ userId: "Uadmin001", role: "admin" });
 
     const entry = systemTools.get("create_workspace")!;
-    const signal = await entry.handler({ name: "SecondWS", owner_user_id: null }, ctx, deps);
+    const signal = await entry.handler({ name: "TooMany", owner_user_id: null }, ctx, deps);
 
     expect(signal.toolResult).toContain("Error");
-    expect(signal.toolResult).toContain("already own");
+    expect(signal.toolResult).toContain("Maximum: 64");
   });
 
-  test("admin + owner_user_id 지정: 대상 사용자의 소유 제한 적용", async () => {
+  test("admin + owner_user_id 지정: 대상 사용자에 일반 사용자 제한(8) 적용", async () => {
     const deps = makeDeps({ isSystemAdmin: (id) => id === "Uadmin001" });
     const getByOwnerCalls: string[] = [];
     (deps.workspaceStore as any).getByOwner = (ownerId: string) => {
       getByOwnerCalls.push(ownerId);
-      return [makeWorkspace({ ownerId })]; // 대상이 이미 소유 중
+      // 대상이 이미 8개 소유 중 → 일반 사용자 제한 도달
+      return Array.from({ length: 8 }, (_, i) => makeWorkspace({ id: `ws-${i}`, ownerId }));
     };
     const ctx = makeContext({ userId: "Uadmin001", role: "admin" });
 
@@ -270,8 +275,7 @@ describe("create_workspace handler", () => {
     // getByOwner는 대상 사용자 기준으로 호출
     expect(getByOwnerCalls[0]).toBe("Ua0000000000000000000000000000001");
     expect(signal.toolResult).toContain("Error");
-    // admin 위임 시 대상 사용자 ID가 메시지에 포함
-    expect(signal.toolResult).toContain("Ua0000000000000000000000000000001");
+    expect(signal.toolResult).toContain("Maximum: 8");
   });
 
   test("admin + owner_user_id 형식 불량: 에러", async () => {
