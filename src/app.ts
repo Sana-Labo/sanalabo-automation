@@ -4,6 +4,7 @@ import { buildToolRegistry } from "./agent/loop.js";
 import { connectMcpPool } from "./agent/mcp-pool.js";
 import { createPendingActionStore } from "./approvals/store.js";
 import { config } from "./config.js";
+import { createGoogleOAuthRoute } from "./routes/googleOAuth.js";
 import { createHealthRoute } from "./routes/health.js";
 import { createLineWebhookRoute } from "./routes/lineWebhook.js";
 import { startScheduler } from "./scheduler.js";
@@ -88,13 +89,25 @@ async function main() {
   const app = new Hono();
   app.route("/", createHealthRoute(mcp));
   app.route("/", createLineWebhookRoute(deps, userStore));
+  if (tokenStore) {
+    app.route("/", createGoogleOAuthRoute({
+      tokenStore,
+      workspaceStore,
+      authConfig: {
+        clientId: config.googleClientId,
+        clientSecret: config.googleClientSecret,
+        redirectUri: config.googleRedirectUri,
+      },
+      registry,
+    }));
+  }
 
   // 8. 스케줄러 시작
   cronJobs = startScheduler(deps, userStore);
 
   log.info("Server starting", { port });
 
-  // 8. Bun serve용 export
+  // 9. Bun serve용 export
   return { port, fetch: app.fetch };
 }
 

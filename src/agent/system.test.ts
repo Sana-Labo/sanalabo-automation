@@ -77,8 +77,8 @@ describe("buildSystemPrompt", () => {
 
   test("prompt contains safety rules", () => {
     const prompt = buildSystemPrompt(makeContext(), makeWorkspace());
-    expect(prompt).toContain("Never send emails");
-    expect(prompt).toContain("Confirm before adding calendar events");
+    expect(prompt).toContain("Never send emails without user approval");
+    expect(prompt).toContain("Confirm before modifying calendar/drive");
   });
 
   test("prompt contains message format guidelines", () => {
