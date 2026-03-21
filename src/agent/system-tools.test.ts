@@ -42,6 +42,7 @@ function makeDeps(overrides?: {
   getWorkspace?: (id: string) => WorkspaceRecord | undefined;
   getUserRole?: (wsId: string, userId: string) => "owner" | "member" | undefined;
   isSystemAdmin?: (userId: string) => boolean;
+  lastWorkspaceId?: string;
 }): AgentDependencies {
   const setDefaultCalls = overrides?.setDefaultCalls ?? [];
   const createdWs = overrides?.createdWorkspace ?? makeWorkspace();
@@ -61,6 +62,7 @@ function makeDeps(overrides?: {
       setLastWorkspaceId: async (userId: string, workspaceId: string) => {
         setDefaultCalls.push({ userId, workspaceId });
       },
+      getLastWorkspaceId: () => overrides?.lastWorkspaceId,
       isSystemAdmin: overrides?.isSystemAdmin ?? (() => false),
     } as unknown as UserStore,
   };
@@ -528,5 +530,87 @@ describe("get_workspace_info handler", () => {
       joinedAt: "2024-01-01T00:00:00Z",
       invitedBy: "system",
     });
+  });
+});
+
+// --- enter_workspace 핸들러 테스트 ---
+
+describe("enter_workspace handler", () => {
+  test("성공: workspace_id 지정 → lastWorkspaceId 설정 + 결과 반환", async () => {
+    const ws = makeWorkspace({ id: "ws-001", name: "MyClub" });
+    const setDefaultCalls: Array<{ userId: string; workspaceId: string }> = [];
+    const deps = makeDeps({
+      getWorkspace: (id) => id === "ws-001" ? ws : undefined,
+      getUserRole: (wsId, userId) => wsId === "ws-001" && userId === "Uuser001" ? "owner" : undefined,
+      setDefaultCalls,
+    });
+    const ctx = makeContext({ userId: "Uuser001", workspaceId: undefined, role: "member" });
+
+    const entry = systemTools.get("enter_workspace")!;
+    const signal = await entry.handler({ workspace_id: "ws-001" }, ctx, deps);
+
+    const result = JSON.parse(signal.toolResult);
+    expect(result.workspaceId).toBe("ws-001");
+    expect(result.name).toBe("MyClub");
+    expect(result.role).toBe("owner");
+
+    expect(setDefaultCalls).toHaveLength(1);
+    expect(setDefaultCalls[0]).toEqual({ userId: "Uuser001", workspaceId: "ws-001" });
+  });
+
+  test("성공: workspace_id null → lastWorkspaceId 폴백", async () => {
+    const ws = makeWorkspace({ id: "ws-last", name: "LastUsed" });
+    const setDefaultCalls: Array<{ userId: string; workspaceId: string }> = [];
+    const deps = makeDeps({
+      getWorkspace: (id) => id === "ws-last" ? ws : undefined,
+      getUserRole: () => "member",
+      lastWorkspaceId: "ws-last",
+      setDefaultCalls,
+    });
+    const ctx = makeContext({ userId: "Uuser001", workspaceId: undefined, role: "member" });
+
+    const entry = systemTools.get("enter_workspace")!;
+    const signal = await entry.handler({ workspace_id: null }, ctx, deps);
+
+    const result = JSON.parse(signal.toolResult);
+    expect(result.workspaceId).toBe("ws-last");
+    expect(setDefaultCalls).toHaveLength(1);
+  });
+
+  test("실패: workspace_id null + lastWorkspaceId 없음", async () => {
+    const deps = makeDeps();
+    const ctx = makeContext({ userId: "Uuser001", workspaceId: undefined, role: "member" });
+
+    const entry = systemTools.get("enter_workspace")!;
+    const signal = await entry.handler({ workspace_id: null }, ctx, deps);
+
+    expect(signal.toolResult).toContain("Error");
+    expect(signal.toolResult).toContain("No workspace specified");
+  });
+
+  test("실패: 존재하지 않는 워크스페이스", async () => {
+    const deps = makeDeps({ getWorkspace: () => undefined });
+    const ctx = makeContext({ userId: "Uuser001", workspaceId: undefined, role: "member" });
+
+    const entry = systemTools.get("enter_workspace")!;
+    const signal = await entry.handler({ workspace_id: "ws-nonexistent" }, ctx, deps);
+
+    expect(signal.toolResult).toContain("Error");
+    expect(signal.toolResult).toContain("not found");
+  });
+
+  test("실패: 미소속 워크스페이스 접근", async () => {
+    const ws = makeWorkspace({ id: "ws-other" });
+    const deps = makeDeps({
+      getWorkspace: (id) => id === "ws-other" ? ws : undefined,
+      getUserRole: () => undefined,
+    });
+    const ctx = makeContext({ userId: "Uuser001", workspaceId: undefined, role: "member" });
+
+    const entry = systemTools.get("enter_workspace")!;
+    const signal = await entry.handler({ workspace_id: "ws-other" }, ctx, deps);
+
+    expect(signal.toolResult).toContain("Error");
+    expect(signal.toolResult).toContain("access");
   });
 });

@@ -255,9 +255,62 @@ const getWorkspaceInfo: SystemToolEntry = {
   },
 };
 
+// --- enter_workspace ---
+
+const enterWorkspace: SystemToolEntry = {
+  def: {
+    name: "enter_workspace",
+    strict: true,
+    description:
+      "Enter a workspace to start working. After entering, Google Workspace tools become available. If workspace_id is null, enters the last used workspace.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        workspace_id: {
+          anyOf: [{ type: "string" }, { type: "null" }],
+          description:
+            "Workspace ID to enter. If null, enters the last used workspace.",
+        },
+      },
+      required: ["workspace_id"],
+      additionalProperties: false,
+    },
+  },
+  async handler(input, context, deps) {
+    const rawId = input.workspace_id as string | null;
+    const wsId = rawId ?? deps.userStore.getLastWorkspaceId(context.userId);
+
+    if (!wsId) {
+      return { toolResult: "Error: No workspace specified and no last used workspace." };
+    }
+
+    const ws = deps.workspaceStore.get(wsId);
+    if (!ws) {
+      return { toolResult: `Error: Workspace not found: ${wsId}` };
+    }
+
+    const role = deps.workspaceStore.getUserRole(wsId, context.userId);
+    if (!role) {
+      return { toolResult: "Error: You do not have access to this workspace." };
+    }
+
+    await deps.userStore.setLastWorkspaceId(context.userId, wsId);
+    log.info("Workspace entered", { userId: context.userId, workspaceId: wsId });
+
+    return {
+      toolResult: JSON.stringify({
+        workspaceId: ws.id,
+        name: ws.name,
+        role,
+        message: "Workspace entered. GWS tools will be available from the next message.",
+      }),
+    };
+  },
+};
+
 // --- 레지스트리 ---
 
-const entries: SystemToolEntry[] = [createWorkspace, listWorkspaces, getWorkspaceInfo];
+const entries: SystemToolEntry[] = [createWorkspace, listWorkspaces, getWorkspaceInfo, enterWorkspace];
 
 /** 이름 키 Map (O(1) lookup) */
 export const systemTools: ReadonlyMap<string, SystemToolEntry> = new Map(
