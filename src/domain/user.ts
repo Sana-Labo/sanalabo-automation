@@ -7,6 +7,21 @@
 
 import type { InviteSource, UserRecord } from "../types.js";
 
+// --- LINE userId 검증 ---
+
+/** LINE userId 형식 검증 (U + 32 hex chars) */
+const LINE_USER_ID_PATTERN = /^U[0-9a-f]{32}$/;
+
+/**
+ * LINE userId 형식이 유효한지 검증
+ *
+ * @param userId - 검증 대상 문자열
+ * @returns 유효 여부
+ */
+export function isValidLineUserId(userId: string): boolean {
+  return LINE_USER_ID_PATTERN.test(userId);
+}
+
 // --- 레코드 생성 ---
 
 /**

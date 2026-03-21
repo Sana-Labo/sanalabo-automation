@@ -11,8 +11,10 @@ import type {
   AgentDependencies,
   InternalToolEntry,
   InternalToolSignal,
+  Role,
   ToolContext,
 } from "../types.js";
+import { isValidLineUserId } from "../domain/user.js";
 import { canCreateWorkspace, getMaxOwnedWorkspaces, validateWorkspaceName, type WorkspaceRecord } from "../domain/workspace.js";
 import { createLogger } from "../utils/logger.js";
 
@@ -66,8 +68,7 @@ const createWorkspace: SystemToolEntry = {
     const rawOwner = input.owner_user_id as string | null;
     const delegated = isAdmin && rawOwner;
 
-    // owner_user_id 형식 검증 (LINE userId: U + 32 hex chars)
-    if (delegated && !/^U[0-9a-f]{32}$/.test(rawOwner)) {
+    if (delegated && !isValidLineUserId(rawOwner)) {
       return { toolResult: `Error: Invalid LINE userId format: ${rawOwner}` };
     }
 
@@ -111,9 +112,8 @@ const createWorkspace: SystemToolEntry = {
 function groupByOwner(workspaces: WorkspaceRecord[]) {
   const map = new Map<string, Array<{ id: string; name: string; createdAt: string }>>();
   for (const ws of workspaces) {
-    const list = map.get(ws.ownerId) ?? [];
-    list.push({ id: ws.id, name: ws.name, createdAt: ws.createdAt });
-    map.set(ws.ownerId, list);
+    if (!map.has(ws.ownerId)) map.set(ws.ownerId, []);
+    map.get(ws.ownerId)!.push({ id: ws.id, name: ws.name, createdAt: ws.createdAt });
   }
   return Array.from(map.entries()).map(([ownerId, wsList]) => ({
     ownerId,
@@ -174,35 +174,39 @@ const listWorkspaces: SystemToolEntry = {
 };
 
 /** 조회자 역할 판별 */
-type ViewerRole = "admin" | "owner" | "member";
-
 function determineViewerRole(
   isAdmin: boolean,
   ws: WorkspaceRecord,
   userId: string,
-): ViewerRole {
+): Role {
   if (isAdmin) return "admin";
   if (ws.ownerId === userId) return "owner";
   return "member";
 }
 
 /** 역할별 워크스페이스 프로젝션 */
-function projectWorkspace(ws: WorkspaceRecord, viewerRole: ViewerRole) {
+function projectWorkspace(ws: WorkspaceRecord, viewerRole: Role) {
   const members = Object.entries(ws.members).map(([userId, m]) => ({
     userId,
     role: m.role,
     joinedAt: m.joinedAt,
     invitedBy: m.invitedBy,
   }));
-  const memberCount = Object.keys(ws.members).length;
+  const base = {
+    id: ws.id,
+    name: ws.name,
+    createdAt: ws.createdAt,
+    memberCount: members.length,
+    members,
+  };
 
   switch (viewerRole) {
     case "admin":
-      return { id: ws.id, name: ws.name, ownerId: ws.ownerId, gwsAuthenticated: ws.gwsAuthenticated, createdAt: ws.createdAt, memberCount, members };
+      return { ...base, ownerId: ws.ownerId, gwsAuthenticated: ws.gwsAuthenticated };
     case "owner":
-      return { id: ws.id, name: ws.name, gwsAuthenticated: ws.gwsAuthenticated, createdAt: ws.createdAt, memberCount, members };
+      return { ...base, gwsAuthenticated: ws.gwsAuthenticated };
     case "member":
-      return { id: ws.id, name: ws.name, ownerId: ws.ownerId, createdAt: ws.createdAt, memberCount, members };
+      return { ...base, ownerId: ws.ownerId };
   }
 }
 
