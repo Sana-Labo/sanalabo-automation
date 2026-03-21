@@ -107,14 +107,40 @@ const createWorkspace: SystemToolEntry = {
   },
 };
 
-/** WorkspaceRecord → 요약 객체 (gwsConfigDir 제외) */
-function summarizeWorkspace(ws: WorkspaceRecord) {
-  return {
-    id: ws.id,
-    name: ws.name,
-    ownerId: ws.ownerId,
-    memberCount: Object.keys(ws.members).length,
-  };
+/** Admin용: 워크스페이스를 owner 기준으로 그룹화 */
+function groupByOwner(workspaces: WorkspaceRecord[]) {
+  const map = new Map<string, Array<{ id: string; name: string; createdAt: string }>>();
+  for (const ws of workspaces) {
+    const list = map.get(ws.ownerId) ?? [];
+    list.push({ id: ws.id, name: ws.name, createdAt: ws.createdAt });
+    map.set(ws.ownerId, list);
+  }
+  return Array.from(map.entries()).map(([ownerId, wsList]) => ({
+    ownerId,
+    workspaces: wsList,
+  }));
+}
+
+/** 일반 사용자용: 소유/소속 워크스페이스 분리 */
+function splitOwnedAndMember(workspaces: WorkspaceRecord[], userId: string) {
+  const owned: Array<{ id: string; name: string; createdAt: string }> = [];
+  const member: Array<{ id: string; name: string; joinedAt: string; ownerId: string }> = [];
+
+  for (const ws of workspaces) {
+    if (ws.ownerId === userId) {
+      owned.push({ id: ws.id, name: ws.name, createdAt: ws.createdAt });
+    } else {
+      const membership = ws.members[userId];
+      member.push({
+        id: ws.id,
+        name: ws.name,
+        joinedAt: membership?.joinedAt ?? ws.createdAt,
+        ownerId: ws.ownerId,
+      });
+    }
+  }
+
+  return { owned, member };
 }
 
 const listWorkspaces: SystemToolEntry = {
@@ -122,7 +148,7 @@ const listWorkspaces: SystemToolEntry = {
     name: "list_workspaces",
     strict: true,
     description:
-      "List workspaces. Admins see all workspaces; regular users see only workspaces they own.",
+      "List workspaces. Admins see all workspaces grouped by owner; regular users see their owned and member workspaces.",
     input_schema: {
       type: "object" as const,
       properties: {},
@@ -132,14 +158,17 @@ const listWorkspaces: SystemToolEntry = {
   },
   async handler(_input, context, deps) {
     const isAdmin = deps.userStore.isSystemAdmin(context.userId);
-    const workspaces = isAdmin
-      ? deps.workspaceStore.getAll()
-      : deps.workspaceStore.getByOwner(context.userId);
 
+    if (isAdmin) {
+      const all = deps.workspaceStore.getAll();
+      return {
+        toolResult: JSON.stringify({ workspaces: groupByOwner(all) }),
+      };
+    }
+
+    const workspaces = deps.workspaceStore.getByMember(context.userId);
     return {
-      toolResult: JSON.stringify({
-        workspaces: workspaces.map(summarizeWorkspace),
-      }),
+      toolResult: JSON.stringify(splitOwnedAndMember(workspaces, context.userId)),
     };
   },
 };

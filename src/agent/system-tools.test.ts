@@ -297,9 +297,9 @@ describe("create_workspace handler", () => {
 // --- list_workspaces 핸들러 테스트 ---
 
 describe("list_workspaces handler", () => {
-  test("admin: 전체 워크스페이스 반환 (getAll)", async () => {
-    const ws1 = makeWorkspace({ id: "ws-001", name: "WS1", ownerId: "Uowner1" });
-    const ws2 = makeWorkspace({ id: "ws-002", name: "WS2", ownerId: "Uowner2" });
+  test("admin: owner별 그룹화, id/name/createdAt만 포함", async () => {
+    const ws1 = makeWorkspace({ id: "ws-001", name: "WS1", ownerId: "Uowner1", createdAt: "2024-01-01T00:00:00Z" });
+    const ws2 = makeWorkspace({ id: "ws-002", name: "WS2", ownerId: "Uowner2", createdAt: "2024-02-01T00:00:00Z" });
     const deps = makeDeps({
       allWorkspaces: [ws1, ws2],
       isSystemAdmin: (id) => id === "Uadmin001",
@@ -311,35 +311,75 @@ describe("list_workspaces handler", () => {
     const result = JSON.parse(signal.toolResult);
 
     expect(result.workspaces).toHaveLength(2);
-    expect(result.workspaces[0].id).toBe("ws-001");
-    expect(result.workspaces[1].id).toBe("ws-002");
-    // gwsConfigDir 미포함
-    expect(result.workspaces[0].gwsConfigDir).toBeUndefined();
+    expect(result.workspaces[0].ownerId).toBe("Uowner1");
+    expect(result.workspaces[0].workspaces[0]).toEqual({
+      id: "ws-001", name: "WS1", createdAt: "2024-01-01T00:00:00Z",
+    });
+    // gwsConfigDir, memberCount 등 미포함
+    expect(result.workspaces[0].workspaces[0].gwsConfigDir).toBeUndefined();
+    expect(result.workspaces[0].workspaces[0].memberCount).toBeUndefined();
   });
 
-  test("일반 사용자: 소유한 워크스페이스만 반환 (getByOwner)", async () => {
-    const ws1 = makeWorkspace({ id: "ws-001", name: "WS1", ownerId: "Uowner001" });
-    const deps = makeDeps({ ownedWorkspaces: [ws1] });
-    const ctx = makeContext({ userId: "Uowner001", role: "owner" });
+  test("일반 사용자: 소유 + 소속 분리 반환", async () => {
+    const ownedWs = makeWorkspace({ id: "ws-own", name: "MyWS", ownerId: "Uuser001", createdAt: "2024-01-01T00:00:00Z" });
+    const memberWs = makeWorkspace({
+      id: "ws-other",
+      name: "OtherWS",
+      ownerId: "Uother",
+      members: {
+        Uother: { role: "owner", joinedAt: "2024-01-01T00:00:00Z", invitedBy: "system" },
+        Uuser001: { role: "member", joinedAt: "2024-03-01T00:00:00Z", invitedBy: "Uother" },
+      },
+    });
+    const deps = makeDeps({ memberWorkspaces: [ownedWs, memberWs] });
+    const ctx = makeContext({ userId: "Uuser001", role: "member" });
 
     const entry = systemTools.get("list_workspaces")!;
     const signal = await entry.handler({}, ctx, deps);
     const result = JSON.parse(signal.toolResult);
 
-    expect(result.workspaces).toHaveLength(1);
-    expect(result.workspaces[0].id).toBe("ws-001");
-    expect(result.workspaces[0].memberCount).toBe(1);
+    expect(result.owned).toHaveLength(1);
+    expect(result.owned[0]).toEqual({
+      id: "ws-own", name: "MyWS", createdAt: "2024-01-01T00:00:00Z",
+    });
+
+    expect(result.member).toHaveLength(1);
+    expect(result.member[0]).toEqual({
+      id: "ws-other", name: "OtherWS", joinedAt: "2024-03-01T00:00:00Z", ownerId: "Uother",
+    });
   });
 
-  test("빈 목록: 빈 배열", async () => {
-    const deps = makeDeps({ ownedWorkspaces: [] });
+  test("소속만 있는 경우: owned 빈 배열, member 있음", async () => {
+    const memberWs = makeWorkspace({
+      id: "ws-other",
+      name: "OtherWS",
+      ownerId: "Uother",
+      members: {
+        Uother: { role: "owner", joinedAt: "2024-01-01T00:00:00Z", invitedBy: "system" },
+        Uuser001: { role: "member", joinedAt: "2024-03-01T00:00:00Z", invitedBy: "Uother" },
+      },
+    });
+    const deps = makeDeps({ memberWorkspaces: [memberWs] });
+    const ctx = makeContext({ userId: "Uuser001", role: "member" });
+
+    const entry = systemTools.get("list_workspaces")!;
+    const signal = await entry.handler({}, ctx, deps);
+    const result = JSON.parse(signal.toolResult);
+
+    expect(result.owned).toHaveLength(0);
+    expect(result.member).toHaveLength(1);
+  });
+
+  test("빈 목록: owned/member 모두 빈 배열", async () => {
+    const deps = makeDeps({ memberWorkspaces: [] });
     const ctx = makeContext({ role: "member" });
 
     const entry = systemTools.get("list_workspaces")!;
     const signal = await entry.handler({}, ctx, deps);
     const result = JSON.parse(signal.toolResult);
 
-    expect(result.workspaces).toHaveLength(0);
+    expect(result.owned).toHaveLength(0);
+    expect(result.member).toHaveLength(0);
   });
 });
 
