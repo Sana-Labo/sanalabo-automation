@@ -16,7 +16,7 @@ beforeEach(async () => {
 afterEach(() => td.cleanup());
 
 describe("JsonWorkspaceStore", () => {
-  test("create: workspace has id, name, ownerId, gwsConfigDir", async () => {
+  test("create: workspace has id, name, ownerId, gwsAuthenticated", async () => {
     const ws = await store.create("Test WS", "Uowner01");
 
     expect(ws.id).toMatch(
@@ -24,7 +24,6 @@ describe("JsonWorkspaceStore", () => {
     );
     expect(ws.name).toBe("Test WS");
     expect(ws.ownerId).toBe("Uowner01");
-    expect(ws.gwsConfigDir).toContain(ws.id);
     expect(ws.gwsAuthenticated).toBe(false);
     expect(ws.members["Uowner01"]).toBeDefined();
     expect(ws.members["Uowner01"]!.role).toBe("owner");
