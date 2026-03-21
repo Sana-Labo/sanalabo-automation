@@ -76,7 +76,11 @@ export async function runAgentLoop(
   const workspace = context.workspaceId
     ? deps.workspaceStore.get(context.workspaceId)
     : undefined;
-  const systemPrompt = buildSystemPrompt(context, workspace);
+  // Out-stage 판별: 워크스페이스 미진입 시 사용자 소속 WS 조회
+  const userWorkspaces = context.workspaceId
+    ? []
+    : deps.workspaceStore.getByMember(context.userId);
+  const systemPrompt = buildSystemPrompt(context, workspace, userWorkspaces);
 
   // 요청별 executor 구성: 기본 레지스트리 + 워크스페이스별 GWS executor
   // LINE push 도구는 래핑 executor (단순화 입력 → MCP 네이티브 변환 + userId 주입)

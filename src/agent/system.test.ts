@@ -174,11 +174,12 @@ describe("buildSystemPrompt", () => {
     });
   });
 
-  describe("onboarding (member, no workspace)", () => {
+  describe("onboarding (member, no workspace, no userWorkspaces)", () => {
     test("contains service introduction", () => {
       const prompt = buildSystemPrompt(
         makeContext({ role: "member", workspaceId: undefined }),
         undefined,
+        [],
       );
       expect(prompt).toContain("onboarding");
     });
@@ -187,6 +188,7 @@ describe("buildSystemPrompt", () => {
       const prompt = buildSystemPrompt(
         makeContext({ role: "member", workspaceId: undefined }),
         undefined,
+        [],
       );
       expect(prompt).toContain("create_workspace");
     });
@@ -195,27 +197,80 @@ describe("buildSystemPrompt", () => {
       const prompt = buildSystemPrompt(
         makeContext({ role: "member", workspaceId: undefined }),
         undefined,
+        [],
       );
       expect(prompt).not.toContain("Safety Rules");
       expect(prompt).not.toContain("Never send emails");
       expect(prompt).not.toContain("Your role:");
     });
 
-    test("contains no_action guidance and message format", () => {
+    test("does not contain enter_workspace guidance", () => {
       const prompt = buildSystemPrompt(
         makeContext({ role: "member", workspaceId: undefined }),
         undefined,
+        [],
       );
-      expect(prompt).toContain("no_action");
-      expect(prompt).toContain("2000 characters");
+      expect(prompt).not.toContain("enter_workspace");
+    });
+  });
+
+  describe("out-stage (member, no workspace, has userWorkspaces)", () => {
+    const userWs = [
+      makeWorkspace({ id: "ws-001", name: "MyClub", ownerId: "Uowner1234" }),
+      makeWorkspace({ id: "ws-002", name: "TeamB", ownerId: "Uother9999" }),
+    ];
+
+    test("contains workspace navigation guidance", () => {
+      const prompt = buildSystemPrompt(
+        makeContext({ role: "member", workspaceId: undefined }),
+        undefined,
+        userWs,
+      );
+      expect(prompt).toContain("navigation");
+      expect(prompt).toContain("enter_workspace");
     });
 
-    test("mentions workspace as next step", () => {
+    test("lists available workspaces with names and IDs", () => {
       const prompt = buildSystemPrompt(
         makeContext({ role: "member", workspaceId: undefined }),
         undefined,
+        userWs,
       );
-      expect(prompt).toContain("workspace");
+      expect(prompt).toContain("MyClub");
+      expect(prompt).toContain("ws-001");
+      expect(prompt).toContain("TeamB");
+      expect(prompt).toContain("ws-002");
+    });
+
+    test("shows correct role for each workspace", () => {
+      const prompt = buildSystemPrompt(
+        makeContext({ role: "member", workspaceId: undefined, userId: "Uowner1234" }),
+        undefined,
+        userWs,
+      );
+      // Uowner1234 owns ws-001, is member of ws-002
+      expect(prompt).toContain("owner");
+      expect(prompt).toContain("member");
+    });
+
+    test("does not contain GWS-specific content or safety rules", () => {
+      const prompt = buildSystemPrompt(
+        makeContext({ role: "member", workspaceId: undefined }),
+        undefined,
+        userWs,
+      );
+      expect(prompt).not.toContain("Safety Rules");
+      expect(prompt).not.toContain("Never send emails");
+    });
+
+    test("does not contain onboarding content", () => {
+      const prompt = buildSystemPrompt(
+        makeContext({ role: "member", workspaceId: undefined }),
+        undefined,
+        userWs,
+      );
+      expect(prompt).not.toContain("onboarding");
+      expect(prompt).not.toContain("just joined");
     });
   });
 });
