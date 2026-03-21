@@ -142,11 +142,14 @@ Cron 잡은 워크스페이스별 → 멤버별로 순회. 각 멤버의 ToolCon
 | `inactive` | 탈퇴 (블록) | — |
 
 **초대 플로우**:
-1. Owner가 LINE에서 `invite U[0-9a-f]{32}` 전송
-2. 시스템이 결정론적으로 매칭 → WorkspaceStore에 멤버 등록 (UserRecord 미존재 가능)
-3. 초대된 사용자가 LINE 공식 계정을 친구 추가 (follow 이벤트)
-4. UserRecord 생성 (`active`) + 환영 메시지
+1. Owner가 에이전트에게 초대 요청 → Claude가 `invite_member` System Tool 호출
+2. 멤버 추가 → Claude가 push_text_message로 초대 대상에게 알림 발송
+3. 초대된 사용자가 `enter_workspace`로 워크스페이스 진입
 
-**워크스페이스 해결**: 단일 소속 → 자동, 복수 → `defaultWorkspaceId` 또는 `use {id}` 명령
+**워크스페이스 진입 (Out/On Stage)**:
+- **Out stage**: `lastWorkspaceId` 미설정 또는 미매칭 → 워크스페이스 목록 + 진입 안내
+- **On stage**: `lastWorkspaceId` 매칭 → 워크스페이스 내 작업 수행 가능
+- 진입: `enter_workspace` System Tool 또는 `create_workspace` 후 자동 진입
+- 단일 소속이라도 자동 진입 없음 — 명시적 진입 모델
 
 **시스템 관리자**: `SYSTEM_ADMIN_IDS` 환경변수로 지정. 시작 시 자동 `active` 등록.
