@@ -56,7 +56,7 @@ function buildApprovalText(action: PendingAction, workspaceName: string): string
     `Operation: ${action.toolName}\n` +
     `Details:\n${inputSummary}\n` +
     `Original request: ${action.requestContext}\n\n` +
-    `To approve, send "approve ${action.id}". To reject, send "reject ${action.id}".`;
+    `To approve or reject, use the buttons above or ask the assistant.`;
 }
 
 function buildApprovalFlexMessage(

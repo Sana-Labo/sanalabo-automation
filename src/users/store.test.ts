@@ -53,20 +53,20 @@ describe("JsonUserStore", () => {
     expect(activeUsers).not.toContain("Uuser02");
   });
 
-  // --- defaultWorkspaceId ---
+  // --- lastWorkspaceId ---
 
-  test("setDefaultWorkspaceId: sets and retrieves workspace ID", async () => {
+  test("setLastWorkspaceId: sets and retrieves workspace ID", async () => {
     await store.set("Uuser01", createFromFollow());
 
-    expect(store.getDefaultWorkspaceId("Uuser01")).toBeUndefined();
+    expect(store.getLastWorkspaceId("Uuser01")).toBeUndefined();
 
-    await store.setDefaultWorkspaceId("Uuser01", "ws-001");
-    expect(store.getDefaultWorkspaceId("Uuser01")).toBe("ws-001");
+    await store.setLastWorkspaceId("Uuser01", "ws-001");
+    expect(store.getLastWorkspaceId("Uuser01")).toBe("ws-001");
   });
 
-  test("setDefaultWorkspaceId: no-op for nonexistent user", async () => {
-    await store.setDefaultWorkspaceId("Unonexistent", "ws-001");
-    expect(store.getDefaultWorkspaceId("Unonexistent")).toBeUndefined();
+  test("setLastWorkspaceId: no-op for nonexistent user", async () => {
+    await store.setLastWorkspaceId("Unonexistent", "ws-001");
+    expect(store.getLastWorkspaceId("Unonexistent")).toBeUndefined();
   });
 
   // --- isSystemAdmin ---

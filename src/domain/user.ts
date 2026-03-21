@@ -72,6 +72,24 @@ export function activate(record: UserRecord): UserRecord {
   };
 }
 
+// --- 워크스페이스 진입 ---
+
+/**
+ * 마지막 진입 워크스페이스 설정
+ *
+ * @param record - 대상 UserRecord
+ * @param workspaceId - 진입할 워크스페이스 ID
+ * @returns 새 UserRecord (lastWorkspaceId 설정)
+ */
+export function setLastWorkspaceId(
+  record: UserRecord,
+  workspaceId: string,
+): UserRecord {
+  return { ...record, lastWorkspaceId: workspaceId };
+}
+
+// --- 상태 전이 ---
+
 /**
  * active → inactive 상태 전이
  *

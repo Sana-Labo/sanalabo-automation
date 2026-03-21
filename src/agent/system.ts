@@ -20,9 +20,17 @@ const LANGUAGE_RULES = `## Language
 - When the user writes in a specific language, respond in that same language.
 - Default to English for automated notifications and when the language is uncertain.`;
 
+/**
+ * 시스템 프롬프트 생성
+ *
+ * @param context - 사용자 컨텍스트 (role, workspaceId)
+ * @param workspace - 현재 워크스페이스 레코드 (on-stage 시)
+ * @param userWorkspaces - 사용자가 소속된 워크스페이스 목록 (out-stage 판별용)
+ */
 export function buildSystemPrompt(
   context: ToolContext,
   workspace: WorkspaceRecord | undefined,
+  userWorkspaces: readonly WorkspaceRecord[] = [],
 ): string {
   const now = new Date().toLocaleString("en-US", {
     timeZone: "Asia/Tokyo",
@@ -52,9 +60,11 @@ ${now} (JST)
 ${commonSections}`;
   }
 
-  // 일반 사용자 온보딩 (워크스페이스 미소속): 서비스 소개 + 시작 안내
+  // Out-stage: 워크스페이스 미진입 사용자 (소속 WS 유무로 온보딩/내비게이션 분기)
   if (!context.workspaceId) {
-    return `You are an onboarding assistant for sanalabo-automation.
+    // 온보딩: 소속 워크스페이스 없음 — 서비스 소개 + 시작 안내
+    if (userWorkspaces.length === 0) {
+      return `You are an onboarding assistant for sanalabo-automation.
 This user has just joined the service and does not belong to any workspace yet.
 
 ## Current Date & Time
@@ -72,6 +82,38 @@ Guide the user through their first experience with the service.
 - Friendly and concise, like a helpful concierge
 - Use LINE message format (short paragraphs, line breaks for readability)
 - Do not overwhelm with too much information at once
+
+${commonSections}`;
+    }
+
+    // Out-stage 내비게이션: 소속 WS 있으나 미진입 — 워크스페이스 선택 안내
+    const wsList = userWorkspaces
+      .map((ws) => {
+        const role = ws.ownerId === context.userId ? "owner" : "member";
+        return `- ${ws.name} (ID: ${ws.id}, role: ${role})`;
+      })
+      .join("\n");
+
+    return `You are a workspace navigation assistant for sanalabo-automation.
+This user has ${userWorkspaces.length} workspace(s) but has not entered one yet.
+
+## Current Date & Time
+${now} (JST)
+
+## Available Workspaces
+${wsList}
+
+## Your Role
+Help the user select and enter a workspace using the enter_workspace tool.
+The user can also create a new workspace using create_workspace, or view workspace details using get_workspace_info.
+
+## Important
+- Google Workspace tools (email, calendar, drive) are only available after entering a workspace.
+- Once entered, the workspace remains active for subsequent messages until the user switches.
+
+## Tone
+- Friendly and concise
+- If the user has only one workspace, suggest entering it right away
 
 ${commonSections}`;
   }

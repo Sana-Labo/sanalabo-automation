@@ -14,16 +14,22 @@ import type {
   Role,
   ToolContext,
 } from "../types.js";
-import { isValidLineUserId } from "../domain/user.js";
+import { isActive, isValidLineUserId } from "../domain/user.js";
 import { canCreateWorkspace, getMaxOwnedWorkspaces, validateWorkspaceName, type WorkspaceRecord } from "../domain/workspace.js";
+import { notifyActionResult } from "../approvals/notify.js";
+import { getGwsExecutors } from "../skills/gws/executor.js";
+import { toErrorMessage } from "../utils/error.js";
 import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("agent");
 
 // --- 타입 ---
 
-/** 시스템 도구 시그널 — 현재는 공통 규격과 동일 */
-export type SystemToolSignal = InternalToolSignal;
+/** 시스템 도구 시그널 */
+export interface SystemToolSignal extends InternalToolSignal {
+  /** enter_workspace 호출 시 진입한 워크스페이스 ID — loop에서 executor 재구성에 사용 */
+  enteredWorkspaceId?: string;
+}
 
 /** 시스템 도구 핸들러 (비동기 — Store I/O 수행) */
 export type SystemToolHandler = (
@@ -95,8 +101,8 @@ const createWorkspace: SystemToolEntry = {
     const ws = await deps.workspaceStore.create(validation.name, ownerId);
     log.info("Workspace created", { workspaceId: ws.id, ownerId });
 
-    // 5. 기본 워크스페이스 설정 (Store I/O) — owner에게 설정
-    await deps.userStore.setDefaultWorkspaceId(ownerId, ws.id);
+    // 5. 마지막 워크스페이스 설정 (Store I/O) — owner에게 설정 (자동 진입)
+    await deps.userStore.setLastWorkspaceId(ownerId, ws.id);
 
     return {
       toolResult: JSON.stringify({
@@ -255,9 +261,281 @@ const getWorkspaceInfo: SystemToolEntry = {
   },
 };
 
+// --- enter_workspace ---
+
+const enterWorkspace: SystemToolEntry = {
+  def: {
+    name: "enter_workspace",
+    strict: true,
+    description:
+      "Enter a workspace to start working. After entering, Google Workspace tools become available. If workspace_id is null, enters the last used workspace.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        workspace_id: {
+          anyOf: [{ type: "string" }, { type: "null" }],
+          description:
+            "Workspace ID to enter. If null, enters the last used workspace.",
+        },
+      },
+      required: ["workspace_id"],
+      additionalProperties: false,
+    },
+  },
+  async handler(input, context, deps) {
+    const rawId = input.workspace_id as string | null;
+    const wsId = rawId ?? deps.userStore.getLastWorkspaceId(context.userId);
+
+    if (!wsId) {
+      return { toolResult: "Error: No workspace specified and no last used workspace." };
+    }
+
+    const ws = deps.workspaceStore.get(wsId);
+    if (!ws) {
+      return { toolResult: `Error: Workspace not found: ${wsId}` };
+    }
+
+    const role = deps.workspaceStore.getUserRole(wsId, context.userId);
+    if (!role) {
+      return { toolResult: "Error: You do not have access to this workspace." };
+    }
+
+    await deps.userStore.setLastWorkspaceId(context.userId, wsId);
+    log.info("Workspace entered", { userId: context.userId, workspaceId: wsId });
+
+    return {
+      enteredWorkspaceId: ws.id,
+      toolResult: JSON.stringify({
+        workspaceId: ws.id,
+        name: ws.name,
+        role,
+        message: "Workspace entered. GWS tools are now available.",
+      }),
+    };
+  },
+};
+
+// --- invite_member ---
+
+const inviteMember: SystemToolEntry = {
+  def: {
+    name: "invite_member",
+    strict: true,
+    description:
+      "Invite a user to a workspace. Workspace owners and system admins can invite. The invited user is added as a member immediately. Use push_text_message to notify the invited user after calling this tool.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        user_id: {
+          type: "string",
+          description: "LINE userId of the user to invite",
+        },
+        workspace_id: {
+          anyOf: [{ type: "string" }, { type: "null" }],
+          description:
+            "Workspace ID to invite to. If null, uses the current workspace context or the caller's only owned workspace.",
+        },
+      },
+      required: ["user_id", "workspace_id"],
+      additionalProperties: false,
+    },
+  },
+  async handler(input, context, deps) {
+    const targetId = input.user_id as string;
+
+    // 1. LINE userId 형식 검증
+    if (!isValidLineUserId(targetId)) {
+      return { toolResult: `Error: Invalid LINE userId format: ${targetId}` };
+    }
+
+    // 2. 워크스페이스 해석
+    const rawWsId = input.workspace_id as string | null;
+    let wsId = rawWsId ?? context.workspaceId;
+
+    // context에도 없으면 소유 WS가 1개인 경우 자동 선택
+    if (!wsId) {
+      const ownedWs = deps.workspaceStore.getByOwner(context.userId);
+      if (ownedWs.length === 0) {
+        return { toolResult: "Error: You do not own any workspaces. Create a workspace first." };
+      }
+      if (ownedWs.length === 1) {
+        wsId = ownedWs[0]!.id;
+      } else {
+        return { toolResult: "Error: You own multiple workspaces. Specify workspace_id." };
+      }
+    }
+
+    // 3. 워크스페이스 존재 + Owner 권한 검증
+    const ws = deps.workspaceStore.get(wsId);
+    if (!ws) {
+      return { toolResult: `Error: Workspace not found: ${wsId}` };
+    }
+    if (ws.ownerId !== context.userId && !deps.userStore.isSystemAdmin(context.userId)) {
+      return { toolResult: "Error: Only the workspace owner can invite members." };
+    }
+
+    // 4. 멤버 추가 (Store I/O)
+    await deps.workspaceStore.inviteMember(wsId, targetId, context.userId);
+    log.info("Member invited", { workspaceId: wsId, targetId, invitedBy: context.userId });
+
+    return {
+      toolResult: JSON.stringify({
+        workspaceId: ws.id,
+        workspaceName: ws.name,
+        invitedUserId: targetId,
+        message: `User ${targetId} has been invited to workspace "${ws.name}". Send them a notification via push_text_message.`,
+      }),
+    };
+  },
+};
+
+// --- approve_action ---
+
+const approveAction: SystemToolEntry = {
+  def: {
+    name: "approve_action",
+    strict: true,
+    description:
+      "Approve a pending write action requested by a workspace member. Only the workspace owner can approve. The approved action is executed immediately and the requester is notified.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        action_id: {
+          type: "string",
+          description: "ID of the pending action to approve",
+        },
+      },
+      required: ["action_id"],
+      additionalProperties: false,
+    },
+  },
+  async handler(input, context, deps) {
+    const actionId = input.action_id as string;
+    const pendingAction = deps.pendingActionStore.get(actionId);
+    if (!pendingAction) {
+      return { toolResult: `Error: Pending action not found: ${actionId}` };
+    }
+    if (pendingAction.status !== "pending") {
+      return { toolResult: `Error: Action ${actionId} has already been ${pendingAction.status}.` };
+    }
+
+    // Owner 권한 검증 — System Admin이라도 불가 (오너의 Google 데이터)
+    const role = deps.workspaceStore.getUserRole(pendingAction.workspaceId, context.userId);
+    if (role !== "owner") {
+      return { toolResult: "Error: Only the workspace owner can approve actions." };
+    }
+
+    // 요청자 멤버십/활성 상태 검증
+    const requesterRole = deps.workspaceStore.getUserRole(pendingAction.workspaceId, pendingAction.requesterId);
+    if (!requesterRole || !isActive(deps.userStore.get(pendingAction.requesterId))) {
+      await deps.pendingActionStore.reject(actionId, context.userId, "Requester no longer a member");
+      return { toolResult: "Error: The requesting user is no longer a member. The action has been cancelled." };
+    }
+
+    const resolved = await deps.pendingActionStore.approve(actionId, context.userId);
+
+    // GWS 도구 실행 — workspace가 있으면 GWS executor 우선, 없으면 registry 폴백
+    const workspace = deps.workspaceStore.get(resolved.workspaceId);
+    let executionError: string | undefined;
+    const gwsExecs = workspace ? getGwsExecutors(workspace.id, workspace.gwsConfigDir) : new Map();
+    const executor = gwsExecs.get(resolved.toolName) ?? deps.registry.executors.get(resolved.toolName);
+    if (executor) {
+      try {
+        await executor(resolved.toolInput);
+      } catch (e) {
+        executionError = toErrorMessage(e);
+        log.error("Execution after approval failed", { actionId, tool: resolved.toolName, error: executionError });
+      }
+    } else {
+      executionError = `Executor not found for tool: ${resolved.toolName}`;
+      log.warn("No executor for approved tool", { actionId, tool: resolved.toolName });
+    }
+
+    // 요청자에게 알림 (핸들러가 직접 수행)
+    await notifyActionResult(resolved, deps.registry, resolved.requesterId, executionError);
+
+    return {
+      toolResult: JSON.stringify({
+        actionId,
+        status: "approved",
+        toolName: resolved.toolName,
+        executionError: executionError ?? null,
+        message: executionError
+          ? `Action approved but execution failed: ${executionError}`
+          : "Action approved and executed successfully. The requester has been notified.",
+      }),
+    };
+  },
+};
+
+// --- reject_action ---
+
+const rejectAction: SystemToolEntry = {
+  def: {
+    name: "reject_action",
+    strict: true,
+    description:
+      "Reject a pending write action requested by a workspace member. Only the workspace owner can reject. The requester is notified of the rejection.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        action_id: {
+          type: "string",
+          description: "ID of the pending action to reject",
+        },
+        reason: {
+          anyOf: [{ type: "string" }, { type: "null" }],
+          description: "Optional reason for rejection",
+        },
+      },
+      required: ["action_id", "reason"],
+      additionalProperties: false,
+    },
+  },
+  async handler(input, context, deps) {
+    const actionId = input.action_id as string;
+    const reason = input.reason as string | null;
+
+    const pendingAction = deps.pendingActionStore.get(actionId);
+    if (!pendingAction) {
+      return { toolResult: `Error: Pending action not found: ${actionId}` };
+    }
+    if (pendingAction.status !== "pending") {
+      return { toolResult: `Error: Action ${actionId} has already been ${pendingAction.status}.` };
+    }
+
+    const role = deps.workspaceStore.getUserRole(pendingAction.workspaceId, context.userId);
+    if (role !== "owner") {
+      return { toolResult: "Error: Only the workspace owner can reject actions." };
+    }
+
+    const resolved = await deps.pendingActionStore.reject(actionId, context.userId, reason ?? undefined);
+
+    // 요청자에게 알림 (핸들러가 직접 수행)
+    await notifyActionResult(resolved, deps.registry, resolved.requesterId);
+
+    return {
+      toolResult: JSON.stringify({
+        actionId,
+        status: "rejected",
+        reason: reason ?? null,
+        message: "Action rejected. The requester has been notified.",
+      }),
+    };
+  },
+};
+
+/** Postback 직접 호출용 핸들러 export */
+export const approveActionHandler = approveAction.handler;
+export const rejectActionHandler = rejectAction.handler;
+
 // --- 레지스트리 ---
 
-const entries: SystemToolEntry[] = [createWorkspace, listWorkspaces, getWorkspaceInfo];
+const entries: SystemToolEntry[] = [
+  createWorkspace, listWorkspaces, getWorkspaceInfo,
+  enterWorkspace, inviteMember,
+  approveAction, rejectAction,
+];
 
 /** 이름 키 Map (O(1) lookup) */
 export const systemTools: ReadonlyMap<string, SystemToolEntry> = new Map(

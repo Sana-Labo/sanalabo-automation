@@ -85,18 +85,17 @@ export class JsonWorkspaceStore extends JsonFileStore<WorkspaceRecord> implement
     this.log.info("Removed member", { userId, workspaceId });
   }
 
-  resolveWorkspace(userId: string, defaultWorkspaceId?: string): WorkspaceRecord | undefined {
+  resolveWorkspace(userId: string, lastWorkspaceId?: string): WorkspaceRecord | undefined {
     const workspaces = this.getByMember(userId);
 
     if (workspaces.length === 0) return undefined;
-    if (workspaces.length === 1) return workspaces[0];
 
-    // 복수 워크스페이스 — 기본값이 설정되어 있으면 사용
-    if (defaultWorkspaceId) {
-      return workspaces.find((ws) => ws.id === defaultWorkspaceId);
+    // 명시적 진입 모델: lastWorkspaceId가 설정되어 있고 소속 WS와 매칭될 때만 반환
+    if (lastWorkspaceId) {
+      return workspaces.find((ws) => ws.id === lastWorkspaceId);
     }
 
-    // 기본값 미설정 — 호출자가 선택을 안내해야 함
+    // lastWorkspaceId 미설정 — 호출자가 진입을 안내해야 함
     return undefined;
   }
 

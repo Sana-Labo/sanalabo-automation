@@ -71,12 +71,17 @@ function extractJsonText(content: Anthropic.ContentBlock[]): string {
 export async function runAgentLoop(
   userMessage: string,
   deps: AgentDependencies,
-  context: ToolContext,
+  initialContext: ToolContext,
 ): Promise<AgentResult> {
+  let context = initialContext;
   const workspace = context.workspaceId
     ? deps.workspaceStore.get(context.workspaceId)
     : undefined;
-  const systemPrompt = buildSystemPrompt(context, workspace);
+  // Out-stage 판별: 워크스페이스 미진입 시 사용자 소속 WS 조회
+  const userWorkspaces = context.workspaceId
+    ? []
+    : deps.workspaceStore.getByMember(context.userId);
+  const systemPrompt = buildSystemPrompt(context, workspace, userWorkspaces);
 
   // 요청별 executor 구성: 기본 레지스트리 + 워크스페이스별 GWS executor
   // LINE push 도구는 래핑 executor (단순화 입력 → MCP 네이티브 변환 + userId 주입)
@@ -100,9 +105,12 @@ export async function runAgentLoop(
   let toolCalls = 0;
   let channelDelivered = false;
 
-  // executor가 존재하는 도구 + 내부 도구(infra, system)만 Claude에게 전달
-  const allTools = [...deps.registry.tools, ...infraToolDefs, ...systemToolDefs]
-    .filter(t => executors.has(t.name) || infraTools.has(t.name) || systemTools.has(t.name));
+  /** executor가 존재하는 도구 + 내부 도구(infra, system)만 Claude에게 전달 */
+  function buildToolList() {
+    return [...deps.registry.tools, ...infraToolDefs, ...systemToolDefs]
+      .filter(t => executors.has(t.name) || infraTools.has(t.name) || systemTools.has(t.name));
+  }
+  let allTools = buildToolList();
 
   log.debug("Agent loop started", () => ({ userId: context.userId, workspaceId: context.workspaceId, role: context.role }));
 
@@ -183,6 +191,20 @@ export async function runAgentLoop(
         tool_use_id: block.id,
         content: signal.toolResult,
       });
+
+      // enter_workspace 후 executor + tools 동적 재구성 — 같은 턴에서 GWS 도구 사용 가능
+      if (signal.enteredWorkspaceId) {
+        const enteredWs = deps.workspaceStore.get(signal.enteredWorkspaceId);
+        if (enteredWs) {
+          const gwsExecs = getGwsExecutors(enteredWs.id, enteredWs.gwsConfigDir);
+          for (const [name, exec] of gwsExecs) {
+            executors.set(name, exec);
+          }
+          allTools = buildToolList();
+          context = { ...context, workspaceId: enteredWs.id, role: deps.workspaceStore.getUserRole(enteredWs.id, context.userId) ?? context.role };
+          log.info("Executor rebuilt after workspace entry", { workspaceId: enteredWs.id, toolCount: allTools.length });
+        }
+      }
     }
 
     // [3단계] Skill tool: 외부 시스템 통신 (handled 제외)

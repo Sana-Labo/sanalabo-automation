@@ -1,5 +1,5 @@
 import { config } from "../config.js";
-import { isActive, createUser } from "../domain/user.js";
+import { isActive, createUser, setLastWorkspaceId as domainSetLastWsId } from "../domain/user.js";
 import type { UserRecord } from "../types.js";
 import { JsonFileStore } from "../utils/json-file-store.js";
 
@@ -12,8 +12,8 @@ export interface UserStore {
   isSystemAdmin(userId: string): boolean;
   /** active 상태 사용자 ID 목록 */
   getActiveUsers(): string[];
-  getDefaultWorkspaceId(userId: string): string | undefined;
-  setDefaultWorkspaceId(userId: string, workspaceId: string): Promise<void>;
+  getLastWorkspaceId(userId: string): string | undefined;
+  setLastWorkspaceId(userId: string, workspaceId: string): Promise<void>;
 }
 
 export class JsonUserStore extends JsonFileStore<UserRecord> implements UserStore {
@@ -40,14 +40,14 @@ export class JsonUserStore extends JsonFileStore<UserRecord> implements UserStor
       .map(([id]) => id);
   }
 
-  getDefaultWorkspaceId(userId: string): string | undefined {
-    return this.data[userId]?.defaultWorkspaceId;
+  getLastWorkspaceId(userId: string): string | undefined {
+    return this.data[userId]?.lastWorkspaceId;
   }
 
-  async setDefaultWorkspaceId(userId: string, workspaceId: string): Promise<void> {
+  async setLastWorkspaceId(userId: string, workspaceId: string): Promise<void> {
     const record = this.data[userId];
     if (!record) return;
-    record.defaultWorkspaceId = workspaceId;
+    this.data[userId] = domainSetLastWsId(record, workspaceId);
     await this.save();
   }
 

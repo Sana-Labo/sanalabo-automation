@@ -42,6 +42,7 @@ function makeDeps(overrides?: {
   getWorkspace?: (id: string) => WorkspaceRecord | undefined;
   getUserRole?: (wsId: string, userId: string) => "owner" | "member" | undefined;
   isSystemAdmin?: (userId: string) => boolean;
+  lastWorkspaceId?: string;
 }): AgentDependencies {
   const setDefaultCalls = overrides?.setDefaultCalls ?? [];
   const createdWs = overrides?.createdWorkspace ?? makeWorkspace();
@@ -58,9 +59,10 @@ function makeDeps(overrides?: {
       getUserRole: overrides?.getUserRole ?? (() => undefined),
     } as unknown as WorkspaceStore,
     userStore: {
-      setDefaultWorkspaceId: async (userId: string, workspaceId: string) => {
+      setLastWorkspaceId: async (userId: string, workspaceId: string) => {
         setDefaultCalls.push({ userId, workspaceId });
       },
+      getLastWorkspaceId: () => overrides?.lastWorkspaceId,
       isSystemAdmin: overrides?.isSystemAdmin ?? (() => false),
     } as unknown as UserStore,
   };
@@ -97,7 +99,7 @@ describe("systemTools registry", () => {
 // --- create_workspace 핸들러 테스트 ---
 
 describe("create_workspace handler", () => {
-  test("성공: 워크스페이스 생성 + defaultWorkspaceId 설정", async () => {
+  test("성공: 워크스페이스 생성 + lastWorkspaceId 설정", async () => {
     const setDefaultCalls: Array<{ userId: string; workspaceId: string }> = [];
     const createdWs = makeWorkspace({ id: "ws-new", name: "MyWorkspace" });
     const deps = makeDeps({ ownedWorkspaces: [], createdWorkspace: createdWs, setDefaultCalls });
@@ -111,7 +113,7 @@ describe("create_workspace handler", () => {
     expect(result.name).toBe("MyWorkspace");
     expect(result.message).toContain("created successfully");
 
-    // defaultWorkspaceId 설정 확인
+    // lastWorkspaceId 설정 확인
     expect(setDefaultCalls).toHaveLength(1);
     expect(setDefaultCalls[0]).toEqual({
       userId: "Unewuser0001",
@@ -160,7 +162,7 @@ describe("create_workspace handler", () => {
         },
       } as unknown as WorkspaceStore,
       userStore: {
-        setDefaultWorkspaceId: async (userId: string, workspaceId: string) => {
+        setLastWorkspaceId: async (userId: string, workspaceId: string) => {
           setDefaultCalls.push({ userId, workspaceId });
         },
         isSystemAdmin: () => false,
@@ -196,7 +198,7 @@ describe("create_workspace handler", () => {
 
     // owner는 대상 사용자
     expect(createCalls[0]!.ownerId).toBe("Ua0000000000000000000000000000001");
-    // defaultWorkspaceId는 대상 사용자에게 설정
+    // lastWorkspaceId는 대상 사용자에게 설정
     expect(setDefaultCalls[0]!.userId).toBe("Ua0000000000000000000000000000001");
   });
 
@@ -528,5 +530,367 @@ describe("get_workspace_info handler", () => {
       joinedAt: "2024-01-01T00:00:00Z",
       invitedBy: "system",
     });
+  });
+});
+
+// --- enter_workspace 핸들러 테스트 ---
+
+describe("enter_workspace handler", () => {
+  test("성공: workspace_id 지정 → lastWorkspaceId 설정 + 결과 반환", async () => {
+    const ws = makeWorkspace({ id: "ws-001", name: "MyClub" });
+    const setDefaultCalls: Array<{ userId: string; workspaceId: string }> = [];
+    const deps = makeDeps({
+      getWorkspace: (id) => id === "ws-001" ? ws : undefined,
+      getUserRole: (wsId, userId) => wsId === "ws-001" && userId === "Uuser001" ? "owner" : undefined,
+      setDefaultCalls,
+    });
+    const ctx = makeContext({ userId: "Uuser001", workspaceId: undefined, role: "member" });
+
+    const entry = systemTools.get("enter_workspace")!;
+    const signal = await entry.handler({ workspace_id: "ws-001" }, ctx, deps);
+
+    const result = JSON.parse(signal.toolResult);
+    expect(result.workspaceId).toBe("ws-001");
+    expect(result.name).toBe("MyClub");
+    expect(result.role).toBe("owner");
+
+    expect(setDefaultCalls).toHaveLength(1);
+    expect(setDefaultCalls[0]).toEqual({ userId: "Uuser001", workspaceId: "ws-001" });
+  });
+
+  test("성공: workspace_id null → lastWorkspaceId 폴백", async () => {
+    const ws = makeWorkspace({ id: "ws-last", name: "LastUsed" });
+    const setDefaultCalls: Array<{ userId: string; workspaceId: string }> = [];
+    const deps = makeDeps({
+      getWorkspace: (id) => id === "ws-last" ? ws : undefined,
+      getUserRole: () => "member",
+      lastWorkspaceId: "ws-last",
+      setDefaultCalls,
+    });
+    const ctx = makeContext({ userId: "Uuser001", workspaceId: undefined, role: "member" });
+
+    const entry = systemTools.get("enter_workspace")!;
+    const signal = await entry.handler({ workspace_id: null }, ctx, deps);
+
+    const result = JSON.parse(signal.toolResult);
+    expect(result.workspaceId).toBe("ws-last");
+    expect(setDefaultCalls).toHaveLength(1);
+  });
+
+  test("실패: workspace_id null + lastWorkspaceId 없음", async () => {
+    const deps = makeDeps();
+    const ctx = makeContext({ userId: "Uuser001", workspaceId: undefined, role: "member" });
+
+    const entry = systemTools.get("enter_workspace")!;
+    const signal = await entry.handler({ workspace_id: null }, ctx, deps);
+
+    expect(signal.toolResult).toContain("Error");
+    expect(signal.toolResult).toContain("No workspace specified");
+  });
+
+  test("실패: 존재하지 않는 워크스페이스", async () => {
+    const deps = makeDeps({ getWorkspace: () => undefined });
+    const ctx = makeContext({ userId: "Uuser001", workspaceId: undefined, role: "member" });
+
+    const entry = systemTools.get("enter_workspace")!;
+    const signal = await entry.handler({ workspace_id: "ws-nonexistent" }, ctx, deps);
+
+    expect(signal.toolResult).toContain("Error");
+    expect(signal.toolResult).toContain("not found");
+  });
+
+  test("실패: 미소속 워크스페이스 접근", async () => {
+    const ws = makeWorkspace({ id: "ws-other" });
+    const deps = makeDeps({
+      getWorkspace: (id) => id === "ws-other" ? ws : undefined,
+      getUserRole: () => undefined,
+    });
+    const ctx = makeContext({ userId: "Uuser001", workspaceId: undefined, role: "member" });
+
+    const entry = systemTools.get("enter_workspace")!;
+    const signal = await entry.handler({ workspace_id: "ws-other" }, ctx, deps);
+
+    expect(signal.toolResult).toContain("Error");
+    expect(signal.toolResult).toContain("access");
+  });
+});
+
+// --- invite_member 핸들러 테스트 ---
+
+describe("invite_member handler", () => {
+  test("성공: owner가 멤버 초대 + 결과 반환", async () => {
+    const ws = makeWorkspace({ id: "ws-001", name: "MyClub", ownerId: "Uowner1234" });
+    const inviteCalls: Array<{ wsId: string; userId: string; invitedBy: string }> = [];
+    const deps = makeDeps({
+      getWorkspace: (id) => id === "ws-001" ? ws : undefined,
+    });
+    (deps.workspaceStore as any).inviteMember = async (wsId: string, userId: string, invitedBy: string) => {
+      inviteCalls.push({ wsId, userId, invitedBy });
+    };
+    const ctx = makeContext({ userId: "Uowner1234", workspaceId: "ws-001", role: "owner" });
+
+    const entry = systemTools.get("invite_member")!;
+    const signal = await entry.handler(
+      { user_id: "Ua0000000000000000000000000000001", workspace_id: null },
+      ctx, deps,
+    );
+
+    const result = JSON.parse(signal.toolResult);
+    expect(result.invitedUserId).toBe("Ua0000000000000000000000000000001");
+    expect(result.workspaceName).toBe("MyClub");
+    expect(inviteCalls).toHaveLength(1);
+  });
+
+  test("실패: 잘못된 LINE userId", async () => {
+    const deps = makeDeps();
+    const ctx = makeContext({ userId: "Uowner1234", workspaceId: "ws-001", role: "owner" });
+
+    const entry = systemTools.get("invite_member")!;
+    const signal = await entry.handler(
+      { user_id: "invalid-id", workspace_id: null },
+      ctx, deps,
+    );
+
+    expect(signal.toolResult).toContain("Error");
+    expect(signal.toolResult).toContain("Invalid LINE userId");
+  });
+
+  test("실패: 비소유자 초대 시도", async () => {
+    const ws = makeWorkspace({ id: "ws-001", ownerId: "Uowner1234" });
+    const deps = makeDeps({
+      getWorkspace: (id) => id === "ws-001" ? ws : undefined,
+    });
+    const ctx = makeContext({ userId: "Umember001", workspaceId: "ws-001", role: "member" });
+
+    const entry = systemTools.get("invite_member")!;
+    const signal = await entry.handler(
+      { user_id: "Ua0000000000000000000000000000001", workspace_id: "ws-001" },
+      ctx, deps,
+    );
+
+    expect(signal.toolResult).toContain("Error");
+    expect(signal.toolResult).toContain("owner");
+  });
+
+  test("실패: 워크스페이스 미소유 + workspace_id null + context에도 없음", async () => {
+    const deps = makeDeps({ ownedWorkspaces: [] });
+    (deps.workspaceStore as any).getByOwner = () => [];
+    const ctx = makeContext({ userId: "Uuser001", workspaceId: undefined, role: "member" });
+
+    const entry = systemTools.get("invite_member")!;
+    const signal = await entry.handler(
+      { user_id: "Ua0000000000000000000000000000001", workspace_id: null },
+      ctx, deps,
+    );
+
+    expect(signal.toolResult).toContain("Error");
+    expect(signal.toolResult).toContain("do not own");
+  });
+});
+
+// --- approve_action / reject_action 핸들러 테스트 ---
+
+describe("approve_action handler", () => {
+  test("실패: 존재하지 않는 pending action", async () => {
+    const deps = makeDeps();
+    (deps.pendingActionStore as any).get = () => undefined;
+    const ctx = makeContext({ userId: "Uowner1234", workspaceId: "ws-001", role: "owner" });
+
+    const entry = systemTools.get("approve_action")!;
+    const signal = await entry.handler({ action_id: "nonexistent" }, ctx, deps);
+
+    expect(signal.toolResult).toContain("Error");
+    expect(signal.toolResult).toContain("not found");
+  });
+
+  test("실패: 비오너 승인 시도", async () => {
+    const deps = makeDeps({
+      getUserRole: () => "member",
+    });
+    (deps.pendingActionStore as any).get = () => ({
+      id: "pa-001",
+      workspaceId: "ws-001",
+      requesterId: "Umember001",
+      toolName: "calendar_create",
+      toolInput: {},
+      status: "pending",
+      createdAt: "2024-01-01T00:00:00Z",
+      requestContext: "test",
+    });
+    const ctx = makeContext({ userId: "Umember001", workspaceId: "ws-001", role: "member" });
+
+    const entry = systemTools.get("approve_action")!;
+    const signal = await entry.handler({ action_id: "pa-001" }, ctx, deps);
+
+    expect(signal.toolResult).toContain("Error");
+    expect(signal.toolResult).toContain("owner");
+  });
+
+  test("실패: 이미 처리된 액션", async () => {
+    const deps = makeDeps({ getUserRole: () => "owner" });
+    (deps.pendingActionStore as any).get = () => ({
+      id: "pa-done", workspaceId: "ws-001", requesterId: "Umember001",
+      toolName: "calendar_create", toolInput: {}, status: "approved",
+      createdAt: "2024-01-01T00:00:00Z", requestContext: "test",
+    });
+    const ctx = makeContext({ userId: "Uowner1234", workspaceId: "ws-001", role: "owner" });
+
+    const entry = systemTools.get("approve_action")!;
+    const signal = await entry.handler({ action_id: "pa-done" }, ctx, deps);
+
+    expect(signal.toolResult).toContain("Error");
+    expect(signal.toolResult).toContain("already been approved");
+  });
+
+  test("성공: 승인 + GWS 실행 + 요청자 알림", async () => {
+    const executedTools: string[] = [];
+
+    const deps = makeDeps({
+      getUserRole: (wsId, userId) => {
+        if (userId === "Uowner1234") return "owner";
+        if (userId === "Umember001") return "member";
+        return undefined;
+      },
+    });
+    // PendingActionStore mock
+    (deps.pendingActionStore as any).get = () => ({
+      id: "pa-001", workspaceId: "ws-001", requesterId: "Umember001",
+      toolName: "calendar_create", toolInput: { summary: "Meeting" }, status: "pending",
+      createdAt: "2024-01-01T00:00:00Z", requestContext: "일정 추가해줘",
+    });
+    (deps.pendingActionStore as any).approve = async () => ({
+      id: "pa-001", workspaceId: "ws-001", requesterId: "Umember001",
+      toolName: "calendar_create", toolInput: { summary: "Meeting" }, status: "approved",
+      createdAt: "2024-01-01T00:00:00Z", requestContext: "일정 추가해줘",
+      resolvedAt: new Date().toISOString(), resolvedBy: "Uowner1234",
+    });
+    // UserStore mock — 요청자 active
+    (deps.userStore as any).get = (userId: string) =>
+      userId === "Umember001" ? { status: "active", invitedBy: "self", invitedAt: "" } : undefined;
+    // GWS executor를 registry에 등록 (getGwsExecutors 대신 registry 경유)
+    deps.registry.executors.set("calendar_create", async (input) => {
+      executedTools.push("calendar_create");
+      return JSON.stringify({ ok: true });
+    });
+
+    const ctx = makeContext({ userId: "Uowner1234", workspaceId: "ws-001", role: "owner" });
+    const entry = systemTools.get("approve_action")!;
+    const signal = await entry.handler({ action_id: "pa-001" }, ctx, deps);
+
+    const result = JSON.parse(signal.toolResult);
+    expect(result.status).toBe("approved");
+    expect(result.executionError).toBeNull();
+  });
+
+  test("성공: 요청자 비활성 → 자동 거절", async () => {
+    const deps = makeDeps({
+      getUserRole: (wsId, userId) => {
+        if (userId === "Uowner1234") return "owner";
+        if (userId === "Umember001") return "member";
+        return undefined;
+      },
+    });
+    (deps.pendingActionStore as any).get = () => ({
+      id: "pa-002", workspaceId: "ws-001", requesterId: "Umember001",
+      toolName: "calendar_create", toolInput: {}, status: "pending",
+      createdAt: "2024-01-01T00:00:00Z", requestContext: "test",
+    });
+    let rejectedId: string | undefined;
+    (deps.pendingActionStore as any).reject = async (id: string) => {
+      rejectedId = id;
+      return { id, status: "rejected" };
+    };
+    // 요청자 inactive
+    (deps.userStore as any).get = () => ({ status: "inactive", invitedBy: "self", invitedAt: "" });
+
+    const ctx = makeContext({ userId: "Uowner1234", workspaceId: "ws-001", role: "owner" });
+    const entry = systemTools.get("approve_action")!;
+    const signal = await entry.handler({ action_id: "pa-002" }, ctx, deps);
+
+    expect(signal.toolResult).toContain("Error");
+    expect(signal.toolResult).toContain("no longer a member");
+    expect(rejectedId).toBe("pa-002");
+  });
+});
+
+describe("reject_action handler", () => {
+  test("실패: 존재하지 않는 pending action", async () => {
+    const deps = makeDeps();
+    (deps.pendingActionStore as any).get = () => undefined;
+    const ctx = makeContext({ userId: "Uowner1234", workspaceId: "ws-001", role: "owner" });
+
+    const entry = systemTools.get("reject_action")!;
+    const signal = await entry.handler({ action_id: "nonexistent", reason: null }, ctx, deps);
+
+    expect(signal.toolResult).toContain("Error");
+    expect(signal.toolResult).toContain("not found");
+  });
+
+  test("실패: 비오너 거절 시도", async () => {
+    const deps = makeDeps({
+      getUserRole: () => "member",
+    });
+    (deps.pendingActionStore as any).get = () => ({
+      id: "pa-001",
+      workspaceId: "ws-001",
+      requesterId: "Umember001",
+      toolName: "calendar_create",
+      toolInput: {},
+      status: "pending",
+      createdAt: "2024-01-01T00:00:00Z",
+      requestContext: "test",
+    });
+    const ctx = makeContext({ userId: "Umember001", workspaceId: "ws-001", role: "member" });
+
+    const entry = systemTools.get("reject_action")!;
+    const signal = await entry.handler({ action_id: "pa-001", reason: "not now" }, ctx, deps);
+
+    expect(signal.toolResult).toContain("Error");
+    expect(signal.toolResult).toContain("owner");
+  });
+
+  test("실패: 이미 처리된 액션", async () => {
+    const deps = makeDeps({ getUserRole: () => "owner" });
+    (deps.pendingActionStore as any).get = () => ({
+      id: "pa-done", workspaceId: "ws-001", requesterId: "Umember001",
+      toolName: "calendar_create", toolInput: {}, status: "rejected",
+      createdAt: "2024-01-01T00:00:00Z", requestContext: "test",
+    });
+    const ctx = makeContext({ userId: "Uowner1234", workspaceId: "ws-001", role: "owner" });
+
+    const entry = systemTools.get("reject_action")!;
+    const signal = await entry.handler({ action_id: "pa-done", reason: null }, ctx, deps);
+
+    expect(signal.toolResult).toContain("Error");
+    expect(signal.toolResult).toContain("already been rejected");
+  });
+
+  test("성공: 거절 + 요청자 알림", async () => {
+    const deps = makeDeps({ getUserRole: () => "owner" });
+    (deps.pendingActionStore as any).get = () => ({
+      id: "pa-003", workspaceId: "ws-001", requesterId: "Umember001",
+      toolName: "calendar_create", toolInput: {}, status: "pending",
+      createdAt: "2024-01-01T00:00:00Z", requestContext: "일정 추가해줘",
+    });
+    let rejectedWith: { id: string; reason?: string } | undefined;
+    (deps.pendingActionStore as any).reject = async (id: string, by: string, reason?: string) => {
+      rejectedWith = { id, reason };
+      return {
+        id, workspaceId: "ws-001", requesterId: "Umember001",
+        toolName: "calendar_create", toolInput: {}, status: "rejected",
+        createdAt: "2024-01-01T00:00:00Z", requestContext: "일정 추가해줘",
+        resolvedAt: new Date().toISOString(), resolvedBy: by, rejectionReason: reason,
+      };
+    };
+
+    const ctx = makeContext({ userId: "Uowner1234", workspaceId: "ws-001", role: "owner" });
+    const entry = systemTools.get("reject_action")!;
+    const signal = await entry.handler({ action_id: "pa-003", reason: "not needed" }, ctx, deps);
+
+    const result = JSON.parse(signal.toolResult);
+    expect(result.status).toBe("rejected");
+    expect(result.reason).toBe("not needed");
+    expect(rejectedWith?.id).toBe("pa-003");
+    expect(rejectedWith?.reason).toBe("not needed");
   });
 });

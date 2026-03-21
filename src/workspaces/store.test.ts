@@ -124,10 +124,17 @@ describe("JsonWorkspaceStore", () => {
     );
   });
 
-  test("resolveWorkspace: single membership auto-resolves", async () => {
-    const ws = await store.create("WS1", "Uowner01");
+  test("resolveWorkspace: 단일 소속이라도 lastWorkspaceId 없으면 undefined", async () => {
+    await store.create("WS1", "Uowner01");
 
     const resolved = store.resolveWorkspace("Uowner01");
+    expect(resolved).toBeUndefined();
+  });
+
+  test("resolveWorkspace: 단일 소속 + lastWorkspaceId 매칭 시 반환", async () => {
+    const ws = await store.create("WS1", "Uowner01");
+
+    const resolved = store.resolveWorkspace("Uowner01", ws.id);
     expect(resolved).toBeDefined();
     expect(resolved!.id).toBe(ws.id);
   });
@@ -137,19 +144,26 @@ describe("JsonWorkspaceStore", () => {
     expect(resolved).toBeUndefined();
   });
 
-  test("resolveWorkspace: multiple memberships with defaultWorkspaceId", async () => {
-    const ws1 = await store.create("WS1", "Uowner01");
+  test("resolveWorkspace: 복수 소속 + lastWorkspaceId 매칭", async () => {
+    await store.create("WS1", "Uowner01");
     const ws2 = await store.create("WS2", "Uowner02");
     await store.inviteMember(ws2.id, "Uowner01", "Uowner02");
 
-    // 기본값 없음 — undefined 반환
-    const noDefault = store.resolveWorkspace("Uowner01");
-    expect(noDefault).toBeUndefined();
+    // lastWorkspaceId 없음 → undefined
+    const noLast = store.resolveWorkspace("Uowner01");
+    expect(noLast).toBeUndefined();
 
-    // 기본값 있음 — 지정된 워크스페이스 반환
-    const withDefault = store.resolveWorkspace("Uowner01", ws2.id);
-    expect(withDefault).toBeDefined();
-    expect(withDefault!.id).toBe(ws2.id);
+    // lastWorkspaceId 매칭 → 해당 워크스페이스 반환
+    const withLast = store.resolveWorkspace("Uowner01", ws2.id);
+    expect(withLast).toBeDefined();
+    expect(withLast!.id).toBe(ws2.id);
+  });
+
+  test("resolveWorkspace: lastWorkspaceId가 미소속 WS를 가리키면 undefined", async () => {
+    await store.create("WS1", "Uowner01");
+
+    const resolved = store.resolveWorkspace("Uowner01", "nonexistent-ws-id");
+    expect(resolved).toBeUndefined();
   });
 
   test("getUserRole: returns correct role", async () => {

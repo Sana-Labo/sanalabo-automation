@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { isActive, isValidLineUserId, createFromFollow, activate, deactivate } from "./user.js";
+import { isActive, isValidLineUserId, createFromFollow, activate, deactivate, setLastWorkspaceId } from "./user.js";
 import type { UserRecord } from "../types.js";
 
 describe("domain/user", () => {
@@ -80,14 +80,59 @@ describe("domain/user", () => {
         status: "inactive",
         invitedBy: "Uowner1234567890abcdef1234567890",
         invitedAt: "2024-01-01T00:00:00.000Z",
-        defaultWorkspaceId: "ws-001",
+        lastWorkspaceId: "ws-001",
       };
 
       const result = activate(inactive);
 
       expect(result.invitedBy).toBe("Uowner1234567890abcdef1234567890");
       expect(result.invitedAt).toBe("2024-01-01T00:00:00.000Z");
-      expect(result.defaultWorkspaceId).toBe("ws-001");
+      expect(result.lastWorkspaceId).toBe("ws-001");
+    });
+  });
+
+  describe("setLastWorkspaceId", () => {
+    test("lastWorkspaceId를 설정한 새 레코드 반환", () => {
+      const record: UserRecord = {
+        status: "active",
+        invitedBy: "self",
+        invitedAt: "2024-01-01T00:00:00.000Z",
+      };
+
+      const result = setLastWorkspaceId(record, "ws-123");
+
+      expect(result.lastWorkspaceId).toBe("ws-123");
+      // 원본 불변 확인
+      expect(record.lastWorkspaceId).toBeUndefined();
+    });
+
+    test("기존 lastWorkspaceId를 덮어씀", () => {
+      const record: UserRecord = {
+        status: "active",
+        invitedBy: "self",
+        invitedAt: "2024-01-01T00:00:00.000Z",
+        lastWorkspaceId: "ws-old",
+      };
+
+      const result = setLastWorkspaceId(record, "ws-new");
+
+      expect(result.lastWorkspaceId).toBe("ws-new");
+      expect(record.lastWorkspaceId).toBe("ws-old");
+    });
+
+    test("다른 필드 보존", () => {
+      const record: UserRecord = {
+        status: "active",
+        invitedBy: "Uowner1234567890abcdef1234567890",
+        invitedAt: "2024-01-01T00:00:00.000Z",
+        activatedAt: "2024-01-02T00:00:00.000Z",
+      };
+
+      const result = setLastWorkspaceId(record, "ws-123");
+
+      expect(result.status).toBe("active");
+      expect(result.invitedBy).toBe("Uowner1234567890abcdef1234567890");
+      expect(result.activatedAt).toBe("2024-01-02T00:00:00.000Z");
     });
   });
 
@@ -115,14 +160,14 @@ describe("domain/user", () => {
         invitedBy: "Uowner1234567890abcdef1234567890",
         invitedAt: "2024-01-01T00:00:00.000Z",
         activatedAt: "2024-01-02T00:00:00.000Z",
-        defaultWorkspaceId: "ws-001",
+        lastWorkspaceId: "ws-001",
       };
 
       const result = deactivate(active);
 
       expect(result.invitedBy).toBe("Uowner1234567890abcdef1234567890");
       expect(result.activatedAt).toBe("2024-01-02T00:00:00.000Z");
-      expect(result.defaultWorkspaceId).toBe("ws-001");
+      expect(result.lastWorkspaceId).toBe("ws-001");
     });
   });
 });
