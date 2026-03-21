@@ -10,6 +10,7 @@ import { createLineWebhookRoute } from "./routes/lineWebhook.js";
 import { startScheduler } from "./scheduler.js";
 import { AesGcmEncryption } from "./skills/gws/encryption.js";
 import { createGwsExecutorFactory } from "./skills/gws/executor.js";
+import type { GoogleAuthConfig } from "./skills/gws/google-auth.js";
 import { JsonFileTokenStore } from "./skills/gws/token-store.js";
 import { gwsTools } from "./skills/gws/tools.js";
 import type { AgentDependencies, ToolRegistry } from "./types.js";
@@ -68,13 +69,12 @@ async function main() {
   const tokenStore = tokenEncryption
     ? new JsonFileTokenStore(config.workspaceDataDir, tokenEncryption)
     : undefined;
-  const gwsOAuthConfigured = !!(tokenStore && config.googleClientId && config.googleClientSecret);
-  const gwsFactory = gwsOAuthConfigured
-    ? createGwsExecutorFactory(tokenStore!, {
-        clientId: config.googleClientId,
-        clientSecret: config.googleClientSecret,
-        redirectUri: config.googleRedirectUri,
-      })
+  const authConfig: GoogleAuthConfig | undefined =
+    tokenStore && config.googleClientId && config.googleClientSecret
+      ? { clientId: config.googleClientId, clientSecret: config.googleClientSecret, redirectUri: config.googleRedirectUri }
+      : undefined;
+  const gwsFactory = tokenStore && authConfig
+    ? createGwsExecutorFactory(tokenStore, authConfig)
     : undefined;
   const getGwsExecutors = gwsFactory?.getExecutors ?? (async () => null);
 
@@ -91,15 +91,11 @@ async function main() {
   const app = new Hono();
   app.route("/", createHealthRoute(mcp));
   app.route("/", createLineWebhookRoute(deps, userStore));
-  if (gwsFactory && tokenStore) {
+  if (gwsFactory && tokenStore && authConfig) {
     app.route("/", createGoogleOAuthRoute({
       tokenStore,
       workspaceStore,
-      authConfig: {
-        clientId: config.googleClientId,
-        clientSecret: config.googleClientSecret,
-        redirectUri: config.googleRedirectUri,
-      },
+      authConfig,
       registry,
       invalidateExecutors: (wsId) => gwsFactory.invalidate(wsId),
     }));

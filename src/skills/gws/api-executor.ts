@@ -113,16 +113,8 @@ function buildRawEmail(params: {
 
 /** Google Apps MIME → 내보내기 MIME 변환 */
 function getExportMimeType(googleMimeType: string): string {
-  switch (googleMimeType) {
-    case "application/vnd.google-apps.document":
-      return "text/plain";
-    case "application/vnd.google-apps.spreadsheet":
-      return "text/csv";
-    case "application/vnd.google-apps.presentation":
-      return "text/plain";
-    default:
-      return "text/plain";
-  }
+  if (googleMimeType === "application/vnd.google-apps.spreadsheet") return "text/csv";
+  return "text/plain";
 }
 
 // --- 에러 래퍼 ---
@@ -560,19 +552,20 @@ function driveShare(drive: drive_v3.Drive): ToolExecutor {
       return JSON.stringify({ shared: true, fileId, email, role });
     }
 
-    // 공개 링크
-    await drive.permissions.create({
-      fileId,
-      requestBody: {
-        type: "anyone",
-        role,
-      },
-    });
-
-    const file = await drive.files.get({
-      fileId,
-      fields: "webViewLink",
-    });
+    // 공개 링크: 권한 생성 + webViewLink 취득 병렬 실행
+    const [, file] = await Promise.all([
+      drive.permissions.create({
+        fileId,
+        requestBody: {
+          type: "anyone",
+          role,
+        },
+      }),
+      drive.files.get({
+        fileId,
+        fields: "webViewLink",
+      }),
+    ]);
 
     return JSON.stringify({
       shared: true,

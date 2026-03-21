@@ -77,20 +77,16 @@ export function createGwsExecutorFactory(
   invalidate: (workspaceId?: string) => void;
 } {
   const cache = new Map<string, Map<string, ToolExecutor>>();
+  const inFlight = new Map<string, Promise<Map<string, ToolExecutor> | null>>();
 
-  const getExecutors = async (workspaceId: string): Promise<Map<string, ToolExecutor> | null> => {
-    // 캐시 히트
-    const cached = cache.get(workspaceId);
-    if (cached) return cached;
-
-    // 토큰 로드
+  async function buildExecutors(workspaceId: string): Promise<Map<string, ToolExecutor> | null> {
     const tokens = await tokenStore.load(workspaceId);
     if (!tokens) {
       log.debug("No tokens for workspace", { workspaceId });
       return null;
     }
 
-    // OAuth2Client 생성 + 토큰 회전 핸들러 (W3: 에러 핸들링 추가)
+    // OAuth2Client 생성 + 토큰 회전 핸들러
     const auth = createOAuth2Client(authConfig);
     configureClient(auth, tokens, async (updated: GoogleTokens) => {
       try {
@@ -101,18 +97,30 @@ export function createGwsExecutorFactory(
       }
     });
 
-    // googleapis 서비스 클라이언트 생성
     const gmailClient = gmail({ version: "v1", auth });
     const calendarClient = calendar({ version: "v3", auth });
     const driveClient = drive({ version: "v3", auth });
 
-    // executor Map 생성 + auth 에러 감지 래핑 (C2) + 캐시
+    // executor Map 생성 + auth 에러 감지 래핑
     const rawExecutors = createApiExecutors(gmailClient, calendarClient, driveClient);
     const executors = withAuthErrorInvalidation(rawExecutors, workspaceId, cache);
     cache.set(workspaceId, executors);
     log.debug("GWS executors created", { workspaceId, toolCount: executors.size });
 
     return executors;
+  }
+
+  const getExecutors = (workspaceId: string): Promise<Map<string, ToolExecutor> | null> => {
+    const cached = cache.get(workspaceId);
+    if (cached) return Promise.resolve(cached);
+
+    // in-flight 중복 방지: 동일 workspaceId에 대한 동시 빌드 경합 차단
+    const pending = inFlight.get(workspaceId);
+    if (pending) return pending;
+
+    const p = buildExecutors(workspaceId).finally(() => inFlight.delete(workspaceId));
+    inFlight.set(workspaceId, p);
+    return p;
   };
 
   const invalidate = (workspaceId?: string): void => {

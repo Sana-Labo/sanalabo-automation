@@ -5,7 +5,7 @@
  * TokenStore 인터페이스로 추상화 — 향후 DB 전환 시 구현체만 교체.
  */
 
-import { mkdir, unlink } from "node:fs/promises";
+import { mkdir, rename, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import type { EncryptionService } from "./encryption.js";
 import { createLogger } from "../../utils/logger.js";
@@ -62,20 +62,22 @@ export class JsonFileTokenStore implements TokenStore {
     const path = this.tokenPath(workspaceId);
     await mkdir(join(this.dataDir, workspaceId), { recursive: true });
     const encrypted = await this.encryption.encrypt(JSON.stringify(tokens));
-    await Bun.write(path, encrypted);
+    // 원자적 쓰기: tmp → rename (JsonFileStore 패턴)
+    const tmp = `${path}.tmp.${crypto.randomUUID()}`;
+    await Bun.write(tmp, encrypted);
+    await rename(tmp, path);
     this.log.info("Tokens saved", { workspaceId });
   }
 
   async load(workspaceId: string): Promise<GoogleTokens | null> {
-    const path = this.tokenPath(workspaceId);
-    const file = Bun.file(path);
-    if (!(await file.exists())) return null;
-
+    // TOCTOU 방지: exists() 체크 없이 직접 읽기 → 에러 핸들링
     try {
-      const encrypted = await file.text();
+      const encrypted = await Bun.file(this.tokenPath(workspaceId)).text();
       const decrypted = await this.encryption.decrypt(encrypted);
       return JSON.parse(decrypted) as GoogleTokens;
     } catch (e) {
+      const err = e as NodeJS.ErrnoException;
+      if (err.code === "ENOENT" || err.code === "ENOTDIR") return null;
       this.log.error("Failed to load tokens", {
         workspaceId,
         error: toErrorMessage(e),

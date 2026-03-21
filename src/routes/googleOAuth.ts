@@ -66,10 +66,8 @@ export function createGoogleOAuthRoute(deps: GoogleOAuthRouteDeps): Hono {
   const app = new Hono();
 
   app.get("/auth/google/callback", async (c) => {
-    // 1. 콜백 파라미터 파싱
-    const query = Object.fromEntries(
-      new URL(c.req.url).searchParams.entries(),
-    );
+    // 1. 콜백 파라미터 파싱 (Hono 내장 쿼리 파서 사용)
+    const query = c.req.query();
     const parsed = parseCallbackQuery(query);
     if (!parsed.ok) {
       log.warning("OAuth callback error", { error: parsed.error });
