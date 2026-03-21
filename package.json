@@ -10,10 +10,14 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",
+    "@googleapis/calendar": "^14.2.0",
+    "@googleapis/drive": "^20.1.0",
+    "@googleapis/gmail": "^16.1.1",
     "@line/line-bot-mcp-server": "^0.4.2",
     "@logtape/logtape": "^2.0.4",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "croner": "^10.0.1",
+    "google-auth-library": "^10.6.2",
     "hono": "^4.12.8"
   },
   "devDependencies": {
