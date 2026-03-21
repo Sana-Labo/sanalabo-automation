@@ -386,16 +386,20 @@ describe("list_workspaces handler", () => {
 // --- get_workspace_info 핸들러 테스트 ---
 
 describe("get_workspace_info handler", () => {
-  test("admin + workspace_id 지정: 상세 정보 반환 (gwsConfigDir 미포함)", async () => {
-    const ws = makeWorkspace({
+  const sharedWs = () =>
+    makeWorkspace({
       id: "ws-001",
       name: "WS1",
+      ownerId: "Uowner1234",
       gwsAuthenticated: true,
       members: {
         Uowner1234: { role: "owner", joinedAt: "2024-01-01T00:00:00Z", invitedBy: "system" },
         Umember001: { role: "member", joinedAt: "2024-02-01T00:00:00Z", invitedBy: "Uowner1234" },
       },
     });
+
+  test("admin 프로젝션: ownerId + gwsAuthenticated 포함, gwsConfigDir 제외", async () => {
+    const ws = sharedWs();
     const deps = makeDeps({
       getWorkspace: (id) => (id === "ws-001" ? ws : undefined),
       isSystemAdmin: (id) => id === "Uadmin001",
@@ -407,14 +411,50 @@ describe("get_workspace_info handler", () => {
     const result = JSON.parse(signal.toolResult);
 
     expect(result.id).toBe("ws-001");
-    expect(result.name).toBe("WS1");
+    expect(result.ownerId).toBe("Uowner1234");
     expect(result.gwsAuthenticated).toBe(true);
     expect(result.memberCount).toBe(2);
     expect(result.members).toHaveLength(2);
     expect(result.gwsConfigDir).toBeUndefined();
   });
 
-  test("owner + workspace_id null: 현재 워크스페이스(자기 소유) 상세", async () => {
+  test("owner 프로젝션: gwsAuthenticated 포함, ownerId 제외", async () => {
+    const ws = sharedWs();
+    const deps = makeDeps({
+      getWorkspace: (id) => (id === "ws-001" ? ws : undefined),
+    });
+    const ctx = makeContext({ userId: "Uowner1234", role: "owner", workspaceId: "ws-001" });
+
+    const entry = systemTools.get("get_workspace_info")!;
+    const signal = await entry.handler({ workspace_id: "ws-001" }, ctx, deps);
+    const result = JSON.parse(signal.toolResult);
+
+    expect(result.id).toBe("ws-001");
+    expect(result.gwsAuthenticated).toBe(true);
+    expect(result.ownerId).toBeUndefined();
+    expect(result.gwsConfigDir).toBeUndefined();
+    expect(result.members).toHaveLength(2);
+  });
+
+  test("member 프로젝션: ownerId 포함, gwsAuthenticated 제외", async () => {
+    const ws = sharedWs();
+    const deps = makeDeps({
+      getWorkspace: (id) => (id === "ws-001" ? ws : undefined),
+    });
+    const ctx = makeContext({ userId: "Umember001", role: "member", workspaceId: "ws-001" });
+
+    const entry = systemTools.get("get_workspace_info")!;
+    const signal = await entry.handler({ workspace_id: "ws-001" }, ctx, deps);
+    const result = JSON.parse(signal.toolResult);
+
+    expect(result.id).toBe("ws-001");
+    expect(result.ownerId).toBe("Uowner1234");
+    expect(result.gwsAuthenticated).toBeUndefined();
+    expect(result.gwsConfigDir).toBeUndefined();
+    expect(result.members).toHaveLength(2);
+  });
+
+  test("owner + workspace_id null: 현재 워크스페이스 폴백", async () => {
     const ws = makeWorkspace({ id: "ws-current", ownerId: "Uowner1234" });
     const deps = makeDeps({
       getWorkspace: (id) => (id === "ws-current" ? ws : undefined),
@@ -428,7 +468,7 @@ describe("get_workspace_info handler", () => {
     expect(result.id).toBe("ws-current");
   });
 
-  test("소유하지 않은 워크스페이스: 접근 거부", async () => {
+  test("미소속 + 미소유: 접근 거부", async () => {
     const ws = makeWorkspace({ id: "ws-other", ownerId: "Uother" });
     const deps = makeDeps({
       getWorkspace: (id) => (id === "ws-other" ? ws : undefined),

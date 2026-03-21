@@ -173,22 +173,37 @@ const listWorkspaces: SystemToolEntry = {
   },
 };
 
-/** WorkspaceRecord → 상세 객체 (gwsConfigDir 제외, members 배열화) */
-function detailWorkspace(ws: WorkspaceRecord) {
-  return {
-    id: ws.id,
-    name: ws.name,
-    ownerId: ws.ownerId,
-    gwsAuthenticated: ws.gwsAuthenticated,
-    createdAt: ws.createdAt,
-    memberCount: Object.keys(ws.members).length,
-    members: Object.entries(ws.members).map(([userId, m]) => ({
-      userId,
-      role: m.role,
-      joinedAt: m.joinedAt,
-      invitedBy: m.invitedBy,
-    })),
-  };
+/** 조회자 역할 판별 */
+type ViewerRole = "admin" | "owner" | "member";
+
+function determineViewerRole(
+  isAdmin: boolean,
+  ws: WorkspaceRecord,
+  userId: string,
+): ViewerRole {
+  if (isAdmin) return "admin";
+  if (ws.ownerId === userId) return "owner";
+  return "member";
+}
+
+/** 역할별 워크스페이스 프로젝션 */
+function projectWorkspace(ws: WorkspaceRecord, viewerRole: ViewerRole) {
+  const members = Object.entries(ws.members).map(([userId, m]) => ({
+    userId,
+    role: m.role,
+    joinedAt: m.joinedAt,
+    invitedBy: m.invitedBy,
+  }));
+  const memberCount = Object.keys(ws.members).length;
+
+  switch (viewerRole) {
+    case "admin":
+      return { id: ws.id, name: ws.name, ownerId: ws.ownerId, gwsAuthenticated: ws.gwsAuthenticated, createdAt: ws.createdAt, memberCount, members };
+    case "owner":
+      return { id: ws.id, name: ws.name, gwsAuthenticated: ws.gwsAuthenticated, createdAt: ws.createdAt, memberCount, members };
+    case "member":
+      return { id: ws.id, name: ws.name, ownerId: ws.ownerId, createdAt: ws.createdAt, memberCount, members };
+  }
 }
 
 const getWorkspaceInfo: SystemToolEntry = {
@@ -196,7 +211,7 @@ const getWorkspaceInfo: SystemToolEntry = {
     name: "get_workspace_info",
     strict: true,
     description:
-      "Get detailed workspace information. Admins can view any workspace; regular users can only view workspaces they own.",
+      "Get detailed workspace information. Admins can view any workspace; owners can view their own; members can view workspaces they belong to.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -223,13 +238,16 @@ const getWorkspaceInfo: SystemToolEntry = {
       return { toolResult: `Error: Workspace not found: ${wsId}` };
     }
 
-    // 접근 제어: admin은 모든 WS, 일반 사용자는 자기 소유만
+    // 접근 제어: admin=any, owner=own, member=member-of
     const isAdmin = deps.userStore.isSystemAdmin(context.userId);
-    if (!isAdmin && ws.ownerId !== context.userId) {
+    const isOwner = ws.ownerId === context.userId;
+    const isMember = ws.members[context.userId] !== undefined;
+    if (!isAdmin && !isOwner && !isMember) {
       return { toolResult: "Error: You do not have access to this workspace." };
     }
 
-    return { toolResult: JSON.stringify(detailWorkspace(ws)) };
+    const viewerRole = determineViewerRole(isAdmin, ws, context.userId);
+    return { toolResult: JSON.stringify(projectWorkspace(ws, viewerRole)) };
   },
 };
 
