@@ -25,8 +25,11 @@ const log = createLogger("agent");
 
 // --- 타입 ---
 
-/** 시스템 도구 시그널 — 현재는 공통 규격과 동일 */
-export type SystemToolSignal = InternalToolSignal;
+/** 시스템 도구 시그널 */
+export interface SystemToolSignal extends InternalToolSignal {
+  /** enter_workspace 호출 시 진입한 워크스페이스 ID — loop에서 executor 재구성에 사용 */
+  enteredWorkspaceId?: string;
+}
 
 /** 시스템 도구 핸들러 (비동기 — Store I/O 수행) */
 export type SystemToolHandler = (
@@ -301,11 +304,12 @@ const enterWorkspace: SystemToolEntry = {
     log.info("Workspace entered", { userId: context.userId, workspaceId: wsId });
 
     return {
+      enteredWorkspaceId: ws.id,
       toolResult: JSON.stringify({
         workspaceId: ws.id,
         name: ws.name,
         role,
-        message: "Workspace entered. GWS tools will be available from the next message.",
+        message: "Workspace entered. GWS tools are now available.",
       }),
     };
   },
@@ -318,7 +322,7 @@ const inviteMember: SystemToolEntry = {
     name: "invite_member",
     strict: true,
     description:
-      "Invite a user to a workspace. Only workspace owners can invite. The invited user is added as a member immediately. Use push_text_message to notify the invited user after calling this tool.",
+      "Invite a user to a workspace. Workspace owners and system admins can invite. The invited user is added as a member immediately. Use push_text_message to notify the invited user after calling this tool.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -430,23 +434,21 @@ const approveAction: SystemToolEntry = {
 
     const resolved = await deps.pendingActionStore.approve(actionId, context.userId);
 
-    // GWS 도구 실행
+    // GWS 도구 실행 — workspace가 있으면 GWS executor 우선, 없으면 registry 폴백
     const workspace = deps.workspaceStore.get(resolved.workspaceId);
     let executionError: string | undefined;
-    if (workspace) {
-      const gwsExecs = getGwsExecutors(workspace.id, workspace.gwsConfigDir);
-      const executor = gwsExecs.get(resolved.toolName) ?? deps.registry.executors.get(resolved.toolName);
-      if (executor) {
-        try {
-          await executor(resolved.toolInput);
-        } catch (e) {
-          executionError = toErrorMessage(e);
-          log.error("Execution after approval failed", { actionId, tool: resolved.toolName, error: executionError });
-        }
-      } else {
-        executionError = `Executor not found for tool: ${resolved.toolName}`;
-        log.warn("No executor for approved tool", { actionId, tool: resolved.toolName });
+    const gwsExecs = workspace ? getGwsExecutors(workspace.id, workspace.gwsConfigDir) : new Map();
+    const executor = gwsExecs.get(resolved.toolName) ?? deps.registry.executors.get(resolved.toolName);
+    if (executor) {
+      try {
+        await executor(resolved.toolInput);
+      } catch (e) {
+        executionError = toErrorMessage(e);
+        log.error("Execution after approval failed", { actionId, tool: resolved.toolName, error: executionError });
       }
+    } else {
+      executionError = `Executor not found for tool: ${resolved.toolName}`;
+      log.warn("No executor for approved tool", { actionId, tool: resolved.toolName });
     }
 
     // 요청자에게 알림 (핸들러가 직접 수행)

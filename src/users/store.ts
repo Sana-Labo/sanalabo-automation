@@ -51,20 +51,6 @@ export class JsonUserStore extends JsonFileStore<UserRecord> implements UserStor
     await this.save();
   }
 
-  /** 기존 defaultWorkspaceId → lastWorkspaceId 마이그레이션 (load 후 1회) */
-  async migrateFieldNames(): Promise<void> {
-    let needsSave = false;
-    for (const record of Object.values(this.data)) {
-      const legacy = record as unknown as Record<string, unknown>;
-      if ("defaultWorkspaceId" in legacy) {
-        record.lastWorkspaceId = legacy.defaultWorkspaceId as string;
-        delete legacy.defaultWorkspaceId;
-        needsSave = true;
-      }
-    }
-    if (needsSave) await this.save();
-  }
-
   async registerSystemAdmins(): Promise<void> {
     for (const adminId of config.systemAdminIds) {
       if (!isActive(this.data[adminId])) {
@@ -79,7 +65,6 @@ export class JsonUserStore extends JsonFileStore<UserRecord> implements UserStor
 export async function createUserStore(): Promise<UserStore> {
   const store = new JsonUserStore(config.userStorePath);
   await store.load();
-  await store.migrateFieldNames();
   await store.registerSystemAdmins();
   return store;
 }

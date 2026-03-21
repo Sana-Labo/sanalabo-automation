@@ -69,21 +69,6 @@ describe("JsonUserStore", () => {
     expect(store.getLastWorkspaceId("Unonexistent")).toBeUndefined();
   });
 
-  // --- migrateFieldNames ---
-
-  test("migrateFieldNames: defaultWorkspaceId → lastWorkspaceId 자동 변환", async () => {
-    // 레거시 형식으로 직접 저장
-    const legacy = { status: "active", invitedBy: "self", invitedAt: "2024-01-01T00:00:00.000Z", defaultWorkspaceId: "ws-old" };
-    (store as any).data["Ulegacy"] = legacy;
-    await (store as any).save();
-
-    await store.migrateFieldNames();
-
-    const record = store.get("Ulegacy");
-    expect(record?.lastWorkspaceId).toBe("ws-old");
-    expect((record as any).defaultWorkspaceId).toBeUndefined();
-  });
-
   // --- isSystemAdmin ---
 
   test("isSystemAdmin: returns true for configured admin IDs", () => {

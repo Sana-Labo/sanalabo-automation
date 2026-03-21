@@ -725,6 +725,92 @@ describe("approve_action handler", () => {
     expect(signal.toolResult).toContain("Error");
     expect(signal.toolResult).toContain("owner");
   });
+
+  test("실패: 이미 처리된 액션", async () => {
+    const deps = makeDeps({ getUserRole: () => "owner" });
+    (deps.pendingActionStore as any).get = () => ({
+      id: "pa-done", workspaceId: "ws-001", requesterId: "Umember001",
+      toolName: "calendar_create", toolInput: {}, status: "approved",
+      createdAt: "2024-01-01T00:00:00Z", requestContext: "test",
+    });
+    const ctx = makeContext({ userId: "Uowner1234", workspaceId: "ws-001", role: "owner" });
+
+    const entry = systemTools.get("approve_action")!;
+    const signal = await entry.handler({ action_id: "pa-done" }, ctx, deps);
+
+    expect(signal.toolResult).toContain("Error");
+    expect(signal.toolResult).toContain("already been approved");
+  });
+
+  test("성공: 승인 + GWS 실행 + 요청자 알림", async () => {
+    const executedTools: string[] = [];
+
+    const deps = makeDeps({
+      getUserRole: (wsId, userId) => {
+        if (userId === "Uowner1234") return "owner";
+        if (userId === "Umember001") return "member";
+        return undefined;
+      },
+    });
+    // PendingActionStore mock
+    (deps.pendingActionStore as any).get = () => ({
+      id: "pa-001", workspaceId: "ws-001", requesterId: "Umember001",
+      toolName: "calendar_create", toolInput: { summary: "Meeting" }, status: "pending",
+      createdAt: "2024-01-01T00:00:00Z", requestContext: "일정 추가해줘",
+    });
+    (deps.pendingActionStore as any).approve = async () => ({
+      id: "pa-001", workspaceId: "ws-001", requesterId: "Umember001",
+      toolName: "calendar_create", toolInput: { summary: "Meeting" }, status: "approved",
+      createdAt: "2024-01-01T00:00:00Z", requestContext: "일정 추가해줘",
+      resolvedAt: new Date().toISOString(), resolvedBy: "Uowner1234",
+    });
+    // UserStore mock — 요청자 active
+    (deps.userStore as any).get = (userId: string) =>
+      userId === "Umember001" ? { status: "active", invitedBy: "self", invitedAt: "" } : undefined;
+    // GWS executor를 registry에 등록 (getGwsExecutors 대신 registry 경유)
+    deps.registry.executors.set("calendar_create", async (input) => {
+      executedTools.push("calendar_create");
+      return JSON.stringify({ ok: true });
+    });
+
+    const ctx = makeContext({ userId: "Uowner1234", workspaceId: "ws-001", role: "owner" });
+    const entry = systemTools.get("approve_action")!;
+    const signal = await entry.handler({ action_id: "pa-001" }, ctx, deps);
+
+    const result = JSON.parse(signal.toolResult);
+    expect(result.status).toBe("approved");
+    expect(result.executionError).toBeNull();
+  });
+
+  test("성공: 요청자 비활성 → 자동 거절", async () => {
+    const deps = makeDeps({
+      getUserRole: (wsId, userId) => {
+        if (userId === "Uowner1234") return "owner";
+        if (userId === "Umember001") return "member";
+        return undefined;
+      },
+    });
+    (deps.pendingActionStore as any).get = () => ({
+      id: "pa-002", workspaceId: "ws-001", requesterId: "Umember001",
+      toolName: "calendar_create", toolInput: {}, status: "pending",
+      createdAt: "2024-01-01T00:00:00Z", requestContext: "test",
+    });
+    let rejectedId: string | undefined;
+    (deps.pendingActionStore as any).reject = async (id: string) => {
+      rejectedId = id;
+      return { id, status: "rejected" };
+    };
+    // 요청자 inactive
+    (deps.userStore as any).get = () => ({ status: "inactive", invitedBy: "self", invitedAt: "" });
+
+    const ctx = makeContext({ userId: "Uowner1234", workspaceId: "ws-001", role: "owner" });
+    const entry = systemTools.get("approve_action")!;
+    const signal = await entry.handler({ action_id: "pa-002" }, ctx, deps);
+
+    expect(signal.toolResult).toContain("Error");
+    expect(signal.toolResult).toContain("no longer a member");
+    expect(rejectedId).toBe("pa-002");
+  });
 });
 
 describe("reject_action handler", () => {
@@ -761,5 +847,50 @@ describe("reject_action handler", () => {
 
     expect(signal.toolResult).toContain("Error");
     expect(signal.toolResult).toContain("owner");
+  });
+
+  test("실패: 이미 처리된 액션", async () => {
+    const deps = makeDeps({ getUserRole: () => "owner" });
+    (deps.pendingActionStore as any).get = () => ({
+      id: "pa-done", workspaceId: "ws-001", requesterId: "Umember001",
+      toolName: "calendar_create", toolInput: {}, status: "rejected",
+      createdAt: "2024-01-01T00:00:00Z", requestContext: "test",
+    });
+    const ctx = makeContext({ userId: "Uowner1234", workspaceId: "ws-001", role: "owner" });
+
+    const entry = systemTools.get("reject_action")!;
+    const signal = await entry.handler({ action_id: "pa-done", reason: null }, ctx, deps);
+
+    expect(signal.toolResult).toContain("Error");
+    expect(signal.toolResult).toContain("already been rejected");
+  });
+
+  test("성공: 거절 + 요청자 알림", async () => {
+    const deps = makeDeps({ getUserRole: () => "owner" });
+    (deps.pendingActionStore as any).get = () => ({
+      id: "pa-003", workspaceId: "ws-001", requesterId: "Umember001",
+      toolName: "calendar_create", toolInput: {}, status: "pending",
+      createdAt: "2024-01-01T00:00:00Z", requestContext: "일정 추가해줘",
+    });
+    let rejectedWith: { id: string; reason?: string } | undefined;
+    (deps.pendingActionStore as any).reject = async (id: string, by: string, reason?: string) => {
+      rejectedWith = { id, reason };
+      return {
+        id, workspaceId: "ws-001", requesterId: "Umember001",
+        toolName: "calendar_create", toolInput: {}, status: "rejected",
+        createdAt: "2024-01-01T00:00:00Z", requestContext: "일정 추가해줘",
+        resolvedAt: new Date().toISOString(), resolvedBy: by, rejectionReason: reason,
+      };
+    };
+
+    const ctx = makeContext({ userId: "Uowner1234", workspaceId: "ws-001", role: "owner" });
+    const entry = systemTools.get("reject_action")!;
+    const signal = await entry.handler({ action_id: "pa-003", reason: "not needed" }, ctx, deps);
+
+    const result = JSON.parse(signal.toolResult);
+    expect(result.status).toBe("rejected");
+    expect(result.reason).toBe("not needed");
+    expect(rejectedWith?.id).toBe("pa-003");
+    expect(rejectedWith?.reason).toBe("not needed");
   });
 });
