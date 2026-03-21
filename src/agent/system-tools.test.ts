@@ -687,3 +687,79 @@ describe("invite_member handler", () => {
     expect(signal.toolResult).toContain("do not own");
   });
 });
+
+// --- approve_action / reject_action 핸들러 테스트 ---
+
+describe("approve_action handler", () => {
+  test("실패: 존재하지 않는 pending action", async () => {
+    const deps = makeDeps();
+    (deps.pendingActionStore as any).get = () => undefined;
+    const ctx = makeContext({ userId: "Uowner1234", workspaceId: "ws-001", role: "owner" });
+
+    const entry = systemTools.get("approve_action")!;
+    const signal = await entry.handler({ action_id: "nonexistent" }, ctx, deps);
+
+    expect(signal.toolResult).toContain("Error");
+    expect(signal.toolResult).toContain("not found");
+  });
+
+  test("실패: 비오너 승인 시도", async () => {
+    const deps = makeDeps({
+      getUserRole: () => "member",
+    });
+    (deps.pendingActionStore as any).get = () => ({
+      id: "pa-001",
+      workspaceId: "ws-001",
+      requesterId: "Umember001",
+      toolName: "calendar_create",
+      toolInput: {},
+      status: "pending",
+      createdAt: "2024-01-01T00:00:00Z",
+      requestContext: "test",
+    });
+    const ctx = makeContext({ userId: "Umember001", workspaceId: "ws-001", role: "member" });
+
+    const entry = systemTools.get("approve_action")!;
+    const signal = await entry.handler({ action_id: "pa-001" }, ctx, deps);
+
+    expect(signal.toolResult).toContain("Error");
+    expect(signal.toolResult).toContain("owner");
+  });
+});
+
+describe("reject_action handler", () => {
+  test("실패: 존재하지 않는 pending action", async () => {
+    const deps = makeDeps();
+    (deps.pendingActionStore as any).get = () => undefined;
+    const ctx = makeContext({ userId: "Uowner1234", workspaceId: "ws-001", role: "owner" });
+
+    const entry = systemTools.get("reject_action")!;
+    const signal = await entry.handler({ action_id: "nonexistent", reason: null }, ctx, deps);
+
+    expect(signal.toolResult).toContain("Error");
+    expect(signal.toolResult).toContain("not found");
+  });
+
+  test("실패: 비오너 거절 시도", async () => {
+    const deps = makeDeps({
+      getUserRole: () => "member",
+    });
+    (deps.pendingActionStore as any).get = () => ({
+      id: "pa-001",
+      workspaceId: "ws-001",
+      requesterId: "Umember001",
+      toolName: "calendar_create",
+      toolInput: {},
+      status: "pending",
+      createdAt: "2024-01-01T00:00:00Z",
+      requestContext: "test",
+    });
+    const ctx = makeContext({ userId: "Umember001", workspaceId: "ws-001", role: "member" });
+
+    const entry = systemTools.get("reject_action")!;
+    const signal = await entry.handler({ action_id: "pa-001", reason: "not now" }, ctx, deps);
+
+    expect(signal.toolResult).toContain("Error");
+    expect(signal.toolResult).toContain("owner");
+  });
+});

@@ -14,8 +14,11 @@ import type {
   Role,
   ToolContext,
 } from "../types.js";
-import { isValidLineUserId } from "../domain/user.js";
+import { isActive, isValidLineUserId } from "../domain/user.js";
 import { canCreateWorkspace, getMaxOwnedWorkspaces, validateWorkspaceName, type WorkspaceRecord } from "../domain/workspace.js";
+import { notifyActionResult } from "../approvals/notify.js";
+import { getGwsExecutors } from "../skills/gws/executor.js";
+import { toErrorMessage } from "../utils/error.js";
 import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("agent");
@@ -382,9 +385,146 @@ const inviteMember: SystemToolEntry = {
   },
 };
 
+// --- approve_action ---
+
+const approveAction: SystemToolEntry = {
+  def: {
+    name: "approve_action",
+    strict: true,
+    description:
+      "Approve a pending write action requested by a workspace member. Only the workspace owner can approve. The approved action is executed immediately and the requester is notified.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        action_id: {
+          type: "string",
+          description: "ID of the pending action to approve",
+        },
+      },
+      required: ["action_id"],
+      additionalProperties: false,
+    },
+  },
+  async handler(input, context, deps) {
+    const actionId = input.action_id as string;
+    const pendingAction = deps.pendingActionStore.get(actionId);
+    if (!pendingAction) {
+      return { toolResult: `Error: Pending action not found: ${actionId}` };
+    }
+
+    // Owner 권한 검증 — System Admin이라도 불가 (오너의 Google 데이터)
+    const role = deps.workspaceStore.getUserRole(pendingAction.workspaceId, context.userId);
+    if (role !== "owner") {
+      return { toolResult: "Error: Only the workspace owner can approve actions." };
+    }
+
+    // 요청자 멤버십/활성 상태 검증
+    const requesterRole = deps.workspaceStore.getUserRole(pendingAction.workspaceId, pendingAction.requesterId);
+    if (!requesterRole || !isActive(deps.userStore.get(pendingAction.requesterId))) {
+      await deps.pendingActionStore.reject(actionId, context.userId, "Requester no longer a member");
+      return { toolResult: "Error: The requesting user is no longer a member. The action has been cancelled." };
+    }
+
+    const resolved = await deps.pendingActionStore.approve(actionId, context.userId);
+
+    // GWS 도구 실행
+    const workspace = deps.workspaceStore.get(resolved.workspaceId);
+    let executionError: string | undefined;
+    if (workspace) {
+      const gwsExecs = getGwsExecutors(workspace.id, workspace.gwsConfigDir);
+      const executor = gwsExecs.get(resolved.toolName) ?? deps.registry.executors.get(resolved.toolName);
+      if (executor) {
+        try {
+          await executor(resolved.toolInput);
+        } catch (e) {
+          executionError = toErrorMessage(e);
+          log.error("Execution after approval failed", { actionId, tool: resolved.toolName, error: executionError });
+        }
+      }
+    }
+
+    // 요청자에게 알림 (핸들러가 직접 수행)
+    await notifyActionResult(resolved, deps.registry, resolved.requesterId, executionError);
+
+    return {
+      toolResult: JSON.stringify({
+        actionId,
+        status: "approved",
+        toolName: resolved.toolName,
+        executionError: executionError ?? null,
+        message: executionError
+          ? `Action approved but execution failed: ${executionError}`
+          : "Action approved and executed successfully. The requester has been notified.",
+      }),
+    };
+  },
+};
+
+// --- reject_action ---
+
+const rejectAction: SystemToolEntry = {
+  def: {
+    name: "reject_action",
+    strict: true,
+    description:
+      "Reject a pending write action requested by a workspace member. Only the workspace owner can reject. The requester is notified of the rejection.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        action_id: {
+          type: "string",
+          description: "ID of the pending action to reject",
+        },
+        reason: {
+          anyOf: [{ type: "string" }, { type: "null" }],
+          description: "Optional reason for rejection",
+        },
+      },
+      required: ["action_id", "reason"],
+      additionalProperties: false,
+    },
+  },
+  async handler(input, context, deps) {
+    const actionId = input.action_id as string;
+    const reason = input.reason as string | null;
+
+    const pendingAction = deps.pendingActionStore.get(actionId);
+    if (!pendingAction) {
+      return { toolResult: `Error: Pending action not found: ${actionId}` };
+    }
+
+    const role = deps.workspaceStore.getUserRole(pendingAction.workspaceId, context.userId);
+    if (role !== "owner") {
+      return { toolResult: "Error: Only the workspace owner can reject actions." };
+    }
+
+    const resolved = await deps.pendingActionStore.reject(actionId, context.userId, reason ?? undefined);
+
+    // 요청자에게 알림 (핸들러가 직접 수행)
+    await notifyActionResult(resolved, deps.registry, resolved.requesterId);
+
+    return {
+      toolResult: JSON.stringify({
+        actionId,
+        status: "rejected",
+        reason: reason ?? null,
+        message: "Action rejected. The requester has been notified.",
+      }),
+    };
+  },
+};
+
+/** Postback 직접 호출용 핸들러 export */
+export const approveActionHandler = approveAction.handler;
+export const rejectActionHandler = rejectAction.handler;
+
 // --- 레지스트리 ---
 
-const entries: SystemToolEntry[] = [createWorkspace, listWorkspaces, getWorkspaceInfo, enterWorkspace, inviteMember];
+const entries: SystemToolEntry[] = [
+  createWorkspace, listWorkspaces, getWorkspaceInfo,
+  enterWorkspace, inviteMember,
+  approveAction, rejectAction,
+];
 
 /** 이름 키 Map (O(1) lookup) */
 export const systemTools: ReadonlyMap<string, SystemToolEntry> = new Map(
