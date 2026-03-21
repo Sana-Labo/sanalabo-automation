@@ -19,8 +19,9 @@ describe("JsonWorkspaceStore", () => {
   test("create: workspace has id, name, ownerId, gwsConfigDir", async () => {
     const ws = await store.create("Test WS", "Uowner01");
 
-    expect(ws.id).toBeString();
-    expect(ws.id.length).toBe(12);
+    expect(ws.id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
     expect(ws.name).toBe("Test WS");
     expect(ws.ownerId).toBe("Uowner01");
     expect(ws.gwsConfigDir).toContain(ws.id);

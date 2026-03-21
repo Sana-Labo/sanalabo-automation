@@ -33,7 +33,7 @@ export class JsonWorkspaceStore extends JsonFileStore<WorkspaceRecord> implement
   async create(name: string, ownerId: string): Promise<WorkspaceRecord> {
     let id: string;
     do {
-      id = crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+      id = crypto.randomUUID();
     } while (this.data[id]);
     const gwsConfigDir = `${this.dataDir}/${id}/gws-config`;
 
