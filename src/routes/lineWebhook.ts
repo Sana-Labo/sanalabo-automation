@@ -88,8 +88,8 @@ export function createLineWebhookRoute(
   }
 
   function resolveContext(userId: string): ToolContext | undefined {
-    const defaultWsId = userStore.getDefaultWorkspaceId(userId);
-    const workspace = deps.workspaceStore.resolveWorkspace(userId, defaultWsId);
+    const lastWsId = userStore.getLastWorkspaceId(userId);
+    const workspace = deps.workspaceStore.resolveWorkspace(userId, lastWsId);
     if (!workspace) return undefined;
 
     const role = deps.workspaceStore.getUserRole(workspace.id, userId);
@@ -194,11 +194,11 @@ export function createLineWebhookRoute(
           return;
         }
 
-        const ws = ownerWs.length === 1 ? ownerWs[0]! : ownerWs.find((w) => w.id === userStore.getDefaultWorkspaceId(userId)) ?? ownerWs[0]!;
+        const ws = ownerWs.length === 1 ? ownerWs[0]! : ownerWs.find((w) => w.id === userStore.getLastWorkspaceId(userId)) ?? ownerWs[0]!;
         await deps.workspaceStore.inviteMember(ws.id, targetId, userId);
 
-        if (!userStore.getDefaultWorkspaceId(targetId)) {
-          await userStore.setDefaultWorkspaceId(targetId, ws.id);
+        if (!userStore.getLastWorkspaceId(targetId)) {
+          await userStore.setLastWorkspaceId(targetId, ws.id);
         }
 
         // owner는 반드시 워크스페이스 소속 → resolveContext 보장
@@ -232,7 +232,7 @@ export function createLineWebhookRoute(
           await sendText(userId, "The specified workspace was not found, or you do not have access.");
           return;
         }
-        await userStore.setDefaultWorkspaceId(userId, wsId);
+        await userStore.setLastWorkspaceId(userId, wsId);
         await sendText(userId, `Default workspace has been set to "${ws.name}".`);
       });
       return;

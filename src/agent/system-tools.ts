@@ -95,8 +95,8 @@ const createWorkspace: SystemToolEntry = {
     const ws = await deps.workspaceStore.create(validation.name, ownerId);
     log.info("Workspace created", { workspaceId: ws.id, ownerId });
 
-    // 5. 기본 워크스페이스 설정 (Store I/O) — owner에게 설정
-    await deps.userStore.setDefaultWorkspaceId(ownerId, ws.id);
+    // 5. 마지막 워크스페이스 설정 (Store I/O) — owner에게 설정 (자동 진입)
+    await deps.userStore.setLastWorkspaceId(ownerId, ws.id);
 
     return {
       toolResult: JSON.stringify({

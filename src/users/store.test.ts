@@ -53,20 +53,35 @@ describe("JsonUserStore", () => {
     expect(activeUsers).not.toContain("Uuser02");
   });
 
-  // --- defaultWorkspaceId ---
+  // --- lastWorkspaceId ---
 
-  test("setDefaultWorkspaceId: sets and retrieves workspace ID", async () => {
+  test("setLastWorkspaceId: sets and retrieves workspace ID", async () => {
     await store.set("Uuser01", createFromFollow());
 
-    expect(store.getDefaultWorkspaceId("Uuser01")).toBeUndefined();
+    expect(store.getLastWorkspaceId("Uuser01")).toBeUndefined();
 
-    await store.setDefaultWorkspaceId("Uuser01", "ws-001");
-    expect(store.getDefaultWorkspaceId("Uuser01")).toBe("ws-001");
+    await store.setLastWorkspaceId("Uuser01", "ws-001");
+    expect(store.getLastWorkspaceId("Uuser01")).toBe("ws-001");
   });
 
-  test("setDefaultWorkspaceId: no-op for nonexistent user", async () => {
-    await store.setDefaultWorkspaceId("Unonexistent", "ws-001");
-    expect(store.getDefaultWorkspaceId("Unonexistent")).toBeUndefined();
+  test("setLastWorkspaceId: no-op for nonexistent user", async () => {
+    await store.setLastWorkspaceId("Unonexistent", "ws-001");
+    expect(store.getLastWorkspaceId("Unonexistent")).toBeUndefined();
+  });
+
+  // --- migrateFieldNames ---
+
+  test("migrateFieldNames: defaultWorkspaceId → lastWorkspaceId 자동 변환", async () => {
+    // 레거시 형식으로 직접 저장
+    const legacy = { status: "active", invitedBy: "self", invitedAt: "2024-01-01T00:00:00.000Z", defaultWorkspaceId: "ws-old" };
+    (store as any).data["Ulegacy"] = legacy;
+    await (store as any).save();
+
+    await store.migrateFieldNames();
+
+    const record = store.get("Ulegacy");
+    expect(record?.lastWorkspaceId).toBe("ws-old");
+    expect((record as any).defaultWorkspaceId).toBeUndefined();
   });
 
   // --- isSystemAdmin ---

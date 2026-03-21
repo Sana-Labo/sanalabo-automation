@@ -12,8 +12,8 @@ export interface UserStore {
   isSystemAdmin(userId: string): boolean;
   /** active 상태 사용자 ID 목록 */
   getActiveUsers(): string[];
-  getDefaultWorkspaceId(userId: string): string | undefined;
-  setDefaultWorkspaceId(userId: string, workspaceId: string): Promise<void>;
+  getLastWorkspaceId(userId: string): string | undefined;
+  setLastWorkspaceId(userId: string, workspaceId: string): Promise<void>;
 }
 
 export class JsonUserStore extends JsonFileStore<UserRecord> implements UserStore {
@@ -40,15 +40,29 @@ export class JsonUserStore extends JsonFileStore<UserRecord> implements UserStor
       .map(([id]) => id);
   }
 
-  getDefaultWorkspaceId(userId: string): string | undefined {
-    return this.data[userId]?.defaultWorkspaceId;
+  getLastWorkspaceId(userId: string): string | undefined {
+    return this.data[userId]?.lastWorkspaceId;
   }
 
-  async setDefaultWorkspaceId(userId: string, workspaceId: string): Promise<void> {
+  async setLastWorkspaceId(userId: string, workspaceId: string): Promise<void> {
     const record = this.data[userId];
     if (!record) return;
-    record.defaultWorkspaceId = workspaceId;
+    record.lastWorkspaceId = workspaceId;
     await this.save();
+  }
+
+  /** 기존 defaultWorkspaceId → lastWorkspaceId 마이그레이션 (load 후 1회) */
+  async migrateFieldNames(): Promise<void> {
+    let needsSave = false;
+    for (const record of Object.values(this.data)) {
+      const legacy = record as unknown as Record<string, unknown>;
+      if ("defaultWorkspaceId" in legacy) {
+        record.lastWorkspaceId = legacy.defaultWorkspaceId as string;
+        delete legacy.defaultWorkspaceId;
+        needsSave = true;
+      }
+    }
+    if (needsSave) await this.save();
   }
 
   async registerSystemAdmins(): Promise<void> {
@@ -65,6 +79,7 @@ export class JsonUserStore extends JsonFileStore<UserRecord> implements UserStor
 export async function createUserStore(): Promise<UserStore> {
   const store = new JsonUserStore(config.userStorePath);
   await store.load();
+  await store.migrateFieldNames();
   await store.registerSystemAdmins();
   return store;
 }

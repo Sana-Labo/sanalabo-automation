@@ -126,7 +126,7 @@ export interface UserRecord {
   invitedAt: string;
   activatedAt?: string;
   deactivatedAt?: string;
-  defaultWorkspaceId?: string;
+  lastWorkspaceId?: string;
 }
 
 // --- 역할 ---
@@ -194,7 +194,7 @@ export interface WorkspaceStore {
   create(name: string, ownerId: string): Promise<WorkspaceRecord>;
   inviteMember(workspaceId: string, userId: string, invitedBy: string): Promise<void>;
   removeMember(workspaceId: string, userId: string): Promise<void>;
-  resolveWorkspace(userId: string, defaultWorkspaceId?: string): WorkspaceRecord | undefined;
+  resolveWorkspace(userId: string, lastWorkspaceId?: string): WorkspaceRecord | undefined;
   getUserRole(workspaceId: string, userId: string): WorkspaceRole | undefined;
   setGwsAuthenticated(workspaceId: string, authenticated: boolean): Promise<void>;
 }

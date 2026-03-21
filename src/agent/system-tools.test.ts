@@ -58,7 +58,7 @@ function makeDeps(overrides?: {
       getUserRole: overrides?.getUserRole ?? (() => undefined),
     } as unknown as WorkspaceStore,
     userStore: {
-      setDefaultWorkspaceId: async (userId: string, workspaceId: string) => {
+      setLastWorkspaceId: async (userId: string, workspaceId: string) => {
         setDefaultCalls.push({ userId, workspaceId });
       },
       isSystemAdmin: overrides?.isSystemAdmin ?? (() => false),
@@ -97,7 +97,7 @@ describe("systemTools registry", () => {
 // --- create_workspace 핸들러 테스트 ---
 
 describe("create_workspace handler", () => {
-  test("성공: 워크스페이스 생성 + defaultWorkspaceId 설정", async () => {
+  test("성공: 워크스페이스 생성 + lastWorkspaceId 설정", async () => {
     const setDefaultCalls: Array<{ userId: string; workspaceId: string }> = [];
     const createdWs = makeWorkspace({ id: "ws-new", name: "MyWorkspace" });
     const deps = makeDeps({ ownedWorkspaces: [], createdWorkspace: createdWs, setDefaultCalls });
@@ -111,7 +111,7 @@ describe("create_workspace handler", () => {
     expect(result.name).toBe("MyWorkspace");
     expect(result.message).toContain("created successfully");
 
-    // defaultWorkspaceId 설정 확인
+    // lastWorkspaceId 설정 확인
     expect(setDefaultCalls).toHaveLength(1);
     expect(setDefaultCalls[0]).toEqual({
       userId: "Unewuser0001",
@@ -160,7 +160,7 @@ describe("create_workspace handler", () => {
         },
       } as unknown as WorkspaceStore,
       userStore: {
-        setDefaultWorkspaceId: async (userId: string, workspaceId: string) => {
+        setLastWorkspaceId: async (userId: string, workspaceId: string) => {
           setDefaultCalls.push({ userId, workspaceId });
         },
         isSystemAdmin: () => false,
@@ -196,7 +196,7 @@ describe("create_workspace handler", () => {
 
     // owner는 대상 사용자
     expect(createCalls[0]!.ownerId).toBe("Ua0000000000000000000000000000001");
-    // defaultWorkspaceId는 대상 사용자에게 설정
+    // lastWorkspaceId는 대상 사용자에게 설정
     expect(setDefaultCalls[0]!.userId).toBe("Ua0000000000000000000000000000001");
   });
 
