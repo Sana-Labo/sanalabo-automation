@@ -18,7 +18,8 @@
     "@modelcontextprotocol/sdk": "^1.27.1",
     "croner": "^10.0.1",
     "google-auth-library": "^10.6.2",
-    "hono": "^4.12.8"
+    "hono": "^4.12.8",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@tsconfig/bun": "^1.0.10",

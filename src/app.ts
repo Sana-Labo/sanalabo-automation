@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { LINE_CHANNEL_SKILL_TOOLS } from "./agent/line-tool-adapter.js";
+import { LINE_CHANNEL_SKILL_TOOLS, lineToolDefinitions } from "./agent/line-tool-adapter.js";
 import { buildToolRegistry } from "./agent/loop.js";
 import { connectMcpPool } from "./agent/mcp-pool.js";
 import { createPendingActionStore } from "./approvals/store.js";
@@ -12,7 +12,7 @@ import { AesGcmEncryption } from "./skills/gws/encryption.js";
 import { createGwsExecutorFactory } from "./skills/gws/executor.js";
 import type { GoogleAuthConfig } from "./skills/gws/google-auth.js";
 import { JsonFileTokenStore } from "./skills/gws/token-store.js";
-import { gwsTools } from "./skills/gws/tools.js";
+import { gwsTools, gwsToolDefinitions } from "./skills/gws/tools.js";
 import type { AgentDependencies, ToolRegistry } from "./types.js";
 import { createUserStore } from "./users/store.js";
 import { toErrorMessage } from "./utils/error.js";
@@ -57,8 +57,8 @@ async function main() {
   // LINE 도구: LLM에는 단순화 스키마 노출, executor는 MCP 원본 유지
   //   → loop.ts에서 createLineExecutors()로 래핑하여 입력 변환
   const registry: ToolRegistry = buildToolRegistry(
-    { tools: gwsTools, executors: new Map() },
-    { tools: LINE_CHANNEL_SKILL_TOOLS, executors: mcp.executors },
+    { tools: gwsTools, executors: new Map(), definitions: [...gwsToolDefinitions] },
+    { tools: LINE_CHANNEL_SKILL_TOOLS, executors: mcp.executors, definitions: [...lineToolDefinitions] },
   );
   log.info("Tool registry built", { toolCount: registry.tools.length });
 

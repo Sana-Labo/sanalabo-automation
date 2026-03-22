@@ -10,11 +10,13 @@ import {
   type ToolExecutor,
   type ToolRegistry,
 } from "../types.js";
+import type { ToolDefinition } from "./tool-definition.js";
+import { formatZodError } from "./tool-definition.js";
 import { toErrorMessage } from "../utils/error.js";
 import { createLogger } from "../utils/logger.js";
-import { infraToolDefs, infraTools } from "./infra-tools.js";
+import { infraToolDefs, infraTools, infraToolDefinitions } from "./infra-tools.js";
 import { createChannelTextSender, createLineExecutors } from "./line-tool-adapter.js";
-import { systemToolDefs, systemTools } from "./system-tools.js";
+import { systemToolDefs, systemTools, systemToolDefinitions } from "./system-tools.js";
 import { buildSystemPrompt } from "./system.js";
 
 const log = createLogger("agent");
@@ -104,6 +106,13 @@ export async function runAgentLoop(
   for (const [name, exec] of lineExecs) {
     executors.set(name, exec);
   }
+
+  // ToolDefinition 맵 (O(1) lookup) — Zod 검증 파이프라인용
+  // infra + system + registry definitions(GWS, LINE) 통합
+  const toolDefMap = new Map<string, ToolDefinition<any>>();
+  for (const def of infraToolDefinitions) toolDefMap.set(def.name, def);
+  for (const def of systemToolDefinitions) toolDefMap.set(def.name, def);
+  for (const def of deps.registry.definitions) toolDefMap.set(def.name, def);
 
   const messages: Anthropic.MessageParam[] = [
     { role: "user", content: userMessage },
@@ -227,7 +236,7 @@ export async function runAgentLoop(
       remaining.map(async (block) => {
         toolCalls++;
         log.debug("Tool call", () => ({ tool: block.name, toolUseId: block.id }));
-        const toolInput = block.input as Record<string, unknown>;
+        let toolInput = block.input as Record<string, unknown>;
 
         // 비오너 멤버의 write 도구 가로채기
         const interception = await interceptWrite(
@@ -265,6 +274,37 @@ export async function runAgentLoop(
             content: `Error: Unknown tool "${block.name}"`,
             is_error: true,
           };
+        }
+
+        // --- Zod 검증 파이프라인 (non-strict 도구만) ---
+        const def = toolDefMap.get(block.name);
+        if (def && !def.strict) {
+          // Layer 1: Zod 스키마 검증
+          const parsed = def.inputSchema.safeParse(toolInput);
+          if (!parsed.success) {
+            log.debug("Input validation failed", () => ({ tool: block.name, error: formatZodError(parsed.error) }));
+            return {
+              type: "tool_result" as const,
+              tool_use_id: block.id,
+              content: `Input validation error (please fix and retry): ${formatZodError(parsed.error)}`,
+              is_error: true,
+            };
+          }
+          // Layer 2: 비즈니스 검증 (선택적)
+          if (def.validateInput) {
+            const validation = def.validateInput(parsed.data);
+            if (!validation.valid) {
+              log.debug("Business validation failed", () => ({ tool: block.name, error: validation.error }));
+              return {
+                type: "tool_result" as const,
+                tool_use_id: block.id,
+                content: validation.error,
+                is_error: true,
+              };
+            }
+          }
+          // 검증 통과: 파싱된 데이터로 교체
+          toolInput = parsed.data;
         }
 
         try {
@@ -320,17 +360,19 @@ export async function runAgentAndDeliver(
 }
 
 export function buildToolRegistry(
-  ...registries: { tools: Anthropic.Tool[]; executors: Map<string, ToolExecutor> }[]
+  ...registries: { tools: Anthropic.Tool[]; executors: Map<string, ToolExecutor>; definitions?: ToolDefinition<any>[] }[]
 ): ToolRegistry {
   const tools: Anthropic.Tool[] = [];
   const executors = new Map<string, ToolExecutor>();
+  const definitions: ToolDefinition<any>[] = [];
 
   for (const reg of registries) {
     tools.push(...reg.tools);
+    if (reg.definitions) definitions.push(...reg.definitions);
     for (const [name, exec] of reg.executors) {
       executors.set(name, exec);
     }
   }
 
-  return { tools, executors };
+  return { tools, executors, definitions };
 }

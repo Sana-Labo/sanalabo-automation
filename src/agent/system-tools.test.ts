@@ -1,5 +1,6 @@
 import { describe, test, expect } from "bun:test";
-import { systemToolDefs, systemTools } from "./system-tools.js";
+import { systemToolDefs, systemTools, systemToolDefinitions } from "./system-tools.js";
+import { toAnthropicTool } from "./tool-definition.js";
 import type { WorkspaceRecord } from "../domain/workspace.js";
 import type { AgentDependencies, ToolContext, WorkspaceStore } from "../types.js";
 import type { UserStore } from "../users/store.js";
@@ -47,7 +48,7 @@ function makeDeps(overrides?: {
   const createdWs = overrides?.createdWorkspace ?? makeWorkspace();
 
   return {
-    registry: { tools: [], executors: new Map() },
+    registry: { tools: [], executors: new Map(), definitions: [] },
     pendingActionStore: {} as AgentDependencies["pendingActionStore"],
     getGwsExecutors: async () => new Map(),
     workspaceStore: {
@@ -152,7 +153,7 @@ describe("create_workspace handler", () => {
     const createdWs = makeWorkspace({ id: "ws-trimmed", name: "Trimmed" });
 
     const deps: AgentDependencies = {
-      registry: { tools: [], executors: new Map() },
+      registry: { tools: [], executors: new Map(), definitions: [] },
       pendingActionStore: {} as AgentDependencies["pendingActionStore"],
       getGwsExecutors: async () => new Map(),
       workspaceStore: {
@@ -889,5 +890,92 @@ describe("reject_action handler", () => {
     expect(result.reason).toBe("not needed");
     expect(rejectedWith?.id).toBe("pa-003");
     expect(rejectedWith?.reason).toBe("not needed");
+  });
+});
+
+// --- ToolDefinition (새 구조) 테스트 ---
+
+describe("systemToolDefinitions (Zod)", () => {
+  const expectedNames = [
+    "create_workspace", "list_workspaces", "get_workspace_info",
+    "enter_workspace", "invite_member",
+    "approve_action", "reject_action", "authenticate_gws",
+  ];
+
+  test("8개 도구 모두 포함", () => {
+    const names = systemToolDefinitions.map((d) => d.name);
+    for (const name of expectedNames) {
+      expect(names).toContain(name);
+    }
+    expect(systemToolDefinitions.length).toBe(8);
+  });
+
+  test("모든 도구에 strict: true 설정", () => {
+    for (const def of systemToolDefinitions) {
+      expect(def.strict).toBe(true);
+    }
+  });
+
+  test("Zod → JSON Schema 라운드트립: 레거시와 구조 일치", () => {
+    for (const def of systemToolDefinitions) {
+      const anthropicTool = toAnthropicTool(def);
+      const legacyDef = systemToolDefs.find((d) => d.name === def.name)!;
+
+      expect(anthropicTool.name).toBe(legacyDef.name);
+      expect(anthropicTool.description).toBe(legacyDef.description);
+      expect(anthropicTool.strict).toBe(legacyDef.strict);
+      expect(anthropicTool.input_schema.type).toBe("object");
+      expect(anthropicTool.input_schema.additionalProperties).toBe(false);
+
+      // required 필드 수 일치
+      const newRequired = (anthropicTool.input_schema.required ?? []) as string[];
+      const oldRequired = (legacyDef.input_schema.required ?? []) as string[];
+      expect(newRequired.sort()).toEqual(oldRequired.sort());
+    }
+  });
+
+  test("create_workspace: nullable owner_user_id 스키마", () => {
+    const def = systemToolDefinitions.find((d) => d.name === "create_workspace")!;
+    const tool = toAnthropicTool(def);
+    const props = tool.input_schema.properties as Record<string, Record<string, unknown>>;
+
+    // owner_user_id는 nullable
+    const ownerProp = props.owner_user_id!;
+    const hasNullable =
+      (Array.isArray(ownerProp.anyOf) &&
+        (ownerProp.anyOf as Array<Record<string, unknown>>).some(
+          (s) => s.type === "null",
+        )) ||
+      ownerProp.nullable === true;
+    expect(hasNullable).toBe(true);
+  });
+
+  test("Zod 스키마 검증: create_workspace 유효 입력", () => {
+    const def = systemToolDefinitions.find((d) => d.name === "create_workspace")!;
+    expect(def.inputSchema.safeParse({ name: "Test", owner_user_id: null }).success).toBe(true);
+    expect(def.inputSchema.safeParse({ name: "Test", owner_user_id: "U12345" }).success).toBe(true);
+  });
+
+  test("Zod 스키마 검증: create_workspace 무효 입력", () => {
+    const def = systemToolDefinitions.find((d) => d.name === "create_workspace")!;
+    expect(def.inputSchema.safeParse({}).success).toBe(false);
+    expect(def.inputSchema.safeParse({ name: 123 }).success).toBe(false);
+  });
+
+  test("Zod 스키마 검증: list_workspaces 빈 스키마", () => {
+    const def = systemToolDefinitions.find((d) => d.name === "list_workspaces")!;
+    expect(def.inputSchema.safeParse({}).success).toBe(true);
+  });
+
+  test("Zod 스키마 검증: approve_action 유효/무효", () => {
+    const def = systemToolDefinitions.find((d) => d.name === "approve_action")!;
+    expect(def.inputSchema.safeParse({ action_id: "pa-001" }).success).toBe(true);
+    expect(def.inputSchema.safeParse({}).success).toBe(false);
+  });
+
+  test("Zod 스키마 검증: reject_action nullable reason", () => {
+    const def = systemToolDefinitions.find((d) => d.name === "reject_action")!;
+    expect(def.inputSchema.safeParse({ action_id: "pa-001", reason: null }).success).toBe(true);
+    expect(def.inputSchema.safeParse({ action_id: "pa-001", reason: "not needed" }).success).toBe(true);
   });
 });

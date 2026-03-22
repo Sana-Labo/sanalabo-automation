@@ -32,17 +32,28 @@
   - 자동 알림(cron/follow/invite) 및 언어 불확실 시 영어 기본값
   - 프롬프트(시스템/cron/webhook)는 영어로 작성 (Claude 인식 최적화)
 
+## 도구 정의 (ToolDefinition)
+
+- **Zod 4 단일 출처**: 모든 도구의 입력 스키마는 Zod로 정의 (`agent/tool-definition.ts`)
+  - Claude API용 JSON Schema: `toAnthropicTool()`로 변환 (Zod 4 내장 `z.toJSONSchema`)
+  - 런타임 검증: `inputSchema.safeParse()` — non-strict 도구만 (strict 도구는 constrained decoding에 의존)
+  - TypeScript 타입 추론: `z.infer<typeof schema>`
+- **카테고리별 확장**: `GwsToolDefinition<T>`, `LineToolDefinition<T>`, `SystemToolDefinition<T>`, `InfraToolDefinition<T>`
+- **자기 완결적 구조**: 각 도구 = 스키마 + 실행의 독립 단위 (업계 7개 프레임워크 표준 패턴)
+
 ## GWS API 호출 (googleapis)
 
 - `google-auth-library` + `@googleapis/*` 공식 라이브러리 사용
 - 워크스페이스별 OAuth2Client 인스턴스 (TokenStore에서 refresh_token 로드)
-- `api-executor.ts`에서 15개 도구 → googleapis 직접 호출
+- 도구 정의: `skills/gws/{gmail,calendar,drive}-tools.ts` (서비스별 분리, `GwsToolDefinition` 자기 완결적)
+- 도메인 헬퍼: `skills/gws/api-helpers.ts` (extractBody, buildRawEmail, jsonResult 등)
+- executor 팩토리: `skills/gws/executor.ts` (OAuth + `createExecutor` DI → executor Map)
 - 토큰 회전(rotation): `tokens` 이벤트 감지 → TokenStore에 자동 저장
 
 ## 스킬 추가 규칙
 
-- Native Tool: `skills/<name>/tools.ts` (도구 정의) + `executor.ts` (실행 구현) + `access.ts` (접근 제어)
-- MCP Tool: `agent/mcp.ts`에 MCP Server 연결 추가 (도구 정의는 MCP Server가 제공)
+- Native Tool: `skills/<name>/*-tools.ts` (ToolDefinition 자기 완결적) + `executor.ts` (팩토리) + `access.ts` (접근 제어)
+- MCP Tool: `agent/mcp.ts`에 MCP Server 연결 추가 + `agent/line-tool-adapter.ts`에 LineToolDefinition 정의
 - Agent Core 수정 불필요
 
 ## Testing (TDD)

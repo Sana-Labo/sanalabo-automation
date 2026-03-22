@@ -1,4 +1,5 @@
 import type Anthropic from "@anthropic-ai/sdk";
+import type { ToolDefinition } from "./agent/tool-definition.js";
 import type { UserStore } from "./users/store.js";
 import type { WorkspaceRecord, WorkspaceRole } from "./domain/workspace.js";
 
@@ -25,8 +26,12 @@ export type ToolExecutor = (
 ) => Promise<string>;
 
 export interface ToolRegistry {
-  tools: Anthropic.Tool[];
+  /** 모든 도구 정의 (Zod 스키마 단일 출처) */
+  definitions: ToolDefinition<any>[];
+  /** 런타임 executor (MCP Pool, GWS per-workspace) */
   executors: Map<string, ToolExecutor>;
+  /** @deprecated 레거시 정리 시 제거. definitions + toAnthropicTool 사용 */
+  tools: Anthropic.Tool[];
 }
 
 // --- 에이전트 내부 도구 공통 규격 ---
