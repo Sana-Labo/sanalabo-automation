@@ -107,13 +107,11 @@ export function createGoogleOAuthRoute(deps: GoogleOAuthRouteDeps): Hono {
       const textExecutor = deps.registry.executors.get(LINE_PUSH_TEXT_TOOL);
       if (textExecutor) {
         textExecutor({
-          user_id: auth.userId,
-          messages: [
-            {
-              type: "text",
-              text: "Google Workspace authentication completed! You can now use email, calendar, and drive features.",
-            },
-          ],
+          userId: auth.userId,
+          message: {
+            type: "text",
+            text: "Google Workspace authentication completed! You can now use email, calendar, and drive features.",
+          },
         }).catch((e) => {
           log.error("Failed to send completion notification", {
             error: toErrorMessage(e),

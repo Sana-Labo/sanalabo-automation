@@ -565,62 +565,60 @@ async function sendOAuthUrl(
   const flexExecutor = registry.executors.get(LINE_PUSH_FLEX_TOOL);
   if (flexExecutor) {
     await flexExecutor({
-      user_id: userId,
-      messages: [
-        {
-          type: "flex",
-          altText: "Google Workspace Authentication",
-          contents: {
-            type: "bubble",
-            header: {
-              type: "box",
-              layout: "vertical",
-              contents: [
-                {
-                  type: "text",
-                  text: `Google Authentication — ${workspaceName}`,
-                  weight: "bold",
-                  size: "md",
+      userId,
+      message: {
+        type: "flex",
+        altText: "Google Workspace Authentication",
+        contents: {
+          type: "bubble",
+          header: {
+            type: "box",
+            layout: "vertical",
+            contents: [
+              {
+                type: "text",
+                text: `Google Authentication — ${workspaceName}`,
+                weight: "bold",
+                size: "md",
+              },
+            ],
+          },
+          body: {
+            type: "box",
+            layout: "vertical",
+            spacing: "md",
+            contents: [
+              {
+                type: "text",
+                text: "Tap the button below to connect your Google account. This grants access to Gmail, Calendar, and Drive.",
+                size: "sm",
+                wrap: true,
+              },
+              {
+                type: "text",
+                text: "The link expires in 10 minutes.",
+                size: "xs",
+                color: "#999999",
+              },
+            ],
+          },
+          footer: {
+            type: "box",
+            layout: "vertical",
+            contents: [
+              {
+                type: "button",
+                style: "primary",
+                action: {
+                  type: "uri",
+                  label: "Connect Google", // LINE action label: max 20 chars
+                  uri: consentUrl,
                 },
-              ],
-            },
-            body: {
-              type: "box",
-              layout: "vertical",
-              spacing: "md",
-              contents: [
-                {
-                  type: "text",
-                  text: "Tap the button below to connect your Google account. This grants access to Gmail, Calendar, and Drive.",
-                  size: "sm",
-                  wrap: true,
-                },
-                {
-                  type: "text",
-                  text: "The link expires in 10 minutes.",
-                  size: "xs",
-                  color: "#999999",
-                },
-              ],
-            },
-            footer: {
-              type: "box",
-              layout: "vertical",
-              contents: [
-                {
-                  type: "button",
-                  style: "primary",
-                  action: {
-                    type: "uri",
-                    label: "Connect Google Account",
-                    uri: consentUrl,
-                  },
-                },
-              ],
-            },
+              },
+            ],
           },
         },
-      ],
+      },
     });
     return;
   }
@@ -629,13 +627,11 @@ async function sendOAuthUrl(
   const textExecutor = registry.executors.get(LINE_PUSH_TEXT_TOOL);
   if (textExecutor) {
     await textExecutor({
-      user_id: userId,
-      messages: [
-        {
-          type: "text",
-          text: `[Google Authentication — ${workspaceName}]\n\nTap the link below to connect your Google account:\n${consentUrl}\n\nThe link expires in 10 minutes.`,
-        },
-      ],
+      userId,
+      message: {
+        type: "text",
+        text: `[Google Authentication — ${workspaceName}]\n\nTap the link below to connect your Google account:\n${consentUrl}\n\nThe link expires in 10 minutes.`,
+      },
     });
   }
 }

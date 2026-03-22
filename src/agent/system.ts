@@ -7,8 +7,8 @@ Use push_text_message or push_flex_message only when:
 - Sending a message before performing additional tool calls
 - Rich formatting (Flex Message) is needed`;
 
-const NO_ACTION_GUIDANCE = `## No-Action Guidance
-- When there is nothing to report or notify, use the no_action tool to exit.`;
+/** Cron 잡 프롬프트에서만 사용 — 사용자 대화에서는 no_action 도구 자체가 제외됨 */
+export const NO_ACTION_GUIDANCE = `When there is nothing to report or notify, use the no_action tool to exit.`;
 
 const MESSAGE_FORMAT = `## Message Format
 - Keep messages under 2000 characters
@@ -44,7 +44,6 @@ export function buildSystemPrompt(
 
   const commonSections = [
     MESSAGE_DELIVERY,
-    NO_ACTION_GUIDANCE,
     MESSAGE_FORMAT,
     LANGUAGE_RULES,
   ].join("\n\n");

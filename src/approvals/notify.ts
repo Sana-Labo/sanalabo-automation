@@ -15,15 +15,15 @@ export async function notifyOwnerOfPending(
     if (!textExecutor) return;
 
     await textExecutor({
-      user_id: workspace.ownerId,
-      messages: [{ type: "text", text: buildApprovalText(action, workspace.name) }],
+      userId: workspace.ownerId,
+      message: { type: "text", text: buildApprovalText(action, workspace.name) },
     });
     return;
   }
 
   await executor({
-    user_id: workspace.ownerId,
-    messages: [buildApprovalFlexMessage(action, workspace.name)],
+    userId: workspace.ownerId,
+    message: buildApprovalFlexMessage(action, workspace.name),
   });
 }
 
@@ -41,8 +41,8 @@ export async function notifyActionResult(
   const errorNote = executionError ? `\n⚠ Execution error: ${executionError}` : "";
 
   await executor({
-    user_id: targetUserId,
-    messages: [{ type: "text", text: `[${statusText}] ${action.toolName}\n${action.requestContext}${reason}${errorNote}` }],
+    userId: targetUserId,
+    message: { type: "text", text: `[${statusText}] ${action.toolName}\n${action.requestContext}${reason}${errorNote}` },
   });
 }
 

@@ -67,10 +67,17 @@ function extractJsonText(content: Anthropic.ContentBlock[]): string {
   }
 }
 
+/** 에이전트 루프 옵션 */
+export interface AgentLoopOptions {
+  /** no_action 도구 허용 여부. cron 잡에서만 true (기본: false) */
+  allowNoAction?: boolean;
+}
+
 export async function runAgentLoop(
   userMessage: string,
   deps: AgentDependencies,
   initialContext: ToolContext,
+  options: AgentLoopOptions = {},
 ): Promise<AgentResult> {
   let context = initialContext;
   const workspace = context.workspaceId
@@ -108,7 +115,11 @@ export async function runAgentLoop(
 
   /** executor가 존재하는 도구 + 내부 도구(infra, system)만 Claude에게 전달 */
   function buildToolList() {
-    return [...deps.registry.tools, ...infraToolDefs, ...systemToolDefs]
+    // no_action: cron 잡 전용. 사용자 대화에서는 제외하여 반드시 텍스트 응답하도록 강제
+    const infra = options.allowNoAction
+      ? infraToolDefs
+      : infraToolDefs.filter(t => t.name !== "no_action");
+    return [...deps.registry.tools, ...infra, ...systemToolDefs]
       .filter(t => executors.has(t.name) || infraTools.has(t.name) || systemTools.has(t.name));
   }
   let allTools = buildToolList();
@@ -298,8 +309,9 @@ export async function runAgentAndDeliver(
   userMessage: string,
   deps: AgentDependencies,
   context: ToolContext,
+  options: AgentLoopOptions = {},
 ): Promise<AgentResult> {
-  const result = await runAgentLoop(userMessage, deps, context);
+  const result = await runAgentLoop(userMessage, deps, context, options);
   if (!result.channelDelivered && result.text) {
     const sendText = createChannelTextSender(deps.registry.executors, context.userId);
     await sendText(result.text);

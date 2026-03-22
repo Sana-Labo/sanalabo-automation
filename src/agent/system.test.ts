@@ -85,9 +85,9 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("2000 characters");
   });
 
-  test("prompt contains no_action guidance", () => {
+  test("prompt does not contain no_action guidance (cron-only)", () => {
     const prompt = buildSystemPrompt(makeContext(), makeWorkspace());
-    expect(prompt).toContain("no_action");
+    expect(prompt).not.toContain("no_action");
   });
 
   test("prompt contains message delivery guidance", () => {
@@ -135,12 +135,12 @@ describe("buildSystemPrompt", () => {
       expect(prompt).not.toContain("Safety Rules");
     });
 
-    test("admin prompt contains no_action guidance and message format", () => {
+    test("admin prompt contains message format but not no_action", () => {
       const prompt = buildSystemPrompt(
         makeContext({ role: "admin", workspaceId: undefined }),
         undefined,
       );
-      expect(prompt).toContain("no_action");
+      expect(prompt).not.toContain("no_action");
       expect(prompt).toContain("2000 characters");
     });
 

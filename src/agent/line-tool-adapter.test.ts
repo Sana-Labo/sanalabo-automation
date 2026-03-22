@@ -34,16 +34,16 @@ describe("LINE_CHANNEL_SKILL_TOOLS", () => {
     expect(names).toContain(LINE_PUSH_FLEX_TOOL);
   });
 
-  test("모든 도구에 strict: true 설정", () => {
-    for (const tool of LINE_CHANNEL_SKILL_TOOLS) {
-      expect(tool.strict).toBe(true);
-    }
+  test("push_text_message는 strict: true + additionalProperties: false", () => {
+    const tool = LINE_CHANNEL_SKILL_TOOLS.find((t) => t.name === LINE_PUSH_TEXT_TOOL)!;
+    expect(tool.strict).toBe(true);
+    expect(tool.input_schema.additionalProperties).toBe(false);
   });
 
-  test("모든 도구에 additionalProperties: false 설정", () => {
-    for (const tool of LINE_CHANNEL_SKILL_TOOLS) {
-      expect(tool.input_schema.additionalProperties).toBe(false);
-    }
+  test("push_flex_message는 non-strict (contents가 자유 구조)", () => {
+    const tool = LINE_CHANNEL_SKILL_TOOLS.find((t) => t.name === LINE_PUSH_FLEX_TOOL)!;
+    expect(tool.strict).toBeUndefined();
+    expect(tool.input_schema.additionalProperties).toBeUndefined();
   });
 
   test("push_text_message 스키마는 text만 required", () => {
@@ -77,8 +77,8 @@ describe("createLineExecutors", () => {
 
     expect(calls).toHaveLength(1);
     expect(calls[0]!.input).toEqual({
-      user_id: "U_user_123",
-      messages: [{ type: "text", text: "Hello" }],
+      userId: "U_user_123",
+      message: { type: "text", text: "Hello" },
     });
   });
 
@@ -91,8 +91,8 @@ describe("createLineExecutors", () => {
 
     expect(calls).toHaveLength(1);
     expect(calls[0]!.input).toEqual({
-      user_id: "U_user_456",
-      messages: [{ type: "flex", altText: "Summary", contents: { type: "bubble", body: {} } }],
+      userId: "U_user_456",
+      message: { type: "flex", altText: "Summary", contents: { type: "bubble", body: {} } },
     });
   });
 
@@ -131,8 +131,8 @@ describe("createChannelTextSender", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]!.name).toBe(LINE_PUSH_TEXT_TOOL);
     expect(calls[0]!.input).toEqual({
-      user_id: "U_channel_001",
-      messages: [{ type: "text", text: "Hello from channel" }],
+      userId: "U_channel_001",
+      message: { type: "text", text: "Hello from channel" },
     });
   });
 
