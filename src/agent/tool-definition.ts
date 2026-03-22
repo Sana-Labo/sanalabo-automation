@@ -14,11 +14,15 @@ import type { calendar_v3 } from "@googleapis/calendar";
 import type { drive_v3 } from "@googleapis/drive";
 import type {
   AgentDependencies,
-  InternalToolSignal,
   ToolContext,
   ToolExecutor,
 } from "../types.js";
-import type { InfraToolSignal } from "./infra-tools.js";
+
+/** 에이전트 내부 도구 핸들러의 공통 반환 시그널 */
+export interface InternalToolSignal {
+  /** Claude에 반환할 tool_result content */
+  toolResult: string;
+}
 
 // --- 검증 결과 ---
 
@@ -94,6 +98,14 @@ export interface SystemToolDefinition<T> extends ToolDefinition<T> {
     context: ToolContext,
     deps: AgentDependencies,
   ) => Promise<SystemToolSignal>;
+}
+
+/** 인프라 도구 시그널 — 루프 제어 필드 확장 */
+export interface InfraToolSignal extends InternalToolSignal {
+  /** true면 루프 즉시 종료 */
+  exitLoop?: boolean;
+  /** exitLoop 시 AgentResult.text (exitLoop: true일 때 필수) */
+  exitText: string;
 }
 
 /** Infra 도구 — 동기, 루프 제어 가능, strict 고정 */

@@ -1,4 +1,3 @@
-import type Anthropic from "@anthropic-ai/sdk";
 import type { ToolDefinition } from "./agent/tool-definition.js";
 import type { UserStore } from "./users/store.js";
 import type { WorkspaceRecord, WorkspaceRole } from "./domain/workspace.js";
@@ -30,24 +29,6 @@ export interface ToolRegistry {
   definitions: ToolDefinition<any>[];
   /** 런타임 executor (MCP Pool, GWS per-workspace) */
   executors: Map<string, ToolExecutor>;
-  /** @deprecated 레거시 정리 시 제거. definitions + toAnthropicTool 사용 */
-  tools: Anthropic.Tool[];
-}
-
-// --- 에이전트 내부 도구 공통 규격 ---
-
-/** 에이전트 내부 도구(Infra, System) 핸들러의 공통 반환 시그널 */
-export interface InternalToolSignal {
-  /** Claude에 반환할 tool_result content */
-  toolResult: string;
-}
-
-/** 에이전트 내부 도구(Infra, System) 공통 등록 엔트리 */
-export interface InternalToolEntry<H> {
-  /** Claude에게 보여줄 도구 스키마 */
-  def: Anthropic.Tool;
-  /** 도구 실행 핸들러 */
-  handler: H;
 }
 
 // --- 에이전트 ---

@@ -1,3 +1,9 @@
+/**
+ * 에이전트 루프 — Claude API tool_use 기반 자율 실행
+ *
+ * 3단계 디스패치: Infra(동기, 루프 제어) → System(비동기, Store I/O) → Skill(비동기 병렬, 외부 시스템)
+ * 모든 도구는 ToolDefinition 기반. Zod 검증 파이프라인은 non-strict 도구에 적용.
+ */
 import Anthropic from "@anthropic-ai/sdk";
 import { interceptWrite } from "../approvals/interceptor.js";
 import { notifyOwnerOfPending } from "../approvals/notify.js";
@@ -10,13 +16,18 @@ import {
   type ToolExecutor,
   type ToolRegistry,
 } from "../types.js";
-import type { ToolDefinition } from "./tool-definition.js";
-import { formatZodError } from "./tool-definition.js";
+import {
+  toAnthropicTool,
+  formatZodError,
+  type ToolDefinition,
+  type InfraToolDefinition,
+  type SystemToolDefinition,
+} from "./tool-definition.js";
 import { toErrorMessage } from "../utils/error.js";
 import { createLogger } from "../utils/logger.js";
-import { infraToolDefs, infraTools, infraToolDefinitions } from "./infra-tools.js";
+import { infraToolDefinitions } from "./infra-tools.js";
 import { createChannelTextSender, createLineExecutors } from "./line-tool-adapter.js";
-import { systemToolDefs, systemTools, systemToolDefinitions } from "./system-tools.js";
+import { systemToolDefinitions } from "./system-tools.js";
 import { buildSystemPrompt } from "./system.js";
 
 const log = createLogger("agent");
@@ -60,7 +71,6 @@ function extractJsonText(content: Anthropic.ContentBlock[]): string {
   try {
     const parsed = JSON.parse(raw) as { text?: string };
     if (typeof parsed.text === "string") return parsed.text;
-    // output_config 제약에도 불구하고 text 필드 누락 — 구조 불일치 경고
     log.warning("JSON output missing text field", { keys: Object.keys(parsed) });
     return raw;
   } catch {
@@ -68,6 +78,18 @@ function extractJsonText(content: Anthropic.ContentBlock[]): string {
     return raw;
   }
 }
+
+// --- ToolDefinition O(1) lookup 맵 ---
+
+/** InfraToolDefinition 이름 키 맵 */
+const infraDefMap = new Map<string, InfraToolDefinition<any>>(
+  infraToolDefinitions.map((d) => [d.name, d as InfraToolDefinition<any>]),
+);
+
+/** SystemToolDefinition 이름 키 맵 */
+const systemDefMap = new Map<string, SystemToolDefinition<any>>(
+  systemToolDefinitions.map((d) => [d.name, d as SystemToolDefinition<any>]),
+);
 
 /** 에이전트 루프 옵션 */
 export interface AgentLoopOptions {
@@ -107,12 +129,11 @@ export async function runAgentLoop(
     executors.set(name, exec);
   }
 
-  // ToolDefinition 맵 (O(1) lookup) — Zod 검증 파이프라인용
-  // infra + system + registry definitions(GWS, LINE) 통합
-  const toolDefMap = new Map<string, ToolDefinition<any>>();
-  for (const def of infraToolDefinitions) toolDefMap.set(def.name, def);
-  for (const def of systemToolDefinitions) toolDefMap.set(def.name, def);
-  for (const def of deps.registry.definitions) toolDefMap.set(def.name, def);
+  // 전체 ToolDefinition 맵 (O(1) lookup) — 디스패치 + Zod 검증 통합
+  const allDefMap = new Map<string, ToolDefinition<any>>();
+  for (const def of infraToolDefinitions) allDefMap.set(def.name, def);
+  for (const def of systemToolDefinitions) allDefMap.set(def.name, def);
+  for (const def of deps.registry.definitions) allDefMap.set(def.name, def);
 
   const messages: Anthropic.MessageParam[] = [
     { role: "user", content: userMessage },
@@ -122,14 +143,18 @@ export async function runAgentLoop(
   let toolCalls = 0;
   let channelDelivered = false;
 
-  /** executor가 존재하는 도구 + 내부 도구(infra, system)만 Claude에게 전달 */
-  function buildToolList() {
-    // no_action: cron 잡 전용. 사용자 대화에서는 제외하여 반드시 텍스트 응답하도록 강제
-    const infra = options.allowNoAction
-      ? infraToolDefs
-      : infraToolDefs.filter(t => t.name !== "no_action");
-    return [...deps.registry.tools, ...infra, ...systemToolDefs]
-      .filter(t => executors.has(t.name) || infraTools.has(t.name) || systemTools.has(t.name));
+  /** executor/handler가 존재하는 도구만 Claude에게 전달 */
+  function buildToolList(): Anthropic.Tool[] {
+    const tools: Anthropic.Tool[] = [];
+    for (const [name, def] of allDefMap) {
+      // no_action: cron 잡 전용. 사용자 대화에서는 제외
+      if (name === "no_action" && !options.allowNoAction) continue;
+      // executor가 있거나 내부 도구(infra/system)면 포함
+      if (executors.has(name) || infraDefMap.has(name) || systemDefMap.has(name)) {
+        tools.push(toAnthropicTool(def));
+      }
+    }
+    return tools;
   }
   let allTools = buildToolList();
 
@@ -157,7 +182,6 @@ export async function runAgentLoop(
     }
 
     if (response.stop_reason !== "tool_use") {
-      // end_turn: output_config에 의해 JSON 형식 → text 필드 추출
       const text = extractJsonText(response.content);
       log.debug("Agent loop completed", () => ({ turns, toolCalls }));
       return { text, toolCalls, channelDelivered };
@@ -167,25 +191,24 @@ export async function runAgentLoop(
       (b): b is Anthropic.ToolUseBlock => b.type === "tool_use",
     );
 
-    // --- 3단계 디스패치 ---
+    // --- 3단계 디스패치 (소스: ToolDefinition) ---
 
-    // [1단계] Infra tool 선처리: 루프 제어 (exitLoop 가능)
+    // [1단계] Infra tool 선처리: 동기, 루프 제어 (exitLoop 가능)
     const handled = new Set<string>();
     const infraToolResults: Anthropic.ToolResultBlockParam[] = [];
     for (const block of toolUseBlocks) {
-      const entry = infraTools.get(block.name);
-      if (!entry) continue;
+      const def = infraDefMap.get(block.name);
+      if (!def) continue;
       toolCalls++;
       handled.add(block.id);
       log.debug("Infra tool handled", () => ({ tool: block.name, toolUseId: block.id }));
-      const signal = entry.handler(
-        block.input as Record<string, unknown>,
+      const signal = def.handler(
+        block.input as any,
         context,
       );
       if (signal.exitLoop) {
         return { text: signal.exitText, toolCalls, channelDelivered };
       }
-      // non-exit infra tool: tool_result를 메시지 히스토리에 포함
       infraToolResults.push({
         type: "tool_result",
         tool_use_id: block.id,
@@ -193,17 +216,17 @@ export async function runAgentLoop(
       });
     }
 
-    // [2단계] System tool: 내부 시스템 관리 (비동기, deps 접근)
+    // [2단계] System tool: 비동기, deps 접근 (Store I/O)
     const systemToolResults: Anthropic.ToolResultBlockParam[] = [];
     for (const block of toolUseBlocks) {
       if (handled.has(block.id)) continue;
-      const entry = systemTools.get(block.name);
-      if (!entry) continue;
+      const def = systemDefMap.get(block.name);
+      if (!def) continue;
       toolCalls++;
       handled.add(block.id);
       log.debug("System tool handled", () => ({ tool: block.name, toolUseId: block.id }));
-      const signal = await entry.handler(
-        block.input as Record<string, unknown>,
+      const signal = await def.handler(
+        block.input as any,
         context,
         deps,
       );
@@ -213,7 +236,7 @@ export async function runAgentLoop(
         content: signal.toolResult,
       });
 
-      // enter_workspace 후 executor + tools 동적 재구성 — 같은 턴에서 GWS 도구 사용 가능
+      // enter_workspace 후 executor + tools 동적 재구성
       if (signal.enteredWorkspaceId) {
         const enteredWs = deps.workspaceStore.get(signal.enteredWorkspaceId);
         if (enteredWs) {
@@ -230,7 +253,7 @@ export async function runAgentLoop(
       }
     }
 
-    // [3단계] Skill tool: 외부 시스템 통신 (handled 제외)
+    // [3단계] Skill tool: 비동기 병렬, 외부 시스템 통신
     const remaining = toolUseBlocks.filter((b) => !handled.has(b.id));
     const skillToolResults = await Promise.all(
       remaining.map(async (block) => {
@@ -249,7 +272,6 @@ export async function runAgentLoop(
 
         if (interception.intercepted) {
           log.debug("Write intercepted", () => ({ tool: block.name, pendingActionId: interception.pendingAction.id }));
-          // 비동기로 오너에게 통지 (실패 시 로그 기록, silent drop 방지)
           notifyOwnerOfPending(
             interception.pendingAction,
             deps.registry,
@@ -277,9 +299,8 @@ export async function runAgentLoop(
         }
 
         // --- Zod 검증 파이프라인 (non-strict 도구만) ---
-        const def = toolDefMap.get(block.name);
+        const def = allDefMap.get(block.name);
         if (def && !def.strict) {
-          // Layer 1: Zod 스키마 검증
           const parsed = def.inputSchema.safeParse(toolInput);
           if (!parsed.success) {
             log.debug("Input validation failed", () => ({ tool: block.name, error: formatZodError(parsed.error) }));
@@ -290,7 +311,6 @@ export async function runAgentLoop(
               is_error: true,
             };
           }
-          // Layer 2: 비즈니스 검증 (선택적)
           if (def.validateInput) {
             const validation = def.validateInput(parsed.data);
             if (!validation.valid) {
@@ -303,7 +323,6 @@ export async function runAgentLoop(
               };
             }
           }
-          // 검증 통과: 파싱된 데이터로 교체
           toolInput = parsed.data;
         }
 
@@ -359,20 +378,19 @@ export async function runAgentAndDeliver(
   return result;
 }
 
+/** ToolRegistry 빌더 — definitions + executors 병합 */
 export function buildToolRegistry(
-  ...registries: { tools: Anthropic.Tool[]; executors: Map<string, ToolExecutor>; definitions?: ToolDefinition<any>[] }[]
+  ...registries: { definitions: ToolDefinition<any>[]; executors: Map<string, ToolExecutor> }[]
 ): ToolRegistry {
-  const tools: Anthropic.Tool[] = [];
-  const executors = new Map<string, ToolExecutor>();
   const definitions: ToolDefinition<any>[] = [];
+  const executors = new Map<string, ToolExecutor>();
 
   for (const reg of registries) {
-    tools.push(...reg.tools);
-    if (reg.definitions) definitions.push(...reg.definitions);
+    definitions.push(...reg.definitions);
     for (const [name, exec] of reg.executors) {
       executors.set(name, exec);
     }
   }
 
-  return { tools, executors, definitions };
+  return { definitions, executors };
 }

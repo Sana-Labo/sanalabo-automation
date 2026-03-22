@@ -82,7 +82,7 @@ export function extractMcpText(result: Awaited<ReturnType<Client["callTool"]>>):
  * MCP 도구를 Anthropic Tool 형식으로 변환
  *
  * 현재 MCP Pool의 도구 스키마는 Claude에 직접 전달되지 않음 —
- * `app.ts`에서 `LINE_CHANNEL_SKILL_TOOLS`(어댑터 간소화 스키마)를 사용.
+ * `app.ts`에서 `lineToolDefinitions`(어댑터 간소화 스키마)를 사용.
  * 이 함수의 출력은 executor Map 구성 시 도구 필터링에만 사용됨.
  */
 export function mapMcpToAnthropicTools(
