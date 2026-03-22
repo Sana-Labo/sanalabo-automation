@@ -5,53 +5,93 @@
  * 실행 시 MCP 네이티브 스키마로 변환 + userId 주입.
  *
  * - LLM 경유 (loop.ts): 단순화 입력 → adapter 변환 → MCP Pool
- * - 코드 직접 (notify.ts 등): 원본 executor 직접 호출 (변경 없음)
+ * - 코드 직접 (notify.ts 등): buildTextPayload/buildFlexPayload 헬퍼 사용
+ *
+ * Zod 스키마가 단일 출처. push_text_message: Zod 검증 (strict 제거).
  */
+import { z } from "zod";
 import type Anthropic from "@anthropic-ai/sdk";
 import { LINE_PUSH_TEXT_TOOL, LINE_PUSH_FLEX_TOOL, type ToolExecutor } from "../types.js";
 import { createLogger } from "../utils/logger.js";
+import { toAnthropicTool, type LineToolDefinition } from "./tool-definition.js";
 
 const log = createLogger("channel");
 
-/** LLM에 노출할 LINE 채널 스킬 도구 스키마 (strict: true) */
-export const LINE_CHANNEL_SKILL_TOOLS: Anthropic.Tool[] = [
-  {
-    name: LINE_PUSH_TEXT_TOOL,
-    strict: true,
-    description:
-      "Send a text message to the user via LINE. Keep messages under 2000 characters.",
-    input_schema: {
-      type: "object",
-      properties: {
-        text: {
-          type: "string",
-          description: "The text message to send",
-        },
-      },
-      required: ["text"],
-      additionalProperties: false,
-    },
+// --- Zod 스키마 ---
+
+const pushTextSchema = z.object({
+  text: z.string().describe("The text message to send"),
+});
+
+const pushFlexSchema = z.object({
+  altText: z.string().describe("Alternative text shown in notifications"),
+  contents: z.record(z.string(), z.unknown()).describe("Flex Message container (bubble or carousel)"),
+});
+
+// --- MCP 페이로드 헬퍼 ---
+
+/**
+ * MCP 네이티브 스키마용 텍스트 메시지 페이로드 생성
+ *
+ * userId + text → MCP `push_text_message` 입력 형식.
+ * notify.ts, system-tools.ts 등 코드에서 직접 호출할 때 사용.
+ */
+export function buildTextPayload(userId: string, text: string): Record<string, unknown> {
+  return {
+    userId,
+    message: { type: "text", text },
+  };
+}
+
+/**
+ * MCP 네이티브 스키마용 Flex 메시지 페이로드 생성
+ *
+ * userId + altText + contents → MCP `push_flex_message` 입력 형식.
+ */
+export function buildFlexPayload(
+  userId: string,
+  altText: string,
+  contents: Record<string, unknown>,
+): Record<string, unknown> {
+  return {
+    userId,
+    message: { type: "flex", altText, contents },
+  };
+}
+
+// --- ToolDefinition (새 구조) ---
+
+const pushTextDef: LineToolDefinition<z.infer<typeof pushTextSchema>> = {
+  name: LINE_PUSH_TEXT_TOOL,
+  // strict 제거: Zod 검증으로 전환 (비용 효율적, 스키마 극단적 단순)
+  description:
+    "Send a text message to the user via LINE. Keep messages under 2000 characters.",
+  inputSchema: pushTextSchema,
+  createExecutor: (deps) => async (input) => {
+    return deps.origExecutor(buildTextPayload(deps.userId, input.text));
   },
-  {
-    name: LINE_PUSH_FLEX_TOOL,
-    description:
-      "Send a Flex Message to the user via LINE. Use for rich, structured content.",
-    input_schema: {
-      type: "object",
-      properties: {
-        altText: {
-          type: "string",
-          description: "Alternative text shown in notifications",
-        },
-        contents: {
-          type: "object",
-          description: "Flex Message container (bubble or carousel)",
-        },
-      },
-      required: ["altText", "contents"],
-    },
+};
+
+const pushFlexDef: LineToolDefinition<z.infer<typeof pushFlexSchema>> = {
+  name: LINE_PUSH_FLEX_TOOL,
+  description:
+    "Send a Flex Message to the user via LINE. Use for rich, structured content.",
+  inputSchema: pushFlexSchema,
+  createExecutor: (deps) => async (input) => {
+    return deps.origExecutor(buildFlexPayload(deps.userId, input.altText, input.contents));
   },
+};
+
+/** LINE 도구 정의 배열 (새 구조) */
+export const lineToolDefinitions: readonly LineToolDefinition<any>[] = [
+  pushTextDef, pushFlexDef,
 ];
+
+// --- 레거시 호환 (레거시 정리 시 제거) ---
+
+/** @deprecated 레거시 정리 시 제거. lineToolDefinitions + toAnthropicTool 사용 */
+export const LINE_CHANNEL_SKILL_TOOLS: Anthropic.Tool[] =
+  lineToolDefinitions.map((d) => toAnthropicTool(d));
 
 /**
  * 원본 MCP executor를 래핑하여 단순화 입력 → MCP 네이티브 스키마로 변환
@@ -66,24 +106,12 @@ export function createLineExecutors(
 ): Map<string, ToolExecutor> {
   const wrapped = new Map<string, ToolExecutor>();
 
-  const textExec = origExecutors.get(LINE_PUSH_TEXT_TOOL);
-  if (textExec) {
-    wrapped.set(LINE_PUSH_TEXT_TOOL, async (input) => {
-      return textExec({
-        userId,
-        message: { type: "text", text: input.text },
-      });
-    });
-  }
-
-  const flexExec = origExecutors.get(LINE_PUSH_FLEX_TOOL);
-  if (flexExec) {
-    wrapped.set(LINE_PUSH_FLEX_TOOL, async (input) => {
-      return flexExec({
-        userId,
-        message: { type: "flex", altText: input.altText, contents: input.contents },
-      });
-    });
+  for (const def of lineToolDefinitions) {
+    const origExec = origExecutors.get(def.name);
+    if (origExec) {
+      const typedExecutor = def.createExecutor({ origExecutor: origExec, userId });
+      wrapped.set(def.name, (input) => typedExecutor(input as any));
+    }
   }
 
   return wrapped;
@@ -110,9 +138,6 @@ export function createChannelTextSender(
       log.warning("push_text_message executor not found — channel delivery skipped");
       return;
     }
-    await exec({
-      userId,
-      message: { type: "text", text },
-    });
+    await exec(buildTextPayload(userId, text));
   };
 }

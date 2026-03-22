@@ -3,6 +3,8 @@
  *
  * TokenStore에서 토큰 로드 → OAuth2Client 생성 → googleapis 서비스 클라이언트 → executor Map.
  * 워크스페이스별 캐시 지원. 토큰 회전 시 자동 저장.
+ *
+ * GwsToolDefinition의 createExecutor를 순회하여 executor 생성.
  */
 
 import { gmail } from "@googleapis/gmail";
@@ -13,7 +15,7 @@ import {
   configureClient,
   type GoogleAuthConfig,
 } from "./google-auth.js";
-import { createApiExecutors } from "./api-executor.js";
+import { gwsToolDefinitions } from "./tools.js";
 import type { TokenStore, GoogleTokens } from "./token-store.js";
 import type { ToolExecutor } from "../../types.js";
 import { toErrorMessage } from "../../utils/error.js";
@@ -100,9 +102,17 @@ export function createGwsExecutorFactory(
     const gmailClient = gmail({ version: "v1", auth });
     const calendarClient = calendar({ version: "v3", auth });
     const driveClient = drive({ version: "v3", auth });
+    const services = { gmail: gmailClient, calendar: calendarClient, drive: driveClient };
 
-    // executor Map 생성 + auth 에러 감지 래핑
-    const rawExecutors = createApiExecutors(gmailClient, calendarClient, driveClient);
+    // GwsToolDefinition 순회 → createExecutor 생성
+    const rawExecutors = new Map<string, ToolExecutor>();
+    for (const def of gwsToolDefinitions) {
+      const typedExecutor = def.createExecutor(services);
+      rawExecutors.set(def.name, (input) => typedExecutor(input as any));
+    }
+
+    // auth 에러 감지 → 캐시 무효화 → re-throw.
+    // 에러→문자열 변환은 loop.ts catch (is_error: true)에 일원화
     const executors = withAuthErrorInvalidation(rawExecutors, workspaceId, cache);
     cache.set(workspaceId, executors);
     log.debug("GWS executors created", { workspaceId, toolCount: executors.size });

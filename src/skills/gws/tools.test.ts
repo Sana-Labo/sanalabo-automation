@@ -18,14 +18,15 @@ describe("gwsTools", () => {
     }
   });
 
-  test("optional-only 도구(gmail_list, calendar_list)에 빈 required 배열 존재", () => {
+  test("optional-only 도구(gmail_list, calendar_list)에 required 없거나 빈 배열", () => {
     const optionalOnlyTools = gwsTools.filter(
       (t) => t.name === "gmail_list" || t.name === "calendar_list",
     );
     expect(optionalOnlyTools).toHaveLength(2);
 
     for (const tool of optionalOnlyTools) {
-      expect(tool.input_schema.required).toEqual([]);
+      const required = tool.input_schema.required as string[] | undefined;
+      expect(!required || required.length === 0).toBe(true);
     }
   });
 

@@ -34,16 +34,17 @@ describe("LINE_CHANNEL_SKILL_TOOLS", () => {
     expect(names).toContain(LINE_PUSH_FLEX_TOOL);
   });
 
-  test("push_text_message는 strict: true + additionalProperties: false", () => {
+  test("push_text_message는 non-strict + additionalProperties: false (Zod 검증)", () => {
     const tool = LINE_CHANNEL_SKILL_TOOLS.find((t) => t.name === LINE_PUSH_TEXT_TOOL)!;
-    expect(tool.strict).toBe(true);
+    // strict 제거: Zod 검증으로 전환 (비용 효율적)
+    expect(tool.strict).toBeUndefined();
     expect(tool.input_schema.additionalProperties).toBe(false);
   });
 
-  test("push_flex_message는 non-strict (contents가 자유 구조)", () => {
+  test("push_flex_message는 non-strict + additionalProperties: false", () => {
     const tool = LINE_CHANNEL_SKILL_TOOLS.find((t) => t.name === LINE_PUSH_FLEX_TOOL)!;
     expect(tool.strict).toBeUndefined();
-    expect(tool.input_schema.additionalProperties).toBeUndefined();
+    expect(tool.input_schema.additionalProperties).toBe(false);
   });
 
   test("push_text_message 스키마는 text만 required", () => {
