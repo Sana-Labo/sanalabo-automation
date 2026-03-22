@@ -892,7 +892,7 @@ describe("reject_action handler", () => {
   });
 });
 
-// --- ToolDefinition (새 구조) 테스트 ---
+// --- ToolDefinition 테스트 ---
 
 describe("systemToolDefinitions (Zod)", () => {
   const expectedNames = [

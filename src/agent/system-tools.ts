@@ -242,7 +242,7 @@ async function sendOAuthUrl(
   }
 }
 
-// --- ToolDefinition (새 구조) ---
+// --- ToolDefinition ---
 
 const createWorkspaceDef: SystemToolDefinition<z.infer<typeof createWorkspaceSchema>> = {
   name: "create_workspace",
@@ -610,7 +610,7 @@ const authenticateGwsDef: SystemToolDefinition<z.infer<typeof authenticateGwsSch
   },
 };
 
-/** 모든 System 도구 정의 (새 구조) */
+/** 모든 System 도구 정의 */
 // any 사용 필수: handler의 input이 반변(contravariant) 위치 — unknown은 할당 불가
 export const systemToolDefinitions: readonly SystemToolDefinition<any>[] = [
   createWorkspaceDef, listWorkspacesDef, getWorkspaceInfoDef,

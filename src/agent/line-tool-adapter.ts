@@ -58,7 +58,7 @@ export function buildFlexPayload(
   };
 }
 
-// --- ToolDefinition (새 구조) ---
+// --- ToolDefinition ---
 
 const pushTextDef: LineToolDefinition<z.infer<typeof pushTextSchema>> = {
   name: LINE_PUSH_TEXT_TOOL,
@@ -81,7 +81,7 @@ const pushFlexDef: LineToolDefinition<z.infer<typeof pushFlexSchema>> = {
   },
 };
 
-/** LINE 도구 정의 배열 (새 구조) */
+/** LINE 도구 정의 배열 */
 export const lineToolDefinitions: readonly LineToolDefinition<any>[] = [
   pushTextDef, pushFlexDef,
 ];
