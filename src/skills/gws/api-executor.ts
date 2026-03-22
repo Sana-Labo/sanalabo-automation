@@ -85,6 +85,13 @@ function getHeader(
   )?.value ?? undefined;
 }
 
+/** RFC 2047 MIME encoded-word: 비ASCII 문자가 포함된 헤더 값을 Base64 인코딩 */
+export function encodeHeaderValue(value: string): string {
+  // ASCII만 포함되면 그대로 반환
+  if (/^[\x20-\x7E]*$/.test(value)) return value;
+  return `=?UTF-8?B?${Buffer.from(value).toString("base64")}?=`;
+}
+
 /** RFC 2822 형식 raw email 생성 (base64url 인코딩) */
 function buildRawEmail(params: {
   to: string;
@@ -97,7 +104,7 @@ function buildRawEmail(params: {
 }): string {
   const lines = [
     `To: ${params.to}`,
-    `Subject: ${params.subject}`,
+    `Subject: ${encodeHeaderValue(params.subject)}`,
     "Content-Type: text/plain; charset=UTF-8",
   ];
   if (params.cc) lines.push(`Cc: ${params.cc}`);

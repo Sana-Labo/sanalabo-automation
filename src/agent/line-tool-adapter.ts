@@ -34,7 +34,6 @@ export const LINE_CHANNEL_SKILL_TOOLS: Anthropic.Tool[] = [
   },
   {
     name: LINE_PUSH_FLEX_TOOL,
-    strict: true,
     description:
       "Send a Flex Message to the user via LINE. Use for rich, structured content.",
     input_schema: {
@@ -45,11 +44,11 @@ export const LINE_CHANNEL_SKILL_TOOLS: Anthropic.Tool[] = [
           description: "Alternative text shown in notifications",
         },
         contents: {
+          type: "object",
           description: "Flex Message container (bubble or carousel)",
         },
       },
       required: ["altText", "contents"],
-      additionalProperties: false,
     },
   },
 ];
@@ -70,10 +69,9 @@ export function createLineExecutors(
   const textExec = origExecutors.get(LINE_PUSH_TEXT_TOOL);
   if (textExec) {
     wrapped.set(LINE_PUSH_TEXT_TOOL, async (input) => {
-      // { text } → { user_id, messages: [{ type: "text", text }] }
       return textExec({
-        user_id: userId,
-        messages: [{ type: "text", text: input.text }],
+        userId,
+        message: { type: "text", text: input.text },
       });
     });
   }
@@ -81,10 +79,9 @@ export function createLineExecutors(
   const flexExec = origExecutors.get(LINE_PUSH_FLEX_TOOL);
   if (flexExec) {
     wrapped.set(LINE_PUSH_FLEX_TOOL, async (input) => {
-      // { altText, contents } → { user_id, messages: [{ type: "flex", altText, contents }] }
       return flexExec({
-        user_id: userId,
-        messages: [{ type: "flex", altText: input.altText, contents: input.contents }],
+        userId,
+        message: { type: "flex", altText: input.altText, contents: input.contents },
       });
     });
   }
@@ -114,8 +111,8 @@ export function createChannelTextSender(
       return;
     }
     await exec({
-      user_id: userId,
-      messages: [{ type: "text", text }],
+      userId,
+      message: { type: "text", text },
     });
   };
 }

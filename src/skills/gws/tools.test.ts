@@ -6,9 +6,9 @@ describe("gwsTools", () => {
     expect(gwsTools).toHaveLength(15);
   });
 
-  test("모든 도구에 strict: true 설정", () => {
+  test("GWS 도구는 non-strict (strict tool 제한 20개 준수)", () => {
     for (const tool of gwsTools) {
-      expect(tool.strict).toBe(true);
+      expect(tool.strict).toBeUndefined();
     }
   });
 

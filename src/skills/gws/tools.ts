@@ -1,9 +1,14 @@
 import type Anthropic from "@anthropic-ai/sdk";
 
+/**
+ * GWS 도구는 non-strict: Anthropic strict tool 제한(max 20)을 준수하기 위해.
+ * flat 스키마(문자열 파라미터)이므로 strict 불필요. executor 측에서 입력 검증 수행.
+ *
+ * Strict budget: system(8) + infra(1) + LINE text(1) = 10/20. 여유 10.
+ */
 export const gwsTools: Anthropic.Tool[] = [
   {
     name: "gmail_list",
-    strict: true,
     description:
       "List or search emails in Gmail. Supports full Gmail search syntax (e.g. 'is:unread', 'from:user@example.com', 'newer_than:1h is:important').",
     input_schema: {
@@ -24,7 +29,6 @@ export const gwsTools: Anthropic.Tool[] = [
   },
   {
     name: "gmail_get",
-    strict: true,
     description: "Get a specific email message by ID with full content.",
     input_schema: {
       type: "object",
@@ -40,7 +44,6 @@ export const gwsTools: Anthropic.Tool[] = [
   },
   {
     name: "gmail_create_draft",
-    strict: true,
     description:
       "Create a draft email in Gmail. This does NOT send the email — it only saves a draft. After creating, inform the user that the draft has been saved and they must send it from Gmail.",
     input_schema: {
@@ -65,7 +68,6 @@ export const gwsTools: Anthropic.Tool[] = [
   },
   {
     name: "calendar_list",
-    strict: true,
     description:
       "List calendar events within a time range. Defaults to today if not specified.",
     input_schema: {
@@ -86,7 +88,6 @@ export const gwsTools: Anthropic.Tool[] = [
   },
   {
     name: "calendar_create",
-    strict: true,
     description:
       "Create a new calendar event. Always confirm with user via LINE before executing.",
     input_schema: {
@@ -115,7 +116,6 @@ export const gwsTools: Anthropic.Tool[] = [
   },
   {
     name: "gmail_send",
-    strict: true,
     description:
       "Send an email. This action is irreversible — always confirm with the user before sending.",
     input_schema: {
@@ -148,7 +148,6 @@ export const gwsTools: Anthropic.Tool[] = [
   },
   {
     name: "gmail_reply",
-    strict: true,
     description:
       "Reply to an existing email thread. This action is irreversible — always confirm with the user before replying.",
     input_schema: {
@@ -169,7 +168,6 @@ export const gwsTools: Anthropic.Tool[] = [
   },
   {
     name: "gmail_modify_labels",
-    strict: true,
     description:
       "Add or remove labels from an email. Use this for archiving (remove INBOX), marking as read (remove UNREAD), starring, etc.",
     input_schema: {
@@ -197,7 +195,6 @@ export const gwsTools: Anthropic.Tool[] = [
   },
   {
     name: "gmail_trash",
-    strict: true,
     description: "Move an email to the trash.",
     input_schema: {
       type: "object",
@@ -213,7 +210,6 @@ export const gwsTools: Anthropic.Tool[] = [
   },
   {
     name: "calendar_update",
-    strict: true,
     description:
       "Update an existing calendar event. Only specified fields will be changed.",
     input_schema: {
@@ -246,7 +242,6 @@ export const gwsTools: Anthropic.Tool[] = [
   },
   {
     name: "calendar_delete",
-    strict: true,
     description:
       "Delete a calendar event. This action is irreversible — always confirm with the user before deleting.",
     input_schema: {
@@ -263,7 +258,6 @@ export const gwsTools: Anthropic.Tool[] = [
   },
   {
     name: "drive_search",
-    strict: true,
     description: "Search files in Google Drive.",
     input_schema: {
       type: "object",
@@ -279,7 +273,6 @@ export const gwsTools: Anthropic.Tool[] = [
   },
   {
     name: "drive_get_content",
-    strict: true,
     description:
       "Get the content of a file from Google Drive. For Google Docs/Sheets/Slides, exports as text. For other files, returns metadata.",
     input_schema: {
@@ -296,7 +289,6 @@ export const gwsTools: Anthropic.Tool[] = [
   },
   {
     name: "drive_upload",
-    strict: true,
     description:
       "Upload a text file to Google Drive. For creating Google Docs, set mimeType to 'application/vnd.google-apps.document'.",
     input_schema: {
@@ -326,7 +318,6 @@ export const gwsTools: Anthropic.Tool[] = [
   },
   {
     name: "drive_share",
-    strict: true,
     description: "Share a file or folder with a user or make it public.",
     input_schema: {
       type: "object",

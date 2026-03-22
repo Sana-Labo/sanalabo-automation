@@ -2,7 +2,7 @@ import { describe, test, expect, beforeEach } from "bun:test";
 import type { gmail_v1 } from "@googleapis/gmail";
 import type { calendar_v3 } from "@googleapis/calendar";
 import type { drive_v3 } from "@googleapis/drive";
-import { createApiExecutors } from "./api-executor.js";
+import { createApiExecutors, encodeHeaderValue } from "./api-executor.js";
 
 // --- Mock 팩토리 ---
 
@@ -373,6 +373,40 @@ describe("createApiExecutors", () => {
       );
       expect(result.shared).toBe(true);
       expect(result.public).toBe(true);
+    });
+  });
+
+  // --- encodeHeaderValue (RFC 2047) ---
+
+  describe("encodeHeaderValue", () => {
+    test("ASCII 문자열은 그대로 반환", () => {
+      expect(encodeHeaderValue("Hello World")).toBe("Hello World");
+    });
+
+    test("한국어 제목은 MIME encoded-word로 변환", () => {
+      const encoded = encodeHeaderValue("테스트 인사");
+      expect(encoded).toMatch(/^=\?UTF-8\?B\?.+\?=$/);
+      // 디코딩 검증
+      const base64 = encoded.replace("=?UTF-8?B?", "").replace("?=", "");
+      expect(Buffer.from(base64, "base64").toString("utf-8")).toBe("테스트 인사");
+    });
+
+    test("일본어 제목도 MIME encoded-word로 변환", () => {
+      const encoded = encodeHeaderValue("お知らせ");
+      expect(encoded).toMatch(/^=\?UTF-8\?B\?.+\?=$/);
+      const base64 = encoded.replace("=?UTF-8?B?", "").replace("?=", "");
+      expect(Buffer.from(base64, "base64").toString("utf-8")).toBe("お知らせ");
+    });
+
+    test("이모지 포함 제목도 MIME encoded-word로 변환", () => {
+      const encoded = encodeHeaderValue("Hello 🌍");
+      expect(encoded).toMatch(/^=\?UTF-8\?B\?.+\?=$/);
+      const base64 = encoded.replace("=?UTF-8?B?", "").replace("?=", "");
+      expect(Buffer.from(base64, "base64").toString("utf-8")).toBe("Hello 🌍");
+    });
+
+    test("빈 문자열은 그대로 반환", () => {
+      expect(encodeHeaderValue("")).toBe("");
     });
   });
 

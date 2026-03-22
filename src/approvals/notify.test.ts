@@ -90,7 +90,7 @@ describe("notifyOwnerOfPending", () => {
     await notifyOwnerOfPending(action, registry, makeWorkspaceStore(ws));
 
     expect(flexCalls).toHaveLength(1);
-    expect(flexCalls[0]!.input.user_id).toBe(ws.ownerId);
+    expect(flexCalls[0]!.input.userId).toBe(ws.ownerId);
     expect(textCalls).toHaveLength(0);
   });
 
@@ -103,9 +103,9 @@ describe("notifyOwnerOfPending", () => {
 
     expect(flexCalls).toHaveLength(0);
     expect(textCalls).toHaveLength(1);
-    expect(textCalls[0]!.input.user_id).toBe(ws.ownerId);
-    const messages = textCalls[0]!.input.messages as Array<{ type: string; text: string }>;
-    const text = messages[0]!.text;
+    expect(textCalls[0]!.input.userId).toBe(ws.ownerId);
+    const msg = textCalls[0]!.input.message as { type: string; text: string };
+    const text = msg.text;
     expect(text).toContain("Approval Request");
     expect(text).toContain(action.toolName);
   });
@@ -129,8 +129,8 @@ describe("notifyActionResult", () => {
     await notifyActionResult(action, registry, "U_member_1");
 
     expect(textCalls).toHaveLength(1);
-    const messages = textCalls[0]!.input.messages as Array<{ type: string; text: string }>;
-    const text = messages[0]!.text;
+    const msg = textCalls[0]!.input.message as { type: string; text: string };
+    const text = msg.text;
     expect(text).toContain("Approved");
     expect(text).toContain(action.toolName);
   });
@@ -145,8 +145,8 @@ describe("notifyActionResult", () => {
     await notifyActionResult(action, registry, "U_member_1");
 
     expect(textCalls).toHaveLength(1);
-    const messages = textCalls[0]!.input.messages as Array<{ type: string; text: string }>;
-    const text = messages[0]!.text;
+    const msg = textCalls[0]!.input.message as { type: string; text: string };
+    const text = msg.text;
     expect(text).toContain("Rejected");
     expect(text).toContain("Inappropriate content");
   });
@@ -158,8 +158,8 @@ describe("notifyActionResult", () => {
     await notifyActionResult(action, registry, "U_member_1", "GWS API timeout");
 
     expect(textCalls).toHaveLength(1);
-    const messages = textCalls[0]!.input.messages as Array<{ type: string; text: string }>;
-    const text = messages[0]!.text;
+    const msg = textCalls[0]!.input.message as { type: string; text: string };
+    const text = msg.text;
     expect(text).toContain("Execution error");
     expect(text).toContain("GWS API timeout");
   });
