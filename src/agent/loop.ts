@@ -2,7 +2,6 @@ import Anthropic from "@anthropic-ai/sdk";
 import { interceptWrite } from "../approvals/interceptor.js";
 import { notifyOwnerOfPending } from "../approvals/notify.js";
 import { config } from "../config.js";
-import { getGwsExecutors } from "../skills/gws/executor.js";
 import {
   CHANNEL_SKILL_TOOL_NAMES,
   type AgentDependencies,
@@ -87,9 +86,11 @@ export async function runAgentLoop(
   // LINE push 도구는 래핑 executor (단순화 입력 → MCP 네이티브 변환 + userId 주입)
   const executors = new Map(deps.registry.executors);
   if (workspace) {
-    const gwsExecs = getGwsExecutors(workspace.id, workspace.gwsConfigDir);
-    for (const [name, exec] of gwsExecs) {
-      executors.set(name, exec);
+    const gwsExecs = await deps.getGwsExecutors(workspace.id);
+    if (gwsExecs) {
+      for (const [name, exec] of gwsExecs) {
+        executors.set(name, exec);
+      }
     }
   }
   const lineExecs = createLineExecutors(deps.registry.executors, context.userId);
@@ -196,9 +197,11 @@ export async function runAgentLoop(
       if (signal.enteredWorkspaceId) {
         const enteredWs = deps.workspaceStore.get(signal.enteredWorkspaceId);
         if (enteredWs) {
-          const gwsExecs = getGwsExecutors(enteredWs.id, enteredWs.gwsConfigDir);
-          for (const [name, exec] of gwsExecs) {
-            executors.set(name, exec);
+          const gwsExecs = await deps.getGwsExecutors(enteredWs.id);
+          if (gwsExecs) {
+            for (const [name, exec] of gwsExecs) {
+              executors.set(name, exec);
+            }
           }
           allTools = buildToolList();
           context = { ...context, workspaceId: enteredWs.id, role: deps.workspaceStore.getUserRole(enteredWs.id, context.userId) ?? context.role };

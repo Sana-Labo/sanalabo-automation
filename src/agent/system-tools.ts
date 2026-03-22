@@ -7,17 +7,22 @@
  * - 결정론적 처리 (LLM 판단에 의존하지 않음)
  */
 import type Anthropic from "@anthropic-ai/sdk";
-import type {
-  AgentDependencies,
-  InternalToolEntry,
-  InternalToolSignal,
-  Role,
-  ToolContext,
+import {
+  LINE_PUSH_FLEX_TOOL,
+  LINE_PUSH_TEXT_TOOL,
+  type AgentDependencies,
+  type InternalToolEntry,
+  type InternalToolSignal,
+  type Role,
+  type ToolContext,
+  type ToolRegistry,
 } from "../types.js";
 import { isActive, isValidLineUserId } from "../domain/user.js";
 import { canCreateWorkspace, getMaxOwnedWorkspaces, validateWorkspaceName, type WorkspaceRecord } from "../domain/workspace.js";
 import { notifyActionResult } from "../approvals/notify.js";
-import { getGwsExecutors } from "../skills/gws/executor.js";
+import { config } from "../config.js";
+import { buildConsentUrl } from "../domain/google-oauth.js";
+import { createPendingAuth } from "../skills/gws/oauth-state.js";
 import { toErrorMessage } from "../utils/error.js";
 import { createLogger } from "../utils/logger.js";
 
@@ -104,11 +109,30 @@ const createWorkspace: SystemToolEntry = {
     // 5. 마지막 워크스페이스 설정 (Store I/O) — owner에게 설정 (자동 진입)
     await deps.userStore.setLastWorkspaceId(ownerId, ws.id);
 
+    // 6. 자동 OAuth 트리거: Google 인증 링크 발송 (환경변수 설정 시)
+    let authSent = false;
+    if (config.googleClientId && config.googleRedirectUri) {
+      try {
+        const state = createPendingAuth(ownerId, ws.id);
+        const consentUrl = buildConsentUrl({
+          clientId: config.googleClientId,
+          redirectUri: config.googleRedirectUri,
+          state,
+        });
+        await sendOAuthUrl(ownerId, consentUrl, ws.name, deps.registry);
+        authSent = true;
+      } catch (e) {
+        log.error("Auto OAuth trigger failed", { workspaceId: ws.id, error: toErrorMessage(e) });
+      }
+    }
+
     return {
       toolResult: JSON.stringify({
         workspaceId: ws.id,
         name: ws.name,
-        message: "Workspace created successfully. Google Workspace authentication is required to use GWS features.",
+        message: authSent
+          ? "Workspace created successfully. A Google authentication link has been sent."
+          : "Workspace created successfully. Use authenticate_gws to connect Google Workspace.",
       }),
     };
   },
@@ -437,7 +461,7 @@ const approveAction: SystemToolEntry = {
     // GWS 도구 실행 — workspace가 있으면 GWS executor 우선, 없으면 registry 폴백
     const workspace = deps.workspaceStore.get(resolved.workspaceId);
     let executionError: string | undefined;
-    const gwsExecs = workspace ? getGwsExecutors(workspace.id, workspace.gwsConfigDir) : new Map();
+    const gwsExecs = workspace ? (await deps.getGwsExecutors(workspace.id)) ?? new Map() : new Map();
     const executor = gwsExecs.get(resolved.toolName) ?? deps.registry.executors.get(resolved.toolName);
     if (executor) {
       try {
@@ -525,6 +549,163 @@ const rejectAction: SystemToolEntry = {
   },
 };
 
+// --- authenticate_gws ---
+
+/**
+ * OAuth 인증 URL을 Flex Message로 직접 전송 (결정론적, notify.ts 패턴)
+ *
+ * Claude 경유 시 Flex Message 포맷 누락 위험 → 시스템이 직접 전송.
+ */
+async function sendOAuthUrl(
+  userId: string,
+  consentUrl: string,
+  workspaceName: string,
+  registry: ToolRegistry,
+): Promise<void> {
+  const flexExecutor = registry.executors.get(LINE_PUSH_FLEX_TOOL);
+  if (flexExecutor) {
+    await flexExecutor({
+      user_id: userId,
+      messages: [
+        {
+          type: "flex",
+          altText: "Google Workspace Authentication",
+          contents: {
+            type: "bubble",
+            header: {
+              type: "box",
+              layout: "vertical",
+              contents: [
+                {
+                  type: "text",
+                  text: `Google Authentication — ${workspaceName}`,
+                  weight: "bold",
+                  size: "md",
+                },
+              ],
+            },
+            body: {
+              type: "box",
+              layout: "vertical",
+              spacing: "md",
+              contents: [
+                {
+                  type: "text",
+                  text: "Tap the button below to connect your Google account. This grants access to Gmail, Calendar, and Drive.",
+                  size: "sm",
+                  wrap: true,
+                },
+                {
+                  type: "text",
+                  text: "The link expires in 10 minutes.",
+                  size: "xs",
+                  color: "#999999",
+                },
+              ],
+            },
+            footer: {
+              type: "box",
+              layout: "vertical",
+              contents: [
+                {
+                  type: "button",
+                  style: "primary",
+                  action: {
+                    type: "uri",
+                    label: "Connect Google Account",
+                    uri: consentUrl,
+                  },
+                },
+              ],
+            },
+          },
+        },
+      ],
+    });
+    return;
+  }
+
+  // Flex 불가 시 텍스트 폴백
+  const textExecutor = registry.executors.get(LINE_PUSH_TEXT_TOOL);
+  if (textExecutor) {
+    await textExecutor({
+      user_id: userId,
+      messages: [
+        {
+          type: "text",
+          text: `[Google Authentication — ${workspaceName}]\n\nTap the link below to connect your Google account:\n${consentUrl}\n\nThe link expires in 10 minutes.`,
+        },
+      ],
+    });
+  }
+}
+
+const authenticateGws: SystemToolEntry = {
+  def: {
+    name: "authenticate_gws",
+    strict: true,
+    description:
+      "Send a Google Workspace authentication link to the workspace owner. Use this when the workspace needs Google authentication or re-authentication.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        workspace_id: {
+          anyOf: [{ type: "string" }, { type: "null" }],
+          description:
+            "Workspace ID to authenticate. If null, uses the current workspace context.",
+        },
+      },
+      required: ["workspace_id"],
+      additionalProperties: false,
+    },
+  },
+  async handler(input, context, deps) {
+    const wsId = (input.workspace_id as string | null) ?? context.workspaceId;
+    if (!wsId) {
+      return { toolResult: "Error: No workspace specified and no current workspace context." };
+    }
+
+    const ws = deps.workspaceStore.get(wsId);
+    if (!ws) {
+      return { toolResult: `Error: Workspace not found: ${wsId}` };
+    }
+
+    // Owner 또는 admin만 인증 가능
+    const isAdmin = deps.userStore.isSystemAdmin(context.userId);
+    if (ws.ownerId !== context.userId && !isAdmin) {
+      return { toolResult: "Error: Only the workspace owner can authenticate Google Workspace." };
+    }
+
+    // OAuth 환경변수 검증
+    if (!config.googleClientId || !config.googleRedirectUri) {
+      return { toolResult: "Error: Google OAuth is not configured on this server." };
+    }
+
+    // state 생성 + consent URL 조립
+    const state = createPendingAuth(ws.ownerId, ws.id);
+    const consentUrl = buildConsentUrl({
+      clientId: config.googleClientId,
+      redirectUri: config.googleRedirectUri,
+      state,
+    });
+
+    // Flex Message 직접 전송 (결정론적)
+    try {
+      await sendOAuthUrl(ws.ownerId, consentUrl, ws.name, deps.registry);
+    } catch (e) {
+      log.error("Failed to send OAuth URL", { workspaceId: ws.id, error: toErrorMessage(e) });
+      return { toolResult: `Error: Failed to send authentication link: ${toErrorMessage(e)}` };
+    }
+
+    return {
+      toolResult: JSON.stringify({
+        workspaceId: ws.id,
+        message: "Authentication link has been sent. The owner should open the link in a browser to complete Google authentication.",
+      }),
+    };
+  },
+};
+
 /** Postback 직접 호출용 핸들러 export */
 export const approveActionHandler = approveAction.handler;
 export const rejectActionHandler = rejectAction.handler;
@@ -535,6 +716,7 @@ const entries: SystemToolEntry[] = [
   createWorkspace, listWorkspaces, getWorkspaceInfo,
   enterWorkspace, inviteMember,
   approveAction, rejectAction,
+  authenticateGws,
 ];
 
 /** 이름 키 Map (O(1) lookup) */

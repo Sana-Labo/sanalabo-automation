@@ -21,7 +21,6 @@ export interface WorkspaceRecord {
   id: string;
   name: string;
   ownerId: string;
-  gwsConfigDir: string;
   gwsAuthenticated: boolean;
   createdAt: string;
   members: Record<string, WorkspaceMembership>;

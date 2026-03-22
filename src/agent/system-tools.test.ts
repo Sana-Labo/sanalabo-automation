@@ -19,7 +19,6 @@ function makeWorkspace(overrides?: Partial<WorkspaceRecord>): WorkspaceRecord {
     id: "ws-001",
     name: "TestWorkspace",
     ownerId: "Uowner1234",
-    gwsConfigDir: "data/workspaces/ws-001/gws-config",
     gwsAuthenticated: false,
     createdAt: "2024-01-01T00:00:00Z",
     members: {
@@ -50,6 +49,7 @@ function makeDeps(overrides?: {
   return {
     registry: { tools: [], executors: new Map() },
     pendingActionStore: {} as AgentDependencies["pendingActionStore"],
+    getGwsExecutors: async () => new Map(),
     workspaceStore: {
       getByOwner: () => overrides?.ownedWorkspaces ?? [],
       create: async () => createdWs,
@@ -154,6 +154,7 @@ describe("create_workspace handler", () => {
     const deps: AgentDependencies = {
       registry: { tools: [], executors: new Map() },
       pendingActionStore: {} as AgentDependencies["pendingActionStore"],
+      getGwsExecutors: async () => new Map(),
       workspaceStore: {
         getByOwner: () => [],
         create: async (name: string, ownerId: string) => {
@@ -317,8 +318,7 @@ describe("list_workspaces handler", () => {
     expect(result.workspaces[0].workspaces[0]).toEqual({
       id: "ws-001", name: "WS1", createdAt: "2024-01-01T00:00:00Z",
     });
-    // gwsConfigDir, memberCount 등 미포함
-    expect(result.workspaces[0].workspaces[0].gwsConfigDir).toBeUndefined();
+    // memberCount 등 미포함
     expect(result.workspaces[0].workspaces[0].memberCount).toBeUndefined();
   });
 
@@ -400,7 +400,7 @@ describe("get_workspace_info handler", () => {
       },
     });
 
-  test("admin 프로젝션: ownerId + gwsAuthenticated 포함, gwsConfigDir 제외", async () => {
+  test("admin 프로젝션: ownerId + gwsAuthenticated 포함", async () => {
     const ws = sharedWs();
     const deps = makeDeps({
       getWorkspace: (id) => (id === "ws-001" ? ws : undefined),
@@ -417,7 +417,6 @@ describe("get_workspace_info handler", () => {
     expect(result.gwsAuthenticated).toBe(true);
     expect(result.memberCount).toBe(2);
     expect(result.members).toHaveLength(2);
-    expect(result.gwsConfigDir).toBeUndefined();
   });
 
   test("owner 프로젝션: gwsAuthenticated 포함, ownerId 제외", async () => {
@@ -434,7 +433,6 @@ describe("get_workspace_info handler", () => {
     expect(result.id).toBe("ws-001");
     expect(result.gwsAuthenticated).toBe(true);
     expect(result.ownerId).toBeUndefined();
-    expect(result.gwsConfigDir).toBeUndefined();
     expect(result.members).toHaveLength(2);
   });
 
@@ -452,7 +450,6 @@ describe("get_workspace_info handler", () => {
     expect(result.id).toBe("ws-001");
     expect(result.ownerId).toBe("Uowner1234");
     expect(result.gwsAuthenticated).toBeUndefined();
-    expect(result.gwsConfigDir).toBeUndefined();
     expect(result.members).toHaveLength(2);
   });
 

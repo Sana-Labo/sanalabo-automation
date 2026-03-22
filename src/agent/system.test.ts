@@ -19,7 +19,6 @@ function makeWorkspace(overrides?: Partial<WorkspaceRecord>): WorkspaceRecord {
     id: "ws-001",
     name: "TestWorkspace",
     ownerId: "Uowner1234",
-    gwsConfigDir: "data/workspaces/ws-001/gws-config",
     gwsAuthenticated: true,
     createdAt: "2024-01-01T00:00:00Z",
     members: {
@@ -77,8 +76,8 @@ describe("buildSystemPrompt", () => {
 
   test("prompt contains safety rules", () => {
     const prompt = buildSystemPrompt(makeContext(), makeWorkspace());
-    expect(prompt).toContain("Never send emails");
-    expect(prompt).toContain("Confirm before adding calendar events");
+    expect(prompt).toContain("Never send emails without user approval");
+    expect(prompt).toContain("Confirm before modifying calendar/drive");
   });
 
   test("prompt contains message format guidelines", () => {

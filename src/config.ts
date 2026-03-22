@@ -41,4 +41,10 @@ export const config = {
     return n;
   })(),
   port: process.env["PORT"] ? Number(process.env["PORT"]) : 3000,
+
+  // Google OAuth (API 전환 시 필수)
+  googleClientId: process.env["GOOGLE_CLIENT_ID"] ?? "",
+  googleClientSecret: process.env["GOOGLE_CLIENT_SECRET"] ?? "",
+  googleRedirectUri: process.env["GOOGLE_REDIRECT_URI"] ?? "",
+  tokenEncryptionKey: process.env["TOKEN_ENCRYPTION_KEY"] ?? "",
 } as const;

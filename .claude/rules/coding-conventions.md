@@ -32,12 +32,12 @@
   - 자동 알림(cron/follow/invite) 및 언어 불확실 시 영어 기본값
   - 프롬프트(시스템/cron/webhook)는 영어로 작성 (Claude 인식 최적화)
 
-## GWS CLI 호출
+## GWS API 호출 (googleapis)
 
-- 모든 명령에 `--format json` 플래그 사용
-- 타임아웃 30초 설정
-- `GWS_CONFIG_DIR` 환경변수로 워크스페이스별 인증 경로 전달
-- 워크스페이스별 `gws auth login --config-dir {path}`으로 사전 인증
+- `google-auth-library` + `@googleapis/*` 공식 라이브러리 사용
+- 워크스페이스별 OAuth2Client 인스턴스 (TokenStore에서 refresh_token 로드)
+- `api-executor.ts`에서 15개 도구 → googleapis 직접 호출
+- 토큰 회전(rotation): `tokens` 이벤트 감지 → TokenStore에 자동 저장
 
 ## 스킬 추가 규칙
 
@@ -66,4 +66,4 @@
 
 - **일반 사용자**: 에이전트와 대화 → `create_workspace` (사용자당 1개 제한), `list_workspaces`, `get_workspace_info` (소유 WS만)
 - **시스템 관리자**: 동일 System Tool 사용. `create_workspace`에서 `owner_user_id`로 대상 지정 가능. `list_workspaces`/`get_workspace_info`는 전체 조회
-- **GWS 인증**: `docker exec -it assistant gws auth login --config-dir data/workspaces/{id}/gws-config/`
+- **GWS 인증**: `authenticate_gws` System Tool로 OAuth 링크 발송 → 브라우저 인증 → 자동 토큰 저장

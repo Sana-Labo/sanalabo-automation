@@ -35,9 +35,9 @@ export class JsonWorkspaceStore extends JsonFileStore<WorkspaceRecord> implement
     do {
       id = crypto.randomUUID();
     } while (this.data[id]);
-    const gwsConfigDir = `${this.dataDir}/${id}/gws-config`;
 
-    await mkdir(gwsConfigDir, { recursive: true });
+    // 워크스페이스 데이터 디렉터리 생성 (토큰 저장 등에 사용)
+    await mkdir(`${this.dataDir}/${id}`, { recursive: true });
 
     const membership: WorkspaceMembership = {
       role: "owner",
@@ -49,7 +49,6 @@ export class JsonWorkspaceStore extends JsonFileStore<WorkspaceRecord> implement
       id,
       name,
       ownerId,
-      gwsConfigDir,
       gwsAuthenticated: false,
       createdAt: new Date().toISOString(),
       members: { [ownerId]: membership },

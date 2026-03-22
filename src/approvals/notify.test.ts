@@ -22,7 +22,6 @@ function makeWorkspace(overrides: Partial<WorkspaceRecord> = {}): WorkspaceRecor
     id: "ws_001",
     name: "TestWS",
     ownerId: "U_owner_1",
-    gwsConfigDir: "/data/workspaces/ws_001/gws-config",
     gwsAuthenticated: true,
     createdAt: "2024-01-01T00:00:00.000Z",
     members: {
