@@ -99,20 +99,21 @@ export function createLineWebhookRoute(
     return resolveContext(userId) ?? { userId, role: "admin" };
   }
 
-  function enqueueAgent(prompt: string, userId: string): void {
+  function enqueueAgent(prompt: string, userId: string, trigger?: "webhook" | "postback"): void {
     enqueue(userId, async () => {
+      const options = trigger ? { trigger } : {};
       const context = resolveContext(userId);
       if (!context) {
         // System Admin + 워크스페이스 미소속 → admin 컨텍스트
         if (userStore.isSystemAdmin(userId)) {
-          await runAgentAndDeliver(prompt, deps, { userId, role: "admin" });
+          await runAgentAndDeliver(prompt, deps, { userId, role: "admin" }, options);
           return;
         }
         // 일반 사용자 + 워크스페이스 미진입 → out-stage 컨텍스트
-        await runAgentAndDeliver(prompt, deps, { userId, role: "member" });
+        await runAgentAndDeliver(prompt, deps, { userId, role: "member" }, options);
         return;
       }
-      await runAgentAndDeliver(prompt, deps, context);
+      await runAgentAndDeliver(prompt, deps, context, options);
     });
   }
 
@@ -180,7 +181,7 @@ export function createLineWebhookRoute(
 
     // 정규식 명령 제거 — 모든 텍스트를 에이전트 루프로 전달
     // invite, approve/reject, use 명령은 System Tool로 전환됨
-    enqueueAgent(text, userId);
+    enqueueAgent(text, userId, "webhook");
   }
 
   function handlePostback(
@@ -228,6 +229,7 @@ export function createLineWebhookRoute(
     enqueueAgent(
       `[Postback] The user pressed a button. Data: ${data}`,
       userId,
+      "postback",
     );
   }
 

@@ -27,6 +27,7 @@ export const config = {
   lineChannelAccessToken: required("LINE_CHANNEL_ACCESS_TOKEN"),
   lineChannelSecret: required("LINE_CHANNEL_SECRET"),
   systemAdminIds: requiredListWithFallback("SYSTEM_ADMIN_IDS", "ADMIN_USER_IDS"),
+  dataDir: process.env["DATA_DIR"] ?? "data",
   userStorePath: process.env["USER_STORE_PATH"] ?? "data/users.json",
   workspaceStorePath: process.env["WORKSPACE_STORE_PATH"] ?? "data/workspaces.json",
   pendingActionStorePath: process.env["PENDING_ACTION_STORE_PATH"] ?? "data/pending-actions.json",

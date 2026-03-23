@@ -24,7 +24,7 @@ function withJobLogging(
 /** Cron 잡용: no_action 허용 (보고할 내용 없으면 무응답으로 종료) */
 function createJob(label: string, prompt: string) {
   return withJobLogging(label, (deps, context) =>
-    runAgentAndDeliver(prompt, deps, context, { allowNoAction: true }),
+    runAgentAndDeliver(prompt, deps, context, { allowNoAction: true, trigger: "cron" }),
   );
 }
 
@@ -57,7 +57,7 @@ export const urgentMailCheck = withJobLogging("urgent mail check", async (deps, 
 
   const prompt = `Check Gmail for important emails (query: is:important after:${sinceEpoch}). If any, notify the user. If none, use the no_action tool to exit.`;
 
-  const result = await runAgentAndDeliver(prompt, deps, context, { allowNoAction: true });
+  const result = await runAgentAndDeliver(prompt, deps, context, { allowNoAction: true, trigger: "cron" });
   // 성공 시에만 체크포인트를 전진 — 실패 시 동일 기간을 재시도
   lastUrgentCheckMap.set(context.userId, checkpoint);
   return result;
