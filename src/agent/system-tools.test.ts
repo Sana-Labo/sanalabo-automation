@@ -615,6 +615,53 @@ describe("enter_workspace handler", () => {
     expect(signal.toolResult).toContain("Error");
     expect(signal.toolResult).toContain("access");
   });
+
+  test("성공: workspace_name으로 진입 (대소문자 무시)", async () => {
+    const ws = makeWorkspace({ id: "ws-001", name: "MyClub" });
+    const setDefaultCalls: Array<{ userId: string; workspaceId: string }> = [];
+    const deps = makeDeps({
+      memberWorkspaces: [ws],
+      getUserRole: (wsId, userId) => wsId === "ws-001" && userId === "Uuser001" ? "owner" : undefined,
+      setDefaultCalls,
+    });
+    const ctx = makeContext({ userId: "Uuser001", workspaceId: undefined, role: "member" });
+
+    const def = systemToolDefinitions.find((d) => d.name === "enter_workspace")!;
+    const signal = await def.handler({ workspace_id: null, workspace_name: "myclub" }, ctx, deps);
+
+    const result = JSON.parse(signal.toolResult);
+    expect(result.workspaceId).toBe("ws-001");
+    expect(result.name).toBe("MyClub");
+    expect(setDefaultCalls).toHaveLength(1);
+  });
+
+  test("실패: workspace_name이 소속 워크스페이스에 없음", async () => {
+    const deps = makeDeps({ memberWorkspaces: [] });
+    const ctx = makeContext({ userId: "Uuser001", workspaceId: undefined, role: "member" });
+
+    const def = systemToolDefinitions.find((d) => d.name === "enter_workspace")!;
+    const signal = await def.handler({ workspace_id: null, workspace_name: "NonExistent" }, ctx, deps);
+
+    expect(signal.toolResult).toContain("Error");
+    expect(signal.toolResult).toContain("NonExistent");
+  });
+
+  test("workspace_id와 workspace_name 둘 다 있으면 workspace_id 우선", async () => {
+    const ws = makeWorkspace({ id: "ws-001", name: "MyClub" });
+    const setDefaultCalls: Array<{ userId: string; workspaceId: string }> = [];
+    const deps = makeDeps({
+      getWorkspace: (id) => id === "ws-001" ? ws : undefined,
+      getUserRole: () => "owner",
+      setDefaultCalls,
+    });
+    const ctx = makeContext({ userId: "Uuser001", workspaceId: undefined, role: "member" });
+
+    const def = systemToolDefinitions.find((d) => d.name === "enter_workspace")!;
+    const signal = await def.handler({ workspace_id: "ws-001", workspace_name: "OtherName" }, ctx, deps);
+
+    const result = JSON.parse(signal.toolResult);
+    expect(result.workspaceId).toBe("ws-001");
+  });
 });
 
 // --- leave_workspace 핸들러 테스트 ---

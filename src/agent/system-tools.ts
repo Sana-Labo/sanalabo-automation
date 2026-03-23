@@ -54,7 +54,11 @@ const enterWorkspaceSchema = z.object({
   workspace_id: z
     .string()
     .nullable()
-    .describe("Workspace ID to enter. If null, enters the last used workspace."),
+    .describe("Workspace ID to enter."),
+  workspace_name: z
+    .string()
+    .nullable()
+    .describe("Workspace display name to enter. Used when the user specifies a name instead of ID."),
 });
 
 const inviteMemberSchema = z.object({
@@ -372,27 +376,43 @@ const getWorkspaceInfoDef = systemTool({
 const enterWorkspaceDef = systemTool({
   name: "enter_workspace",
   description:
-    "Enter a workspace to start working. After entering, Google Workspace tools become available. If workspace_id is null, enters the last used workspace.",
+    "Enter a workspace to start working. After entering, Google Workspace tools become available. Specify workspace_id or workspace_name. If both are null, enters the last used workspace.",
   inputSchema: enterWorkspaceSchema,
   async handler(input, context, deps) {
-    const wsId = input.workspace_id ?? deps.userStore.getLastWorkspaceId(context.userId);
-
-    if (!wsId) {
-      return { toolResult: "Error: No workspace specified and no last used workspace." };
+    // 1. 워크스페이스 해석: ID → 이름 → lastWorkspaceId 순서
+    let ws;
+    if (input.workspace_id) {
+      ws = deps.workspaceStore.get(input.workspace_id);
+      if (!ws) {
+        return { toolResult: `Error: Workspace not found: ${input.workspace_id}` };
+      }
+    } else if (input.workspace_name) {
+      // 사용자 소속 워크스페이스에서 이름으로 검색 (대소문자 무시)
+      const memberWs = deps.workspaceStore.getByMember(context.userId);
+      ws = memberWs.find((w) => w.name.toLowerCase() === input.workspace_name!.toLowerCase());
+      if (!ws) {
+        return { toolResult: `Error: No workspace found with name "${input.workspace_name}". Use list_workspaces to see available workspaces.` };
+      }
+    } else {
+      const lastWsId = deps.userStore.getLastWorkspaceId(context.userId);
+      if (!lastWsId) {
+        return { toolResult: "Error: No workspace specified and no last used workspace." };
+      }
+      ws = deps.workspaceStore.get(lastWsId);
+      if (!ws) {
+        return { toolResult: `Error: Last used workspace not found: ${lastWsId}` };
+      }
     }
 
-    const ws = deps.workspaceStore.get(wsId);
-    if (!ws) {
-      return { toolResult: `Error: Workspace not found: ${wsId}` };
-    }
-
-    const role = deps.workspaceStore.getUserRole(wsId, context.userId);
+    // 2. 멤버십 검증
+    const role = deps.workspaceStore.getUserRole(ws.id, context.userId);
     if (!role) {
       return { toolResult: "Error: You do not have access to this workspace." };
     }
 
-    await deps.userStore.setLastWorkspaceId(context.userId, wsId);
-    log.info("Workspace entered", { userId: context.userId, workspaceId: wsId });
+    // 3. lastWorkspaceId 설정 + 시그널 반환
+    await deps.userStore.setLastWorkspaceId(context.userId, ws.id);
+    log.info("Workspace entered", { userId: context.userId, workspaceId: ws.id });
 
     return {
       enteredWorkspaceId: ws.id,
