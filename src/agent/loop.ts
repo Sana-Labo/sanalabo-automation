@@ -19,9 +19,9 @@ import {
 import {
   toAnthropicTool,
   formatZodError,
+  isInfraDef,
+  isSystemDef,
   type ToolDefinition,
-  type InfraToolDefinition,
-  type SystemToolDefinition,
 } from "./tool-definition.js";
 import { toErrorMessage } from "../utils/error.js";
 import { createLogger } from "../utils/logger.js";
@@ -186,8 +186,8 @@ export async function runAgentLoop(
     const infraToolResults: Anthropic.ToolResultBlockParam[] = [];
     for (const block of toolUseBlocks) {
       const maybeDef = allDefMap.get(block.name);
-      if (!maybeDef || maybeDef.category !== "infra") continue;
-      const def = maybeDef as InfraToolDefinition<any>;
+      if (!maybeDef || !isInfraDef(maybeDef)) continue;
+      const def = maybeDef;
       toolCalls++;
       handled.add(block.id);
       log.debug("Infra tool handled", () => ({ tool: block.name, toolUseId: block.id }));
@@ -210,8 +210,8 @@ export async function runAgentLoop(
     for (const block of toolUseBlocks) {
       if (handled.has(block.id)) continue;
       const maybeDef = allDefMap.get(block.name);
-      if (!maybeDef || maybeDef.category !== "system") continue;
-      const def = maybeDef as SystemToolDefinition<any>;
+      if (!maybeDef || !isSystemDef(maybeDef)) continue;
+      const def = maybeDef;
       toolCalls++;
       handled.add(block.id);
       log.debug("System tool handled", () => ({ tool: block.name, toolUseId: block.id }));

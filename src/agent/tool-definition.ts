@@ -34,12 +34,6 @@ export type ValidationResult =
 // --- 공통 도구 정의 ---
 
 /**
- * 모든 도구의 공통 기반 인터페이스
- *
- * 업계 표준 패턴: 도구 = 스키마 + 실행의 자기 완결적 단위.
- * Zod 스키마 하나로 API 전달(JSON Schema 변환) + 런타임 검증 + 타입 추론.
- */
-/**
  * 도구 카테고리 — 디스패치 실행 패턴을 결정
  *
  * OpenAI Agents SDK의 Plan-then-Execute 패턴 참고:
@@ -51,6 +45,12 @@ export type ValidationResult =
  */
 export type ToolCategory = "infra" | "system" | "skill";
 
+/**
+ * 모든 도구의 공통 기반 인터페이스
+ *
+ * 업계 표준 패턴: 도구 = 스키마 + 실행의 자기 완결적 단위.
+ * Zod 스키마 하나로 API 전달(JSON Schema 변환) + 런타임 검증 + 타입 추론.
+ */
 export interface ToolDefinition<T = unknown> {
   /** 도구 이름 (Claude API tool name) */
   name: string;
@@ -133,16 +133,20 @@ export interface InfraToolDefinition<T> extends ToolDefinition<T> {
   handler: (input: T, context: ToolContext) => InfraToolSignal;
 }
 
+// --- Type Guards ---
+
+/** category 기반 타입 가드 — InfraToolDefinition 좁히기 */
+export function isInfraDef(def: ToolDefinition<any>): def is InfraToolDefinition<any> {
+  return def.category === "infra";
+}
+
+/** category 기반 타입 가드 — SystemToolDefinition 좁히기 */
+export function isSystemDef(def: ToolDefinition<any>): def is SystemToolDefinition<any> {
+  return def.category === "system";
+}
+
 // --- 변환 유틸리티 ---
 
-/**
- * ToolDefinition → Anthropic.Tool 변환
- *
- * Zod 4 내장 z.toJSONSchema()로 JSON Schema 생성 후 Anthropic API 형식으로 래핑.
- *
- * @param def - 도구 정의
- * @returns Claude API에 전달할 도구 객체
- */
 /** 변환 캐시 — ToolDefinition 객체가 GC되면 캐시도 자동 제거 */
 const anthropicToolCache = new WeakMap<ToolDefinition<any>, Anthropic.Tool>();
 
