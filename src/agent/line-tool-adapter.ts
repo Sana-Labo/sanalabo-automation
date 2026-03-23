@@ -12,7 +12,7 @@
 import { z } from "zod";
 import { LINE_PUSH_TEXT_TOOL, LINE_PUSH_FLEX_TOOL, type ToolExecutor } from "../types.js";
 import { createLogger } from "../utils/logger.js";
-import type { LineToolDefinition } from "./tool-definition.js";
+import { lineTool, type LineToolDefinition } from "./tool-definition.js";
 
 const log = createLogger("channel");
 
@@ -60,9 +60,8 @@ export function buildFlexPayload(
 
 // --- ToolDefinition ---
 
-const pushTextDef: LineToolDefinition<z.infer<typeof pushTextSchema>> = {
+const pushTextDef = lineTool({
   name: LINE_PUSH_TEXT_TOOL,
-  category: "skill",
   // strict 제거: Zod 검증으로 전환 (비용 효율적, 스키마 극단적 단순)
   description:
     "Send a text message to the user via LINE. Keep messages under 2000 characters.",
@@ -70,18 +69,17 @@ const pushTextDef: LineToolDefinition<z.infer<typeof pushTextSchema>> = {
   createExecutor: (deps) => async (input) => {
     return deps.origExecutor(buildTextPayload(deps.userId, input.text));
   },
-};
+});
 
-const pushFlexDef: LineToolDefinition<z.infer<typeof pushFlexSchema>> = {
+const pushFlexDef = lineTool({
   name: LINE_PUSH_FLEX_TOOL,
-  category: "skill",
   description:
     "Send a Flex Message to the user via LINE. Use for rich, structured content.",
   inputSchema: pushFlexSchema,
   createExecutor: (deps) => async (input) => {
     return deps.origExecutor(buildFlexPayload(deps.userId, input.altText, input.contents));
   },
-};
+});
 
 /** LINE 도구 정의 배열 */
 export const lineToolDefinitions: readonly LineToolDefinition<any>[] = [

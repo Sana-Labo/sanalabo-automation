@@ -5,7 +5,7 @@
  */
 import { z } from "zod";
 import { Readable } from "node:stream";
-import type { GwsToolDefinition } from "../../agent/tool-definition.js";
+import { gwsTool, type GwsToolDefinition } from "../../agent/tool-definition.js";
 import { getExportMimeType, jsonResult } from "./api-helpers.js";
 
 // --- 스키마 ---
@@ -33,9 +33,8 @@ const driveShareSchema = z.object({
 
 // --- 도구 정의 ---
 
-export const driveSearch: GwsToolDefinition<z.infer<typeof driveSearchSchema>> = {
+export const driveSearch = gwsTool({
   name: "drive_search",
-  category: "skill",
   description: "Search files in Google Drive.",
   inputSchema: driveSearchSchema,
   createExecutor: (s) => async (input) => {
@@ -47,11 +46,10 @@ export const driveSearch: GwsToolDefinition<z.infer<typeof driveSearchSchema>> =
 
     return jsonResult({ files: res.data.files ?? [] });
   },
-};
+});
 
-export const driveGetContent: GwsToolDefinition<z.infer<typeof driveGetContentSchema>> = {
+export const driveGetContent = gwsTool({
   name: "drive_get_content",
-  category: "skill",
   description:
     "Get the content of a file from Google Drive. For Google Docs/Sheets/Slides, exports as text. For other files, returns metadata.",
   inputSchema: driveGetContentSchema,
@@ -89,11 +87,10 @@ export const driveGetContent: GwsToolDefinition<z.infer<typeof driveGetContentSc
       note: "Binary file content cannot be displayed. Use webViewLink to access.",
     });
   },
-};
+});
 
-export const driveUpload: GwsToolDefinition<z.infer<typeof driveUploadSchema>> = {
+export const driveUpload = gwsTool({
   name: "drive_upload",
-  category: "skill",
   description:
     "Upload a text file to Google Drive. For creating Google Docs, set mimeType to 'application/vnd.google-apps.document'.",
   inputSchema: driveUploadSchema,
@@ -118,11 +115,10 @@ export const driveUpload: GwsToolDefinition<z.infer<typeof driveUploadSchema>> =
       webViewLink: res.data.webViewLink,
     });
   },
-};
+});
 
-export const driveShare: GwsToolDefinition<z.infer<typeof driveShareSchema>> = {
+export const driveShare = gwsTool({
   name: "drive_share",
-  category: "skill",
   description: "Share a file or folder with a user or make it public.",
   inputSchema: driveShareSchema,
   createExecutor: (s) => async (input) => {
@@ -164,7 +160,7 @@ export const driveShare: GwsToolDefinition<z.infer<typeof driveShareSchema>> = {
       webViewLink: file.data.webViewLink,
     });
   },
-};
+});
 
 /** Drive 도구 정의 배열 */
 export const driveToolDefinitions: readonly GwsToolDefinition<any>[] = [
