@@ -51,6 +51,7 @@ const gmailTrashSchema = z.object({
 
 export const gmailList: GwsToolDefinition<z.infer<typeof gmailListSchema>> = {
   name: "gmail_list",
+  category: "skill",
   description:
     "List or search emails in Gmail. Supports full Gmail search syntax (e.g. 'is:unread', 'from:user@example.com', 'newer_than:1h is:important').",
   inputSchema: gmailListSchema,
@@ -92,6 +93,7 @@ export const gmailList: GwsToolDefinition<z.infer<typeof gmailListSchema>> = {
 
 export const gmailGet: GwsToolDefinition<z.infer<typeof gmailGetSchema>> = {
   name: "gmail_get",
+  category: "skill",
   description: "Get a specific email message by ID with full content.",
   inputSchema: gmailGetSchema,
   createExecutor: (s) => async (input) => {
@@ -118,6 +120,7 @@ export const gmailGet: GwsToolDefinition<z.infer<typeof gmailGetSchema>> = {
 
 export const gmailCreateDraft: GwsToolDefinition<z.infer<typeof gmailCreateDraftSchema>> = {
   name: "gmail_create_draft",
+  category: "skill",
   description:
     "Create a draft email in Gmail. This does NOT send the email — it only saves a draft. After creating, inform the user that the draft has been saved and they must send it from Gmail.",
   inputSchema: gmailCreateDraftSchema,
@@ -139,6 +142,7 @@ export const gmailCreateDraft: GwsToolDefinition<z.infer<typeof gmailCreateDraft
 
 export const gmailSend: GwsToolDefinition<z.infer<typeof gmailSendSchema>> = {
   name: "gmail_send",
+  category: "skill",
   description:
     "Send an email. This action is irreversible — always confirm with the user before sending.",
   inputSchema: gmailSendSchema,
@@ -162,6 +166,7 @@ export const gmailSend: GwsToolDefinition<z.infer<typeof gmailSendSchema>> = {
 
 export const gmailReply: GwsToolDefinition<z.infer<typeof gmailReplySchema>> = {
   name: "gmail_reply",
+  category: "skill",
   description:
     "Reply to an existing email thread. This action is irreversible — always confirm with the user before replying.",
   inputSchema: gmailReplySchema,
@@ -201,6 +206,7 @@ export const gmailReply: GwsToolDefinition<z.infer<typeof gmailReplySchema>> = {
 
 export const gmailModifyLabels: GwsToolDefinition<z.infer<typeof gmailModifyLabelsSchema>> = {
   name: "gmail_modify_labels",
+  category: "skill",
   description:
     "Add or remove labels from an email. Use this for archiving (remove INBOX), marking as read (remove UNREAD), starring, etc.",
   inputSchema: gmailModifyLabelsSchema,
@@ -220,6 +226,7 @@ export const gmailModifyLabels: GwsToolDefinition<z.infer<typeof gmailModifyLabe
 
 export const gmailTrash: GwsToolDefinition<z.infer<typeof gmailTrashSchema>> = {
   name: "gmail_trash",
+  category: "skill",
   description: "Move an email to the trash.",
   inputSchema: gmailTrashSchema,
   createExecutor: (s) => async (input) => {

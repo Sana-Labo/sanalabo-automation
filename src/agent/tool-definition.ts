@@ -34,6 +34,18 @@ export type ValidationResult =
 // --- 공통 도구 정의 ---
 
 /**
+ * 도구 카테고리 — 디스패치 실행 패턴을 결정
+ *
+ * OpenAI Agents SDK의 Plan-then-Execute 패턴 참고:
+ * 카테고리별 전용 executor로 분류 후 실행.
+ *
+ * - `infra`: 동기 실행, 루프 제어 (exitLoop 가능)
+ * - `system`: 비동기, deps 접근 (Store I/O), 시그널 반환
+ * - `skill`: 비동기 병렬, 외부 시스템 통신 (GWS, LINE)
+ */
+export type ToolCategory = "infra" | "system" | "skill";
+
+/**
  * 모든 도구의 공통 기반 인터페이스
  *
  * 업계 표준 패턴: 도구 = 스키마 + 실행의 자기 완결적 단위.
@@ -44,6 +56,8 @@ export interface ToolDefinition<T = unknown> {
   name: string;
   /** 도구 설명 (Claude에게 보여줌) */
   description: string;
+  /** 디스패치 카테고리 — 실행 패턴 결정 */
+  category: ToolCategory;
   /** 입력 스키마 — 단일 출처 */
   inputSchema: z.ZodType<T>;
   /**
@@ -70,12 +84,14 @@ export interface GwsServices {
 
 /** GWS 스킬 도구 — 워크스페이스별 API 클라이언트 주입 */
 export interface GwsToolDefinition<T> extends ToolDefinition<T> {
+  category: "skill";
   /** API 서비스 주입 → 타입 안전 executor 반환 */
   createExecutor: (services: GwsServices) => (input: T) => Promise<string>;
 }
 
 /** LINE 스킬 도구 — MCP executor + userId 주입 */
 export interface LineToolDefinition<T> extends ToolDefinition<T> {
+  category: "skill";
   /** MCP 원본 executor + userId → 래핑된 executor 반환 */
   createExecutor: (deps: {
     origExecutor: ToolExecutor;
@@ -91,6 +107,7 @@ export interface SystemToolSignal extends InternalToolSignal {
 
 /** System 도구 — deps 접근, strict 고정 */
 export interface SystemToolDefinition<T> extends ToolDefinition<T> {
+  category: "system";
   strict: true;
   /** 비동기 핸들러 — Store I/O 수행 */
   handler: (
@@ -110,28 +127,49 @@ export interface InfraToolSignal extends InternalToolSignal {
 
 /** Infra 도구 — 동기, 루프 제어 가능, strict 고정 */
 export interface InfraToolDefinition<T> extends ToolDefinition<T> {
+  category: "infra";
   strict: true;
   /** 동기 핸들러 — 루프 제어 (exitLoop 가능) */
   handler: (input: T, context: ToolContext) => InfraToolSignal;
 }
 
+// --- Type Guards ---
+
+/** category 기반 타입 가드 — InfraToolDefinition 좁히기 */
+export function isInfraDef(def: ToolDefinition<any>): def is InfraToolDefinition<any> {
+  return def.category === "infra";
+}
+
+/** category 기반 타입 가드 — SystemToolDefinition 좁히기 */
+export function isSystemDef(def: ToolDefinition<any>): def is SystemToolDefinition<any> {
+  return def.category === "system";
+}
+
 // --- 변환 유틸리티 ---
 
+/** 변환 캐시 — ToolDefinition 객체가 GC되면 캐시도 자동 제거 */
+const anthropicToolCache = new WeakMap<ToolDefinition<any>, Anthropic.Tool>();
+
 /**
- * ToolDefinition → Anthropic.Tool 변환
+ * ToolDefinition → Anthropic.Tool 변환 (캐시 적용)
  *
  * Zod 4 내장 z.toJSONSchema()로 JSON Schema 생성 후 Anthropic API 형식으로 래핑.
+ * 동일 ToolDefinition 객체에 대해 변환 결과를 WeakMap에 캐시하여 반복 변환 방지.
+ * 단일 출처 원칙 유지: 캐시는 정의에서 파생된 값이므로 불일치 불가.
  *
  * @param def - 도구 정의
  * @returns Claude API에 전달할 도구 객체
  */
 export function toAnthropicTool(def: ToolDefinition<any>): Anthropic.Tool {
+  const cached = anthropicToolCache.get(def);
+  if (cached) return cached;
+
   const fullSchema = z.toJSONSchema(def.inputSchema);
 
   // $schema 필드 제거 (Anthropic API에 불필요)
   const { $schema: _, ...schema } = fullSchema as Record<string, unknown>;
 
-  return {
+  const tool: Anthropic.Tool = {
     name: def.name,
     description: def.description,
     ...(def.strict ? { strict: true } : {}),
@@ -143,6 +181,9 @@ export function toAnthropicTool(def: ToolDefinition<any>): Anthropic.Tool {
       additionalProperties: false,
     } as unknown as Anthropic.Tool.InputSchema,
   };
+
+  anthropicToolCache.set(def, tool);
+  return tool;
 }
 
 /**

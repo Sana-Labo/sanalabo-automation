@@ -57,8 +57,8 @@ async function main() {
   // LINE 도구: LLM에는 단순화 스키마 노출, executor는 MCP 원본 유지
   //   → loop.ts에서 createLineExecutors()로 래핑하여 입력 변환
   const registry: ToolRegistry = buildToolRegistry(
-    { definitions: [...gwsToolDefinitions], executors: new Map() },
-    { definitions: [...lineToolDefinitions], executors: mcp.executors },
+    { definitions: gwsToolDefinitions, executors: new Map() },
+    { definitions: lineToolDefinitions, executors: mcp.executors },
   );
   log.info("Tool registry built", { definitionCount: registry.definitions.length });
 

@@ -12,7 +12,7 @@ function makeDef<T>(def: {
   inputSchema: z.ZodType<T>;
   strict?: boolean;
 }): ToolDefinition {
-  return def as ToolDefinition;
+  return { category: "skill", ...def } as ToolDefinition;
 }
 
 // --- toAnthropicTool 변환 테스트 ---
@@ -172,6 +172,40 @@ describe("toAnthropicTool", () => {
     const result = toAnthropicTool(def);
     expect(result.input_schema.type).toBe("object");
     expect(result.input_schema.additionalProperties).toBe(false);
+  });
+
+  test("동일 def에 대해 캐시된 참조 반환 (WeakMap)", () => {
+    const def = makeDef({
+      name: "cached_tool",
+      description: "Cache test",
+      inputSchema: z.object({ x: z.string() }),
+    });
+
+    const first = toAnthropicTool(def);
+    const second = toAnthropicTool(def);
+
+    // 동일 객체 참조 (캐시 히트)
+    expect(first).toBe(second);
+  });
+
+  test("다른 def에 대해 독립 결과 반환", () => {
+    const defA = makeDef({
+      name: "tool_a",
+      description: "A",
+      inputSchema: z.object({ a: z.string() }),
+    });
+    const defB = makeDef({
+      name: "tool_b",
+      description: "B",
+      inputSchema: z.object({ b: z.number() }),
+    });
+
+    const resultA = toAnthropicTool(defA);
+    const resultB = toAnthropicTool(defB);
+
+    expect(resultA).not.toBe(resultB);
+    expect(resultA.name).toBe("tool_a");
+    expect(resultB.name).toBe("tool_b");
   });
 
   test("$schema 필드가 제거됨", () => {

@@ -26,7 +26,7 @@ export type ToolExecutor = (
 
 export interface ToolRegistry {
   /** 모든 도구 정의 (Zod 스키마 단일 출처) */
-  definitions: ToolDefinition<any>[];
+  definitions: readonly ToolDefinition<any>[];
   /** 런타임 executor (MCP Pool, GWS per-workspace) */
   executors: Map<string, ToolExecutor>;
 }

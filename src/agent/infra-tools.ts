@@ -21,6 +21,7 @@ const noActionSchema = z.object({
 /** no_action 도구 정의 — Zod 스키마 단일 출처 */
 const noActionDef: InfraToolDefinition<z.infer<typeof noActionSchema>> = {
   name: "no_action",
+  category: "infra",
   strict: true,
   description:
     "Call this tool when there is nothing to report. Calling this tool ends the task without sending any message to the user.",

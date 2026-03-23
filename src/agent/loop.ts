@@ -19,9 +19,9 @@ import {
 import {
   toAnthropicTool,
   formatZodError,
+  isInfraDef,
+  isSystemDef,
   type ToolDefinition,
-  type InfraToolDefinition,
-  type SystemToolDefinition,
 } from "./tool-definition.js";
 import { toErrorMessage } from "../utils/error.js";
 import { createLogger } from "../utils/logger.js";
@@ -78,18 +78,6 @@ function extractJsonText(content: Anthropic.ContentBlock[]): string {
     return raw;
   }
 }
-
-// --- ToolDefinition O(1) lookup 맵 ---
-
-/** InfraToolDefinition 이름 키 맵 */
-const infraDefMap = new Map<string, InfraToolDefinition<any>>(
-  infraToolDefinitions.map((d) => [d.name, d as InfraToolDefinition<any>]),
-);
-
-/** SystemToolDefinition 이름 키 맵 */
-const systemDefMap = new Map<string, SystemToolDefinition<any>>(
-  systemToolDefinitions.map((d) => [d.name, d as SystemToolDefinition<any>]),
-);
 
 /** 에이전트 루프 옵션 */
 export interface AgentLoopOptions {
@@ -149,8 +137,8 @@ export async function runAgentLoop(
     for (const [name, def] of allDefMap) {
       // no_action: cron 잡 전용. 사용자 대화에서는 제외
       if (name === "no_action" && !options.allowNoAction) continue;
-      // executor가 있거나 내부 도구(infra/system)면 포함
-      if (executors.has(name) || infraDefMap.has(name) || systemDefMap.has(name)) {
+      // 내부 도구(infra/system)는 handler 내장, skill 도구는 executor 필요
+      if (def.category !== "skill" || executors.has(name)) {
         tools.push(toAnthropicTool(def));
       }
     }
@@ -197,8 +185,9 @@ export async function runAgentLoop(
     const handled = new Set<string>();
     const infraToolResults: Anthropic.ToolResultBlockParam[] = [];
     for (const block of toolUseBlocks) {
-      const def = infraDefMap.get(block.name);
-      if (!def) continue;
+      const maybeDef = allDefMap.get(block.name);
+      if (!maybeDef || !isInfraDef(maybeDef)) continue;
+      const def = maybeDef;
       toolCalls++;
       handled.add(block.id);
       log.debug("Infra tool handled", () => ({ tool: block.name, toolUseId: block.id }));
@@ -220,8 +209,9 @@ export async function runAgentLoop(
     const systemToolResults: Anthropic.ToolResultBlockParam[] = [];
     for (const block of toolUseBlocks) {
       if (handled.has(block.id)) continue;
-      const def = systemDefMap.get(block.name);
-      if (!def) continue;
+      const maybeDef = allDefMap.get(block.name);
+      if (!maybeDef || !isSystemDef(maybeDef)) continue;
+      const def = maybeDef;
       toolCalls++;
       handled.add(block.id);
       log.debug("System tool handled", () => ({ tool: block.name, toolUseId: block.id }));
@@ -380,7 +370,7 @@ export async function runAgentAndDeliver(
 
 /** ToolRegistry 빌더 — definitions + executors 병합 */
 export function buildToolRegistry(
-  ...registries: { definitions: ToolDefinition<any>[]; executors: Map<string, ToolExecutor> }[]
+  ...registries: { definitions: readonly ToolDefinition<any>[]; executors: Map<string, ToolExecutor> }[]
 ): ToolRegistry {
   const definitions: ToolDefinition<any>[] = [];
   const executors = new Map<string, ToolExecutor>();

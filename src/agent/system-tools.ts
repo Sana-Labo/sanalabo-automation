@@ -246,6 +246,7 @@ async function sendOAuthUrl(
 
 const createWorkspaceDef: SystemToolDefinition<z.infer<typeof createWorkspaceSchema>> = {
   name: "create_workspace",
+  category: "system",
   strict: true,
   description:
     "Create a new workspace. Admins can specify an owner; regular users always own the workspace themselves. Ownership limits apply per role.",
@@ -315,6 +316,7 @@ const createWorkspaceDef: SystemToolDefinition<z.infer<typeof createWorkspaceSch
 
 const listWorkspacesDef: SystemToolDefinition<z.infer<typeof listWorkspacesSchema>> = {
   name: "list_workspaces",
+  category: "system",
   strict: true,
   description:
     "List workspaces. Admins see all workspaces grouped by owner; regular users see their owned and member workspaces.",
@@ -338,6 +340,7 @@ const listWorkspacesDef: SystemToolDefinition<z.infer<typeof listWorkspacesSchem
 
 const getWorkspaceInfoDef: SystemToolDefinition<z.infer<typeof getWorkspaceInfoSchema>> = {
   name: "get_workspace_info",
+  category: "system",
   strict: true,
   description:
     "Get detailed workspace information. Admins can view any workspace; owners can view their own; members can view workspaces they belong to.",
@@ -369,6 +372,7 @@ const getWorkspaceInfoDef: SystemToolDefinition<z.infer<typeof getWorkspaceInfoS
 
 const enterWorkspaceDef: SystemToolDefinition<z.infer<typeof enterWorkspaceSchema>> = {
   name: "enter_workspace",
+  category: "system",
   strict: true,
   description:
     "Enter a workspace to start working. After entering, Google Workspace tools become available. If workspace_id is null, enters the last used workspace.",
@@ -407,6 +411,7 @@ const enterWorkspaceDef: SystemToolDefinition<z.infer<typeof enterWorkspaceSchem
 
 const inviteMemberDef: SystemToolDefinition<z.infer<typeof inviteMemberSchema>> = {
   name: "invite_member",
+  category: "system",
   strict: true,
   description:
     "Invite a user to a workspace. Workspace owners and system admins can invite. The invited user is added as a member immediately. Use push_text_message to notify the invited user after calling this tool.",
@@ -459,6 +464,7 @@ const inviteMemberDef: SystemToolDefinition<z.infer<typeof inviteMemberSchema>> 
 
 const approveActionDef: SystemToolDefinition<z.infer<typeof approveActionSchema>> = {
   name: "approve_action",
+  category: "system",
   strict: true,
   description:
     "Approve a pending write action requested by a workspace member. Only the workspace owner can approve. The approved action is executed immediately and the requester is notified.",
@@ -523,6 +529,7 @@ const approveActionDef: SystemToolDefinition<z.infer<typeof approveActionSchema>
 
 const rejectActionDef: SystemToolDefinition<z.infer<typeof rejectActionSchema>> = {
   name: "reject_action",
+  category: "system",
   strict: true,
   description:
     "Reject a pending write action requested by a workspace member. Only the workspace owner can reject. The requester is notified of the rejection.",
@@ -559,6 +566,7 @@ const rejectActionDef: SystemToolDefinition<z.infer<typeof rejectActionSchema>> 
 
 const authenticateGwsDef: SystemToolDefinition<z.infer<typeof authenticateGwsSchema>> = {
   name: "authenticate_gws",
+  category: "system",
   strict: true,
   description:
     "Send a Google Workspace authentication link to the workspace owner. Use this when the workspace needs Google authentication or re-authentication.",

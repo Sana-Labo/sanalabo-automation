@@ -35,6 +35,7 @@ const driveShareSchema = z.object({
 
 export const driveSearch: GwsToolDefinition<z.infer<typeof driveSearchSchema>> = {
   name: "drive_search",
+  category: "skill",
   description: "Search files in Google Drive.",
   inputSchema: driveSearchSchema,
   createExecutor: (s) => async (input) => {
@@ -50,6 +51,7 @@ export const driveSearch: GwsToolDefinition<z.infer<typeof driveSearchSchema>> =
 
 export const driveGetContent: GwsToolDefinition<z.infer<typeof driveGetContentSchema>> = {
   name: "drive_get_content",
+  category: "skill",
   description:
     "Get the content of a file from Google Drive. For Google Docs/Sheets/Slides, exports as text. For other files, returns metadata.",
   inputSchema: driveGetContentSchema,
@@ -91,6 +93,7 @@ export const driveGetContent: GwsToolDefinition<z.infer<typeof driveGetContentSc
 
 export const driveUpload: GwsToolDefinition<z.infer<typeof driveUploadSchema>> = {
   name: "drive_upload",
+  category: "skill",
   description:
     "Upload a text file to Google Drive. For creating Google Docs, set mimeType to 'application/vnd.google-apps.document'.",
   inputSchema: driveUploadSchema,
@@ -119,6 +122,7 @@ export const driveUpload: GwsToolDefinition<z.infer<typeof driveUploadSchema>> =
 
 export const driveShare: GwsToolDefinition<z.infer<typeof driveShareSchema>> = {
   name: "drive_share",
+  category: "skill",
   description: "Share a file or folder with a user or make it public.",
   inputSchema: driveShareSchema,
   createExecutor: (s) => async (input) => {
