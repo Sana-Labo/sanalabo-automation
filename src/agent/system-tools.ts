@@ -147,13 +147,18 @@ function projectWorkspace(ws: WorkspaceRecord, viewerRole: Role) {
     members,
   };
 
+  // gwsAccount 간략 표시 (모든 역할에게 email + name)
+  const gwsAccountSummary = ws.gwsAccount
+    ? { email: ws.gwsAccount.email, name: ws.gwsAccount.name }
+    : undefined;
+
   switch (viewerRole) {
     case "admin":
-      return { ...base, ownerId: ws.ownerId, gwsAuthenticated: ws.gwsAuthenticated };
+      return { ...base, ownerId: ws.ownerId, gwsAuthenticated: ws.gwsAuthenticated, gwsAccount: gwsAccountSummary };
     case "owner":
-      return { ...base, gwsAuthenticated: ws.gwsAuthenticated };
+      return { ...base, gwsAuthenticated: ws.gwsAuthenticated, gwsAccount: gwsAccountSummary };
     case "member":
-      return { ...base, ownerId: ws.ownerId };
+      return { ...base, ownerId: ws.ownerId, gwsAccount: gwsAccountSummary };
   }
 }
 
@@ -401,6 +406,30 @@ const enterWorkspaceDef = systemTool({
   },
 });
 
+const leaveWorkspaceSchema = z.object({});
+
+const leaveWorkspaceDef = systemTool({
+  name: "leave_workspace",
+  description:
+    "Leave the current workspace and return to workspace selection. Google Workspace tools will become unavailable.",
+  inputSchema: leaveWorkspaceSchema,
+  async handler(_input, context, deps) {
+    if (!context.workspaceId) {
+      return { toolResult: "Error: You are not in any workspace." };
+    }
+
+    await deps.userStore.clearLastWorkspaceId(context.userId);
+    log.info("Workspace left", { userId: context.userId, workspaceId: context.workspaceId });
+
+    return {
+      leftWorkspace: true,
+      toolResult: JSON.stringify({
+        message: "You have left the workspace. Use enter_workspace or list_workspaces to continue.",
+      }),
+    };
+  },
+});
+
 const inviteMemberDef = systemTool({
   name: "invite_member",
   description:
@@ -606,7 +635,7 @@ const authenticateGwsDef = systemTool({
 // any 사용 필수: handler의 input이 반변(contravariant) 위치 — unknown은 할당 불가
 export const systemToolDefinitions: readonly SystemToolDefinition<any>[] = [
   createWorkspaceDef, listWorkspacesDef, getWorkspaceInfoDef,
-  enterWorkspaceDef, inviteMemberDef,
+  enterWorkspaceDef, leaveWorkspaceDef, inviteMemberDef,
   approveActionDef, rejectActionDef,
   authenticateGwsDef,
 ];

@@ -6,6 +6,7 @@
  */
 
 import { OAuth2Client } from "google-auth-library";
+import type { GwsAccount } from "../../domain/workspace.js";
 import type { GoogleTokens } from "./token-store.js";
 
 /** Google OAuth 설정 */
@@ -77,4 +78,56 @@ export async function exchangeCode(
     token_type: tokens.token_type ?? undefined,
     scope: tokens.scope ?? undefined,
   };
+}
+
+/** Userinfo API 응답 (v2) */
+interface UserinfoResponse {
+  id?: string;
+  email?: string;
+  verified_email?: boolean;
+  name?: string;
+  given_name?: string;
+  family_name?: string;
+  picture?: string;
+  locale?: string;
+  gender?: string;
+  link?: string;
+  hd?: string;
+}
+
+/**
+ * Google Userinfo API로 계정 프로필 조회
+ *
+ * OAuth scope に openid + email + profile が必要.
+ *
+ * @param client - 토큰 설정 済み OAuth2Client
+ * @returns 계정 프로필 (캐시 저장용 간략 구조)
+ * @throws API 호출 실패 시
+ */
+export async function fetchUserInfo(client: OAuth2Client): Promise<GwsAccount> {
+  const res = await client.request<UserinfoResponse>({
+    url: "https://www.googleapis.com/oauth2/v2/userinfo",
+  });
+  const data = res.data;
+  if (!data.email) {
+    throw new Error("Userinfo API did not return an email address");
+  }
+  return {
+    email: data.email,
+    name: data.name,
+    picture: data.picture,
+  };
+}
+
+/**
+ * Google Userinfo API로 전체 프로필 조회 (도구용)
+ *
+ * @param client - 토큰 설정 済み OAuth2Client
+ * @returns Userinfo API 전체 응답
+ */
+export async function fetchFullUserInfo(client: OAuth2Client): Promise<UserinfoResponse> {
+  const res = await client.request<UserinfoResponse>({
+    url: "https://www.googleapis.com/oauth2/v2/userinfo",
+  });
+  return res.data;
 }

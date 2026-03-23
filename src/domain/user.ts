@@ -88,6 +88,19 @@ export function setLastWorkspaceId(
   return { ...record, lastWorkspaceId: workspaceId };
 }
 
+// --- 워크스페이스 퇴장 ---
+
+/**
+ * 마지막 진입 워크스페이스 클리어 (Out-stage 전환)
+ *
+ * @param record - 대상 UserRecord
+ * @returns 새 UserRecord (lastWorkspaceId 제거)
+ */
+export function clearLastWorkspaceId(record: UserRecord): UserRecord {
+  const { lastWorkspaceId: _, ...rest } = record;
+  return rest;
+}
+
 // --- 상태 전이 ---
 
 /**

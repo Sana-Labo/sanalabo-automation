@@ -29,6 +29,7 @@ import { infraToolDefinitions } from "./infra-tools.js";
 import { createChannelTextSender, createLineExecutors } from "./line-tool-adapter.js";
 import { systemToolDefinitions } from "./system-tools.js";
 import { buildSystemPrompt } from "./system.js";
+import { gwsToolDefinitions } from "../skills/gws/tools.js";
 import { TranscriptRecorder } from "./transcript.js";
 
 const log = createLogger("agent");
@@ -295,6 +296,16 @@ export async function runAgentLoop(
           context = { ...context, workspaceId: enteredWs.id, role: deps.workspaceStore.getUserRole(enteredWs.id, context.userId) ?? context.role };
           log.info("Executor rebuilt after workspace entry", { workspaceId: enteredWs.id, toolCount: allTools.length });
         }
+      }
+
+      // leave_workspace 후 GWS executor 제거 + Out-stage 전환
+      if (signal.leftWorkspace) {
+        for (const def of gwsToolDefinitions) {
+          executors.delete(def.name);
+        }
+        allTools = buildToolList();
+        context = { userId: context.userId, role: context.role };
+        log.info("Executor rebuilt after workspace leave", { userId: context.userId, toolCount: allTools.length });
       }
     }
 

@@ -1,6 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import { config } from "../config.js";
-import type { WorkspaceMembership, WorkspaceRecord, WorkspaceRole } from "../domain/workspace.js";
+import type { GwsAccount, WorkspaceMembership, WorkspaceRecord, WorkspaceRole } from "../domain/workspace.js";
 import type { WorkspaceStore } from "../types.js";
 import { JsonFileStore } from "../utils/json-file-store.js";
 
@@ -110,6 +110,14 @@ export class JsonWorkspaceStore extends JsonFileStore<WorkspaceRecord> implement
     ws.gwsAuthenticated = authenticated;
     await this.save();
     this.log.info("Set gwsAuthenticated", { workspaceId, authenticated });
+  }
+
+  async setGwsAccount(workspaceId: string, account: GwsAccount): Promise<void> {
+    const ws = this.data[workspaceId];
+    if (!ws) throw new Error(`Workspace not found: ${workspaceId}`);
+    ws.gwsAccount = account;
+    await this.save();
+    this.log.info("Set gwsAccount", { workspaceId, email: account.email });
   }
 }
 

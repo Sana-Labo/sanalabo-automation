@@ -6,8 +6,8 @@ import { toAnthropicTool } from "../../agent/tool-definition.js";
 const gwsTools = gwsToolDefinitions.map((d) => toAnthropicTool(d));
 
 describe("gwsToolDefinitions", () => {
-  test("15개 도구 정의", () => {
-    expect(gwsToolDefinitions).toHaveLength(15);
+  test("16개 도구 정의", () => {
+    expect(gwsToolDefinitions).toHaveLength(16);
   });
 
   test("GWS 도구는 non-strict (strict tool 제한 20개 준수)", () => {

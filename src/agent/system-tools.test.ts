@@ -37,6 +37,7 @@ function makeDeps(overrides?: {
   ownedWorkspaces?: WorkspaceRecord[];
   createdWorkspace?: WorkspaceRecord;
   setDefaultCalls?: Array<{ userId: string; workspaceId: string }>;
+  clearLastWsCalls?: string[];
   allWorkspaces?: WorkspaceRecord[];
   memberWorkspaces?: WorkspaceRecord[];
   getWorkspace?: (id: string) => WorkspaceRecord | undefined;
@@ -45,6 +46,7 @@ function makeDeps(overrides?: {
   lastWorkspaceId?: string;
 }): AgentDependencies {
   const setDefaultCalls = overrides?.setDefaultCalls ?? [];
+  const clearLastWsCalls = overrides?.clearLastWsCalls ?? [];
   const createdWs = overrides?.createdWorkspace ?? makeWorkspace();
 
   return {
@@ -63,6 +65,9 @@ function makeDeps(overrides?: {
       setLastWorkspaceId: async (userId: string, workspaceId: string) => {
         setDefaultCalls.push({ userId, workspaceId });
       },
+      clearLastWorkspaceId: async (userId: string) => {
+        clearLastWsCalls.push(userId);
+      },
       getLastWorkspaceId: () => overrides?.lastWorkspaceId,
       isSystemAdmin: overrides?.isSystemAdmin ?? (() => false),
     } as unknown as UserStore,
@@ -77,8 +82,8 @@ describe("systemToolDefinitions registry", () => {
     expect(names).toContain("create_workspace");
   });
 
-  test("8개 도구 정의", () => {
-    expect(systemToolDefinitions).toHaveLength(8);
+  test("9개 도구 정의", () => {
+    expect(systemToolDefinitions).toHaveLength(9);
   });
 
   test("모든 정의에 strict: true 설정", () => {
@@ -612,6 +617,36 @@ describe("enter_workspace handler", () => {
   });
 });
 
+// --- leave_workspace 핸들러 테스트 ---
+
+describe("leave_workspace handler", () => {
+  test("성공: On-stage에서 퇴장 → leftWorkspace 시그널 + clearLastWorkspaceId 호출", async () => {
+    const clearLastWsCalls: string[] = [];
+    const deps = makeDeps({ clearLastWsCalls });
+    const ctx = makeContext({ userId: "Uuser001", workspaceId: "ws-001", role: "owner" });
+
+    const def = systemToolDefinitions.find((d) => d.name === "leave_workspace")!;
+    const signal = await def.handler({}, ctx, deps);
+
+    expect(signal.leftWorkspace).toBe(true);
+    const result = JSON.parse(signal.toolResult);
+    expect(result.message).toContain("left");
+    expect(clearLastWsCalls).toEqual(["Uuser001"]);
+  });
+
+  test("실패: Out-stage에서 호출 시 에러", async () => {
+    const deps = makeDeps();
+    const ctx = makeContext({ userId: "Uuser001", workspaceId: undefined, role: "member" });
+
+    const def = systemToolDefinitions.find((d) => d.name === "leave_workspace")!;
+    const signal = await def.handler({}, ctx, deps);
+
+    expect(signal.toolResult).toContain("Error");
+    expect(signal.toolResult).toContain("not in any workspace");
+    expect(signal.leftWorkspace).toBeUndefined();
+  });
+});
+
 // --- invite_member 핸들러 테스트 ---
 
 describe("invite_member handler", () => {
@@ -897,16 +932,16 @@ describe("reject_action handler", () => {
 describe("systemToolDefinitions (Zod)", () => {
   const expectedNames = [
     "create_workspace", "list_workspaces", "get_workspace_info",
-    "enter_workspace", "invite_member",
+    "enter_workspace", "leave_workspace", "invite_member",
     "approve_action", "reject_action", "authenticate_gws",
   ];
 
-  test("8개 도구 모두 포함", () => {
+  test("9개 도구 모두 포함", () => {
     const names = systemToolDefinitions.map((d) => d.name);
     for (const name of expectedNames) {
       expect(names).toContain(name);
     }
-    expect(systemToolDefinitions.length).toBe(8);
+    expect(systemToolDefinitions.length).toBe(9);
   });
 
   test("모든 도구에 strict: true 설정", () => {

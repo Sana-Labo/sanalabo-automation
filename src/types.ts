@@ -1,6 +1,6 @@
 import type { ToolDefinition } from "./agent/tool-definition.js";
 import type { UserStore } from "./users/store.js";
-import type { WorkspaceRecord, WorkspaceRole } from "./domain/workspace.js";
+import type { GwsAccount, WorkspaceRecord, WorkspaceRole } from "./domain/workspace.js";
 
 // --- 도구 시스템 ---
 
@@ -179,4 +179,5 @@ export interface WorkspaceStore {
   resolveWorkspace(userId: string, lastWorkspaceId?: string): WorkspaceRecord | undefined;
   getUserRole(workspaceId: string, userId: string): WorkspaceRole | undefined;
   setGwsAuthenticated(workspaceId: string, authenticated: boolean): Promise<void>;
+  setGwsAccount(workspaceId: string, account: GwsAccount): Promise<void>;
 }

@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { isActive, isValidLineUserId, createFromFollow, activate, deactivate, setLastWorkspaceId } from "./user.js";
+import { isActive, isValidLineUserId, createFromFollow, activate, deactivate, setLastWorkspaceId, clearLastWorkspaceId } from "./user.js";
 import type { UserRecord } from "../types.js";
 
 describe("domain/user", () => {
@@ -129,6 +129,51 @@ describe("domain/user", () => {
       };
 
       const result = setLastWorkspaceId(record, "ws-123");
+
+      expect(result.status).toBe("active");
+      expect(result.invitedBy).toBe("Uowner1234567890abcdef1234567890");
+      expect(result.activatedAt).toBe("2024-01-02T00:00:00.000Z");
+    });
+  });
+
+  describe("clearLastWorkspaceId", () => {
+    test("lastWorkspaceId を undefined にした新レコードを返す", () => {
+      const record: UserRecord = {
+        status: "active",
+        invitedBy: "self",
+        invitedAt: "2024-01-01T00:00:00.000Z",
+        lastWorkspaceId: "ws-123",
+      };
+
+      const result = clearLastWorkspaceId(record);
+
+      expect(result.lastWorkspaceId).toBeUndefined();
+      // 원본 불변 확인
+      expect(record.lastWorkspaceId).toBe("ws-123");
+    });
+
+    test("lastWorkspaceId가 이미 없어도 에러 없음", () => {
+      const record: UserRecord = {
+        status: "active",
+        invitedBy: "self",
+        invitedAt: "2024-01-01T00:00:00.000Z",
+      };
+
+      const result = clearLastWorkspaceId(record);
+
+      expect(result.lastWorkspaceId).toBeUndefined();
+    });
+
+    test("다른 필드 보존", () => {
+      const record: UserRecord = {
+        status: "active",
+        invitedBy: "Uowner1234567890abcdef1234567890",
+        invitedAt: "2024-01-01T00:00:00.000Z",
+        activatedAt: "2024-01-02T00:00:00.000Z",
+        lastWorkspaceId: "ws-old",
+      };
+
+      const result = clearLastWorkspaceId(record);
 
       expect(result.status).toBe("active");
       expect(result.invitedBy).toBe("Uowner1234567890abcdef1234567890");
