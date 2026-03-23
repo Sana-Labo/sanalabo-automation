@@ -29,6 +29,7 @@ import { infraToolDefinitions } from "./infra-tools.js";
 import { createChannelTextSender, createLineExecutors } from "./line-tool-adapter.js";
 import { systemToolDefinitions } from "./system-tools.js";
 import { buildSystemPrompt } from "./system.js";
+import { TranscriptRecorder } from "./transcript.js";
 
 const log = createLogger("agent");
 
@@ -83,6 +84,8 @@ function extractJsonText(content: Anthropic.ContentBlock[]): string {
 export interface AgentLoopOptions {
   /** no_action 도구 허용 여부. cron 잡에서만 true (기본: false) */
   allowNoAction?: boolean;
+  /** 트랜스크립트 기록용 트리거 유형 (기본: "webhook") */
+  trigger?: "webhook" | "cron" | "postback";
 }
 
 export async function runAgentLoop(
@@ -146,6 +149,30 @@ export async function runAgentLoop(
   }
   let allTools = buildToolList();
 
+  // --- 트랜스크립트 기록 ---
+  const transcript = new TranscriptRecorder(config.dataDir);
+  transcript.startRun({
+    userId: context.userId,
+    workspaceId: context.workspaceId,
+    trigger: options.trigger ?? "webhook",
+    userMessage,
+    systemPrompt,
+  });
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
+
+  /** 트랜스크립트 기록 완료 (fire-and-forget) */
+  function finalizeTranscript(result: AgentResult): void {
+    transcript
+      .endRun({
+        result,
+        usage: { totalInputTokens, totalOutputTokens },
+      })
+      .catch((e) => {
+        log.error("Failed to write transcript", { error: toErrorMessage(e) });
+      });
+  }
+
   log.debug("Agent loop started", () => ({ userId: context.userId, workspaceId: context.workspaceId, role: context.role }));
 
   while (turns < MAX_TURNS) {
@@ -164,15 +191,35 @@ export async function runAgentLoop(
 
     log.debug("Claude API response", () => ({ stopReason: response.stop_reason, contentBlocks: response.content.length }));
 
+    // usage 누적
+    totalInputTokens += response.usage.input_tokens;
+    totalOutputTokens += response.usage.output_tokens;
+
     if (response.stop_reason === "max_tokens") {
       const text = extractText(response.content) || "The response was too long and has been truncated.";
-      return { text, toolCalls, channelDelivered };
+      // 턴 기록 (tool result 없음)
+      transcript.recordTurn({
+        request: { model: MODEL, messageCount: messages.length, toolCount: allTools.length },
+        response: { stopReason: "max_tokens", content: response.content },
+        toolResults: [],
+      });
+      const result: AgentResult = { text, toolCalls, channelDelivered };
+      finalizeTranscript(result);
+      return result;
     }
 
     if (response.stop_reason !== "tool_use") {
       const text = extractJsonText(response.content);
       log.debug("Agent loop completed", () => ({ turns, toolCalls }));
-      return { text, toolCalls, channelDelivered };
+      // 턴 기록 (tool result 없음)
+      transcript.recordTurn({
+        request: { model: MODEL, messageCount: messages.length, toolCount: allTools.length },
+        response: { stopReason: response.stop_reason ?? "end_turn", content: response.content },
+        toolResults: [],
+      });
+      const result: AgentResult = { text, toolCalls, channelDelivered };
+      finalizeTranscript(result);
+      return result;
     }
 
     const toolUseBlocks = response.content.filter(
@@ -196,7 +243,15 @@ export async function runAgentLoop(
         context,
       );
       if (signal.exitLoop) {
-        return { text: signal.exitText, toolCalls, channelDelivered };
+        // exitLoop 턴 기록
+        transcript.recordTurn({
+          request: { model: MODEL, messageCount: messages.length, toolCount: allTools.length },
+          response: { stopReason: "tool_use", content: response.content },
+          toolResults: [{ toolUseId: block.id, toolName: block.name, content: signal.toolResult, isError: false }],
+        });
+        const result: AgentResult = { text: signal.exitText, toolCalls, channelDelivered };
+        finalizeTranscript(result);
+        return result;
       }
       infraToolResults.push({
         type: "tool_result",
@@ -340,12 +395,30 @@ export async function runAgentLoop(
     );
 
     const toolResults = [...infraToolResults, ...systemToolResults, ...skillToolResults];
+
+    // 턴 기록 — 3단계 디스패치 결과를 포함
+    transcript.recordTurn({
+      request: { model: MODEL, messageCount: messages.length, toolCount: allTools.length },
+      response: { stopReason: "tool_use", content: response.content },
+      toolResults: toolUseBlocks.map((block) => {
+        const tr = toolResults.find((r) => r.tool_use_id === block.id);
+        return {
+          toolUseId: block.id,
+          toolName: block.name,
+          content: typeof tr?.content === "string" ? tr.content : JSON.stringify(tr?.content ?? ""),
+          isError: tr?.is_error === true,
+        };
+      }),
+    });
+
     messages.push({ role: "assistant", content: response.content });
     messages.push({ role: "user", content: toolResults });
   }
 
   const text = "Reached the maximum number of tool calls. Aborting.";
-  return { text, toolCalls, channelDelivered };
+  const result: AgentResult = { text, toolCalls, channelDelivered };
+  finalizeTranscript(result);
+  return result;
 }
 
 /**
