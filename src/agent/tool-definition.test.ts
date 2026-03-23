@@ -12,7 +12,7 @@ function makeDef<T>(def: {
   inputSchema: z.ZodType<T>;
   strict?: boolean;
 }): ToolDefinition {
-  return def as ToolDefinition;
+  return { category: "skill", ...def } as ToolDefinition;
 }
 
 // --- toAnthropicTool 변환 테스트 ---

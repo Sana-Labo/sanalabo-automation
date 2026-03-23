@@ -62,6 +62,7 @@ export function buildFlexPayload(
 
 const pushTextDef: LineToolDefinition<z.infer<typeof pushTextSchema>> = {
   name: LINE_PUSH_TEXT_TOOL,
+  category: "skill",
   // strict 제거: Zod 검증으로 전환 (비용 효율적, 스키마 극단적 단순)
   description:
     "Send a text message to the user via LINE. Keep messages under 2000 characters.",
@@ -73,6 +74,7 @@ const pushTextDef: LineToolDefinition<z.infer<typeof pushTextSchema>> = {
 
 const pushFlexDef: LineToolDefinition<z.infer<typeof pushFlexSchema>> = {
   name: LINE_PUSH_FLEX_TOOL,
+  category: "skill",
   description:
     "Send a Flex Message to the user via LINE. Use for rich, structured content.",
   inputSchema: pushFlexSchema,

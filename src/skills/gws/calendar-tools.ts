@@ -38,6 +38,7 @@ const calendarDeleteSchema = z.object({
 
 export const calendarList: GwsToolDefinition<z.infer<typeof calendarListSchema>> = {
   name: "calendar_list",
+  category: "skill",
   description: "List calendar events within a time range. Defaults to today if not specified.",
   inputSchema: calendarListSchema,
   createExecutor: (s) => async (input) => {
@@ -65,6 +66,7 @@ export const calendarList: GwsToolDefinition<z.infer<typeof calendarListSchema>>
 
 export const calendarCreate: GwsToolDefinition<z.infer<typeof calendarCreateSchema>> = {
   name: "calendar_create",
+  category: "skill",
   description:
     "Create a new calendar event. Always confirm with user via LINE before executing.",
   inputSchema: calendarCreateSchema,
@@ -91,6 +93,7 @@ export const calendarCreate: GwsToolDefinition<z.infer<typeof calendarCreateSche
 
 export const calendarUpdate: GwsToolDefinition<z.infer<typeof calendarUpdateSchema>> = {
   name: "calendar_update",
+  category: "skill",
   description: "Update an existing calendar event. Only specified fields will be changed.",
   inputSchema: calendarUpdateSchema,
   createExecutor: (s) => async (input) => {
@@ -117,6 +120,7 @@ export const calendarUpdate: GwsToolDefinition<z.infer<typeof calendarUpdateSche
 
 export const calendarDelete: GwsToolDefinition<z.infer<typeof calendarDeleteSchema>> = {
   name: "calendar_delete",
+  category: "skill",
   description:
     "Delete a calendar event. This action is irreversible — always confirm with the user before deleting.",
   inputSchema: calendarDeleteSchema,
