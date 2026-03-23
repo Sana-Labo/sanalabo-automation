@@ -25,7 +25,7 @@ import { buildConsentUrl } from "../domain/google-oauth.js";
 import { createPendingAuth } from "../skills/gws/oauth-state.js";
 import { toErrorMessage } from "../utils/error.js";
 import { createLogger } from "../utils/logger.js";
-import type { SystemToolDefinition, SystemToolSignal } from "./tool-definition.js";
+import { systemTool, type SystemToolDefinition, type SystemToolSignal } from "./tool-definition.js";
 
 const log = createLogger("agent");
 
@@ -244,10 +244,8 @@ async function sendOAuthUrl(
 
 // --- ToolDefinition ---
 
-const createWorkspaceDef: SystemToolDefinition<z.infer<typeof createWorkspaceSchema>> = {
+const createWorkspaceDef = systemTool({
   name: "create_workspace",
-  category: "system",
-  strict: true,
   description:
     "Create a new workspace. Admins can specify an owner; regular users always own the workspace themselves. Ownership limits apply per role.",
   inputSchema: createWorkspaceSchema,
@@ -312,12 +310,10 @@ const createWorkspaceDef: SystemToolDefinition<z.infer<typeof createWorkspaceSch
       }),
     };
   },
-};
+});
 
-const listWorkspacesDef: SystemToolDefinition<z.infer<typeof listWorkspacesSchema>> = {
+const listWorkspacesDef = systemTool({
   name: "list_workspaces",
-  category: "system",
-  strict: true,
   description:
     "List workspaces. Admins see all workspaces grouped by owner; regular users see their owned and member workspaces.",
   inputSchema: listWorkspacesSchema,
@@ -336,12 +332,10 @@ const listWorkspacesDef: SystemToolDefinition<z.infer<typeof listWorkspacesSchem
       toolResult: JSON.stringify(splitOwnedAndMember(workspaces, context.userId)),
     };
   },
-};
+});
 
-const getWorkspaceInfoDef: SystemToolDefinition<z.infer<typeof getWorkspaceInfoSchema>> = {
+const getWorkspaceInfoDef = systemTool({
   name: "get_workspace_info",
-  category: "system",
-  strict: true,
   description:
     "Get detailed workspace information. Admins can view any workspace; owners can view their own; members can view workspaces they belong to.",
   inputSchema: getWorkspaceInfoSchema,
@@ -368,12 +362,10 @@ const getWorkspaceInfoDef: SystemToolDefinition<z.infer<typeof getWorkspaceInfoS
     const viewerRole = determineViewerRole(isAdmin, ws, context.userId);
     return { toolResult: JSON.stringify(projectWorkspace(ws, viewerRole)) };
   },
-};
+});
 
-const enterWorkspaceDef: SystemToolDefinition<z.infer<typeof enterWorkspaceSchema>> = {
+const enterWorkspaceDef = systemTool({
   name: "enter_workspace",
-  category: "system",
-  strict: true,
   description:
     "Enter a workspace to start working. After entering, Google Workspace tools become available. If workspace_id is null, enters the last used workspace.",
   inputSchema: enterWorkspaceSchema,
@@ -407,12 +399,10 @@ const enterWorkspaceDef: SystemToolDefinition<z.infer<typeof enterWorkspaceSchem
       }),
     };
   },
-};
+});
 
-const inviteMemberDef: SystemToolDefinition<z.infer<typeof inviteMemberSchema>> = {
+const inviteMemberDef = systemTool({
   name: "invite_member",
-  category: "system",
-  strict: true,
   description:
     "Invite a user to a workspace. Workspace owners and system admins can invite. The invited user is added as a member immediately. Use push_text_message to notify the invited user after calling this tool.",
   inputSchema: inviteMemberSchema,
@@ -460,12 +450,10 @@ const inviteMemberDef: SystemToolDefinition<z.infer<typeof inviteMemberSchema>> 
       }),
     };
   },
-};
+});
 
-const approveActionDef: SystemToolDefinition<z.infer<typeof approveActionSchema>> = {
+const approveActionDef = systemTool({
   name: "approve_action",
-  category: "system",
-  strict: true,
   description:
     "Approve a pending write action requested by a workspace member. Only the workspace owner can approve. The approved action is executed immediately and the requester is notified.",
   inputSchema: approveActionSchema,
@@ -525,12 +513,10 @@ const approveActionDef: SystemToolDefinition<z.infer<typeof approveActionSchema>
       }),
     };
   },
-};
+});
 
-const rejectActionDef: SystemToolDefinition<z.infer<typeof rejectActionSchema>> = {
+const rejectActionDef = systemTool({
   name: "reject_action",
-  category: "system",
-  strict: true,
   description:
     "Reject a pending write action requested by a workspace member. Only the workspace owner can reject. The requester is notified of the rejection.",
   inputSchema: rejectActionSchema,
@@ -562,12 +548,10 @@ const rejectActionDef: SystemToolDefinition<z.infer<typeof rejectActionSchema>> 
       }),
     };
   },
-};
+});
 
-const authenticateGwsDef: SystemToolDefinition<z.infer<typeof authenticateGwsSchema>> = {
+const authenticateGwsDef = systemTool({
   name: "authenticate_gws",
-  category: "system",
-  strict: true,
   description:
     "Send a Google Workspace authentication link to the workspace owner. Use this when the workspace needs Google authentication or re-authentication.",
   inputSchema: authenticateGwsSchema,
@@ -616,7 +600,7 @@ const authenticateGwsDef: SystemToolDefinition<z.infer<typeof authenticateGwsSch
       }),
     };
   },
-};
+});
 
 /** 모든 System 도구 정의 */
 // any 사용 필수: handler의 input이 반변(contravariant) 위치 — unknown은 할당 불가

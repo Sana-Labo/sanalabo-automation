@@ -133,6 +133,79 @@ export interface InfraToolDefinition<T> extends ToolDefinition<T> {
   handler: (input: T, context: ToolContext) => InfraToolSignal;
 }
 
+// --- 팩토리 함수 ---
+
+/**
+ * GWS 스킬 도구 팩토리 — `category: "skill"` 자동 세팅
+ *
+ * @param def - category를 제외한 도구 정의 필드
+ * @returns GwsToolDefinition (category 포함)
+ */
+export function gwsTool<T>(def: {
+  name: string;
+  description: string;
+  inputSchema: z.ZodType<T>;
+  createExecutor: (services: GwsServices) => (input: T) => Promise<string>;
+  validateInput?: (input: T) => ValidationResult;
+}): GwsToolDefinition<T> {
+  return { ...def, category: "skill" };
+}
+
+/**
+ * LINE 스킬 도구 팩토리 — `category: "skill"` 자동 세팅
+ *
+ * @param def - category를 제외한 도구 정의 필드
+ * @returns LineToolDefinition (category 포함)
+ */
+export function lineTool<T>(def: {
+  name: string;
+  description: string;
+  inputSchema: z.ZodType<T>;
+  createExecutor: (deps: {
+    origExecutor: ToolExecutor;
+    userId: string;
+  }) => (input: T) => Promise<string>;
+  validateInput?: (input: T) => ValidationResult;
+}): LineToolDefinition<T> {
+  return { ...def, category: "skill" };
+}
+
+/**
+ * System 도구 팩토리 — `category: "system"`, `strict: true` 자동 세팅
+ *
+ * @param def - category, strict를 제외한 도구 정의 필드
+ * @returns SystemToolDefinition (category + strict 포함)
+ */
+export function systemTool<T>(def: {
+  name: string;
+  description: string;
+  inputSchema: z.ZodType<T>;
+  handler: (
+    input: T,
+    context: ToolContext,
+    deps: AgentDependencies,
+  ) => Promise<SystemToolSignal>;
+  validateInput?: (input: T) => ValidationResult;
+}): SystemToolDefinition<T> {
+  return { ...def, category: "system", strict: true };
+}
+
+/**
+ * Infra 도구 팩토리 — `category: "infra"`, `strict: true` 자동 세팅
+ *
+ * @param def - category, strict를 제외한 도구 정의 필드
+ * @returns InfraToolDefinition (category + strict 포함)
+ */
+export function infraTool<T>(def: {
+  name: string;
+  description: string;
+  inputSchema: z.ZodType<T>;
+  handler: (input: T, context: ToolContext) => InfraToolSignal;
+  validateInput?: (input: T) => ValidationResult;
+}): InfraToolDefinition<T> {
+  return { ...def, category: "infra", strict: true };
+}
+
 // --- Type Guards ---
 
 /** category 기반 타입 가드 — InfraToolDefinition 좁히기 */

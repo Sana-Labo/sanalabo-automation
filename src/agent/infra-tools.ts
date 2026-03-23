@@ -6,7 +6,7 @@
  */
 import { z } from "zod";
 import { createLogger } from "../utils/logger.js";
-import type { InfraToolDefinition } from "./tool-definition.js";
+import { infraTool, type InfraToolDefinition } from "./tool-definition.js";
 
 const log = createLogger("agent");
 
@@ -19,10 +19,8 @@ const noActionSchema = z.object({
 // --- ToolDefinition ---
 
 /** no_action 도구 정의 — Zod 스키마 단일 출처 */
-const noActionDef: InfraToolDefinition<z.infer<typeof noActionSchema>> = {
+const noActionDef = infraTool({
   name: "no_action",
-  category: "infra",
-  strict: true,
   description:
     "Call this tool when there is nothing to report. Calling this tool ends the task without sending any message to the user.",
   inputSchema: noActionSchema,
@@ -34,7 +32,7 @@ const noActionDef: InfraToolDefinition<z.infer<typeof noActionSchema>> = {
       exitText: "",
     };
   },
-};
+});
 
 /** 모든 Infra 도구 정의 */
 export const infraToolDefinitions: readonly InfraToolDefinition<unknown>[] = [
