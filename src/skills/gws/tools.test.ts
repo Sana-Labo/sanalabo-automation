@@ -1,6 +1,6 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test, mock } from "bun:test";
 import { gwsToolDefinitions } from "./tools.js";
-import { toAnthropicTool } from "../../agent/tool-definition.js";
+import { toAnthropicTool, type GwsServices, type GwsToolDefinition } from "../../agent/tool-definition.js";
 
 /** 헬퍼: ToolDefinition → Anthropic.Tool 변환 배열 */
 const gwsTools = gwsToolDefinitions.map((d) => toAnthropicTool(d));
@@ -95,5 +95,95 @@ describe("gwsToolDefinitions", () => {
   test("Drive 도구 4개", () => {
     const driveTools = gwsTools.filter((t) => t.name.startsWith("drive_"));
     expect(driveTools).toHaveLength(4);
+  });
+
+  test("get_gws_account 도구 포함 + required: role", () => {
+    const tool = gwsTools.find((t) => t.name === "get_gws_account");
+    expect(tool).toBeDefined();
+    expect(tool!.input_schema.required).toEqual(["role"]);
+  });
+});
+
+// --- get_gws_account executor 테스트 ---
+
+describe("get_gws_account executor", () => {
+  const fullProfile = {
+    id: "123456",
+    email: "user@example.com",
+    verified_email: true,
+    name: "Test User",
+    given_name: "Test",
+    family_name: "User",
+    picture: "https://example.com/photo.jpg",
+    locale: "ko",
+    hd: "example.com",
+  };
+
+  function getAccountDef(): GwsToolDefinition<any> {
+    return gwsToolDefinitions.find((d) => d.name === "get_gws_account")!;
+  }
+
+  function makeMockServices(overrides?: { fetchFail?: boolean }): GwsServices {
+    const mockAuth = {
+      request: overrides?.fetchFail
+        ? mock(() => Promise.reject(new Error("auth error")))
+        : mock(() => Promise.resolve({ data: fullProfile })),
+    };
+    return {
+      auth: mockAuth as any,
+      gmail: {} as any,
+      calendar: {} as any,
+      drive: {} as any,
+    };
+  }
+
+  test("owner: 전체 필드 반환", async () => {
+    const services = makeMockServices();
+    const executor = getAccountDef().createExecutor(services);
+
+    const result = JSON.parse(await executor({ role: "owner" }));
+
+    expect(result.id).toBe("123456");
+    expect(result.email).toBe("user@example.com");
+    expect(result.given_name).toBe("Test");
+    expect(result.family_name).toBe("User");
+    expect(result.hd).toBe("example.com");
+  });
+
+  test("admin: 전체 필드 반환", async () => {
+    const services = makeMockServices();
+    const executor = getAccountDef().createExecutor(services);
+
+    const result = JSON.parse(await executor({ role: "admin" }));
+
+    expect(result.id).toBe("123456");
+    expect(result.hd).toBe("example.com");
+  });
+
+  test("member: 식별용 필드만 반환 (id, given_name, family_name, hd 제외)", async () => {
+    const services = makeMockServices();
+    const executor = getAccountDef().createExecutor(services);
+
+    const result = JSON.parse(await executor({ role: "member" }));
+
+    expect(result.email).toBe("user@example.com");
+    expect(result.name).toBe("Test User");
+    expect(result.verified_email).toBe(true);
+    expect(result.picture).toBe("https://example.com/photo.jpg");
+    expect(result.locale).toBe("ko");
+    // 비공개 필드 미포함
+    expect(result.id).toBeUndefined();
+    expect(result.given_name).toBeUndefined();
+    expect(result.family_name).toBeUndefined();
+    expect(result.hd).toBeUndefined();
+  });
+
+  test("API 실패 시 재인증 안내 반환 (에러 throw 없음)", async () => {
+    const services = makeMockServices({ fetchFail: true });
+    const executor = getAccountDef().createExecutor(services);
+
+    const result = JSON.parse(await executor({ role: "owner" }));
+
+    expect(result.error).toContain("re-authentication");
   });
 });

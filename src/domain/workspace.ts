@@ -16,7 +16,7 @@ export interface WorkspaceMembership {
   invitedBy: string;
 }
 
-/** OAuth Userinfo API で取得した Google 계정 프로필 */
+/** OAuth Userinfo API로 조회한 Google 계정 프로필 */
 export interface GwsAccount {
   email: string;
   name?: string;

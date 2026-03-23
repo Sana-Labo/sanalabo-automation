@@ -25,7 +25,14 @@ const getGwsAccountDef = gwsTool({
     role: z.enum(["owner", "member", "admin"]).describe("Your current role in this workspace"),
   }),
   createExecutor: (services) => async (input) => {
-    const info = await fetchFullUserInfo(services.auth);
+    let info;
+    try {
+      info = await fetchFullUserInfo(services.auth);
+    } catch {
+      return JSON.stringify({
+        error: "Failed to fetch Google account info. The workspace may need re-authentication. Use authenticate_gws to re-authenticate.",
+      });
+    }
     const role = input.role as Role;
 
     if (role === "member") {

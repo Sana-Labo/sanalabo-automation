@@ -98,9 +98,9 @@ interface UserinfoResponse {
 /**
  * Google Userinfo API로 계정 프로필 조회
  *
- * OAuth scope に openid + email + profile が必要.
+ * OAuth scope에 openid + email + profile 필요.
  *
- * @param client - 토큰 설정 済み OAuth2Client
+ * @param client - 토큰 설정 완료된 OAuth2Client
  * @returns 계정 프로필 (캐시 저장용 간략 구조)
  * @throws API 호출 실패 시
  */
@@ -122,12 +122,16 @@ export async function fetchUserInfo(client: OAuth2Client): Promise<GwsAccount> {
 /**
  * Google Userinfo API로 전체 프로필 조회 (도구용)
  *
- * @param client - 토큰 설정 済み OAuth2Client
+ * @param client - 토큰 설정 완료된 OAuth2Client
  * @returns Userinfo API 전체 응답
+ * @throws email 필드 누락 시
  */
 export async function fetchFullUserInfo(client: OAuth2Client): Promise<UserinfoResponse> {
   const res = await client.request<UserinfoResponse>({
     url: "https://www.googleapis.com/oauth2/v2/userinfo",
   });
+  if (!res.data?.email) {
+    throw new Error("Userinfo API did not return an email address");
+  }
   return res.data;
 }

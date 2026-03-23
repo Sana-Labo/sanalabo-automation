@@ -137,7 +137,7 @@ describe("domain/user", () => {
   });
 
   describe("clearLastWorkspaceId", () => {
-    test("lastWorkspaceId を undefined にした新レコードを返す", () => {
+    test("lastWorkspaceId를 undefined로 클리어한 새 레코드 반환", () => {
       const record: UserRecord = {
         status: "active",
         invitedBy: "self",
