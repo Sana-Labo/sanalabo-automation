@@ -58,7 +58,7 @@ function makeRegistry(options: {
   }
 
   return {
-    registry: { tools: [], executors, definitions: [] },
+    registry: { definitions: [], executors },
     flexCalls,
     textCalls,
   };

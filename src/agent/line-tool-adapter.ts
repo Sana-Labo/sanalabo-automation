@@ -10,10 +10,9 @@
  * Zod 스키마가 단일 출처. push_text_message: Zod 검증 (strict 제거).
  */
 import { z } from "zod";
-import type Anthropic from "@anthropic-ai/sdk";
 import { LINE_PUSH_TEXT_TOOL, LINE_PUSH_FLEX_TOOL, type ToolExecutor } from "../types.js";
 import { createLogger } from "../utils/logger.js";
-import { toAnthropicTool, type LineToolDefinition } from "./tool-definition.js";
+import type { LineToolDefinition } from "./tool-definition.js";
 
 const log = createLogger("channel");
 
@@ -59,7 +58,7 @@ export function buildFlexPayload(
   };
 }
 
-// --- ToolDefinition (새 구조) ---
+// --- ToolDefinition ---
 
 const pushTextDef: LineToolDefinition<z.infer<typeof pushTextSchema>> = {
   name: LINE_PUSH_TEXT_TOOL,
@@ -82,16 +81,10 @@ const pushFlexDef: LineToolDefinition<z.infer<typeof pushFlexSchema>> = {
   },
 };
 
-/** LINE 도구 정의 배열 (새 구조) */
+/** LINE 도구 정의 배열 */
 export const lineToolDefinitions: readonly LineToolDefinition<any>[] = [
   pushTextDef, pushFlexDef,
 ];
-
-// --- 레거시 호환 (레거시 정리 시 제거) ---
-
-/** @deprecated 레거시 정리 시 제거. lineToolDefinitions + toAnthropicTool 사용 */
-export const LINE_CHANNEL_SKILL_TOOLS: Anthropic.Tool[] =
-  lineToolDefinitions.map((d) => toAnthropicTool(d));
 
 /**
  * 원본 MCP executor를 래핑하여 단순화 입력 → MCP 네이티브 스키마로 변환

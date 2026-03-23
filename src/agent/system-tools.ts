@@ -9,13 +9,10 @@
  * Zod 스키마가 단일 출처. strict: true (constrained decoding).
  */
 import { z } from "zod";
-import type Anthropic from "@anthropic-ai/sdk";
 import {
   LINE_PUSH_FLEX_TOOL,
   LINE_PUSH_TEXT_TOOL,
   type AgentDependencies,
-  type InternalToolEntry,
-  type InternalToolSignal,
   type Role,
   type ToolContext,
   type ToolRegistry,
@@ -28,24 +25,9 @@ import { buildConsentUrl } from "../domain/google-oauth.js";
 import { createPendingAuth } from "../skills/gws/oauth-state.js";
 import { toErrorMessage } from "../utils/error.js";
 import { createLogger } from "../utils/logger.js";
-import { toAnthropicTool, type SystemToolDefinition, type SystemToolSignal } from "./tool-definition.js";
+import type { SystemToolDefinition, SystemToolSignal } from "./tool-definition.js";
 
 const log = createLogger("agent");
-
-// --- 레거시 타입 (레거시 정리 시 제거) ---
-
-/** @deprecated SystemToolSignal은 tool-definition.ts에서 export */
-export type { SystemToolSignal } from "./tool-definition.js";
-
-/** @deprecated 레거시 정리 시 제거 */
-export type SystemToolHandler = (
-  input: Record<string, unknown>,
-  context: ToolContext,
-  deps: AgentDependencies,
-) => Promise<SystemToolSignal>;
-
-/** @deprecated 레거시 정리 시 제거 */
-export type SystemToolEntry = InternalToolEntry<SystemToolHandler>;
 
 // --- Zod 스키마 ---
 
@@ -260,7 +242,7 @@ async function sendOAuthUrl(
   }
 }
 
-// --- ToolDefinition (새 구조) ---
+// --- ToolDefinition ---
 
 const createWorkspaceDef: SystemToolDefinition<z.infer<typeof createWorkspaceSchema>> = {
   name: "create_workspace",
@@ -628,7 +610,7 @@ const authenticateGwsDef: SystemToolDefinition<z.infer<typeof authenticateGwsSch
   },
 };
 
-/** 모든 System 도구 정의 (새 구조) */
+/** 모든 System 도구 정의 */
 // any 사용 필수: handler의 input이 반변(contravariant) 위치 — unknown은 할당 불가
 export const systemToolDefinitions: readonly SystemToolDefinition<any>[] = [
   createWorkspaceDef, listWorkspacesDef, getWorkspaceInfoDef,
@@ -641,23 +623,3 @@ export const systemToolDefinitions: readonly SystemToolDefinition<any>[] = [
 export const approveActionHandler = approveActionDef.handler;
 export const rejectActionHandler = rejectActionDef.handler;
 
-// --- 레거시 호환 (레거시 정리 시 제거) ---
-
-function toLegacyEntry(def: SystemToolDefinition<any>): SystemToolEntry {
-  return {
-    def: toAnthropicTool(def),
-    async handler(input, context, deps) {
-      return def.handler(input as any, context, deps);
-    },
-  };
-}
-
-const entries: SystemToolEntry[] = systemToolDefinitions.map(toLegacyEntry);
-
-/** @deprecated 레거시 정리 시 제거. systemToolDefinitions 사용 */
-export const systemTools: ReadonlyMap<string, SystemToolEntry> = new Map(
-  entries.map((e) => [e.def.name, e]),
-);
-
-/** @deprecated 레거시 정리 시 제거. systemToolDefinitions + toAnthropicTool 사용 */
-export const systemToolDefs: readonly Anthropic.Tool[] = entries.map((e) => e.def);

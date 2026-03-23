@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
-  LINE_CHANNEL_SKILL_TOOLS,
+  lineToolDefinitions,
   createLineExecutors,
   createChannelTextSender,
 } from "./line-tool-adapter.js";
+import { toAnthropicTool } from "./tool-definition.js";
 import { LINE_PUSH_TEXT_TOOL, LINE_PUSH_FLEX_TOOL } from "../types.js";
 
 // --- 공통 픽스처 ---
@@ -26,38 +27,40 @@ function makeMockExecutors() {
 
 // --- 스키마 정의 검증 ---
 
-describe("LINE_CHANNEL_SKILL_TOOLS", () => {
+describe("lineToolDefinitions", () => {
   test("push_text_message와 push_flex_message 2개 정의", () => {
-    expect(LINE_CHANNEL_SKILL_TOOLS).toHaveLength(2);
-    const names = LINE_CHANNEL_SKILL_TOOLS.map((t) => t.name);
+    expect(lineToolDefinitions).toHaveLength(2);
+    const names = lineToolDefinitions.map((d) => d.name);
     expect(names).toContain(LINE_PUSH_TEXT_TOOL);
     expect(names).toContain(LINE_PUSH_FLEX_TOOL);
   });
 
-  test("push_text_message는 non-strict + additionalProperties: false (Zod 검증)", () => {
-    const tool = LINE_CHANNEL_SKILL_TOOLS.find((t) => t.name === LINE_PUSH_TEXT_TOOL)!;
-    // strict 제거: Zod 검증으로 전환 (비용 효율적)
-    expect(tool.strict).toBeUndefined();
+  test("push_text_message는 non-strict (Zod 검증)", () => {
+    const def = lineToolDefinitions.find((d) => d.name === LINE_PUSH_TEXT_TOOL)!;
+    expect(def.strict).toBeUndefined();
+    const tool = toAnthropicTool(def);
     expect(tool.input_schema.additionalProperties).toBe(false);
   });
 
-  test("push_flex_message는 non-strict + additionalProperties: false", () => {
-    const tool = LINE_CHANNEL_SKILL_TOOLS.find((t) => t.name === LINE_PUSH_FLEX_TOOL)!;
-    expect(tool.strict).toBeUndefined();
+  test("push_flex_message는 non-strict", () => {
+    const def = lineToolDefinitions.find((d) => d.name === LINE_PUSH_FLEX_TOOL)!;
+    expect(def.strict).toBeUndefined();
+    const tool = toAnthropicTool(def);
     expect(tool.input_schema.additionalProperties).toBe(false);
   });
 
   test("push_text_message 스키마는 text만 required", () => {
-    const tool = LINE_CHANNEL_SKILL_TOOLS.find((t) => t.name === LINE_PUSH_TEXT_TOOL)!;
+    const def = lineToolDefinitions.find((d) => d.name === LINE_PUSH_TEXT_TOOL)!;
+    const tool = toAnthropicTool(def);
     expect(tool.input_schema.required).toEqual(["text"]);
     const props = tool.input_schema.properties as Record<string, unknown>;
     expect(props).toHaveProperty("text");
-    // user_id는 LLM 스키마에 없음 (adapter가 주입)
     expect(props).not.toHaveProperty("user_id");
   });
 
-  test("push_flex_message 스키마는 altText, contents만 required", () => {
-    const tool = LINE_CHANNEL_SKILL_TOOLS.find((t) => t.name === LINE_PUSH_FLEX_TOOL)!;
+  test("push_flex_message 스키마는 altText, contents가 required", () => {
+    const def = lineToolDefinitions.find((d) => d.name === LINE_PUSH_FLEX_TOOL)!;
+    const tool = toAnthropicTool(def);
     expect(tool.input_schema.required).toEqual(["altText", "contents"]);
     const props = tool.input_schema.properties as Record<string, unknown>;
     expect(props).toHaveProperty("altText");
@@ -150,7 +153,6 @@ describe("createChannelTextSender", () => {
     const executors = new Map<string, (input: Record<string, unknown>) => Promise<string>>();
     const sendText = createChannelTextSender(executors, "U_channel_003");
 
-    // 에러 없이 완료
     await sendText("test");
   });
 });

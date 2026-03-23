@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { systemToolDefs, systemTools, systemToolDefinitions } from "./system-tools.js";
+import { systemToolDefinitions } from "./system-tools.js";
 import { toAnthropicTool } from "./tool-definition.js";
 import type { WorkspaceRecord } from "../domain/workspace.js";
 import type { AgentDependencies, ToolContext, WorkspaceStore } from "../types.js";
@@ -48,7 +48,7 @@ function makeDeps(overrides?: {
   const createdWs = overrides?.createdWorkspace ?? makeWorkspace();
 
   return {
-    registry: { tools: [], executors: new Map(), definitions: [] },
+    registry: { definitions: [], executors: new Map() },
     pendingActionStore: {} as AgentDependencies["pendingActionStore"],
     getGwsExecutors: async () => new Map(),
     workspaceStore: {
@@ -71,28 +71,27 @@ function makeDeps(overrides?: {
 
 // --- 레지스트리 테스트 ---
 
-describe("systemTools registry", () => {
-  test("systemTools contains create_workspace", () => {
-    expect(systemTools.has("create_workspace")).toBe(true);
-  });
-
-  test("systemToolDefs includes create_workspace definition", () => {
-    const names = systemToolDefs.map((d) => d.name);
+describe("systemToolDefinitions registry", () => {
+  test("create_workspace 포함", () => {
+    const names = systemToolDefinitions.map((d) => d.name);
     expect(names).toContain("create_workspace");
   });
 
-  test("systemTools and systemToolDefs are consistent", () => {
-    for (const def of systemToolDefs) {
-      expect(systemTools.has(def.name)).toBe(true);
-      expect(systemTools.get(def.name)!.def).toBe(def);
-    }
-    expect(systemTools.size).toBe(systemToolDefs.length);
+  test("8개 도구 정의", () => {
+    expect(systemToolDefinitions).toHaveLength(8);
   });
 
-  test("모든 시스템 도구에 strict: true + additionalProperties: false 설정", () => {
-    for (const def of systemToolDefs) {
+  test("모든 정의에 strict: true 설정", () => {
+    for (const def of systemToolDefinitions) {
       expect(def.strict).toBe(true);
-      expect(def.input_schema.additionalProperties).toBe(false);
+    }
+  });
+
+  test("toAnthropicTool 변환: additionalProperties: false", () => {
+    for (const def of systemToolDefinitions) {
+      const tool = toAnthropicTool(def);
+      expect(tool.strict).toBe(true);
+      expect(tool.input_schema.additionalProperties).toBe(false);
     }
   });
 });
@@ -106,8 +105,8 @@ describe("create_workspace handler", () => {
     const deps = makeDeps({ ownedWorkspaces: [], createdWorkspace: createdWs, setDefaultCalls });
     const ctx = makeContext({ userId: "Unewuser0001" });
 
-    const entry = systemTools.get("create_workspace")!;
-    const signal = await entry.handler({ name: "MyWorkspace", owner_user_id: null }, ctx, deps);
+    const def = systemToolDefinitions.find((d) => d.name === "create_workspace")!;
+    const signal = await def.handler({ name: "MyWorkspace", owner_user_id: null }, ctx, deps);
 
     const result = JSON.parse(signal.toolResult);
     expect(result.workspaceId).toBe("ws-new");
@@ -126,8 +125,8 @@ describe("create_workspace handler", () => {
     const deps = makeDeps();
     const ctx = makeContext();
 
-    const entry = systemTools.get("create_workspace")!;
-    const signal = await entry.handler({ name: "  ", owner_user_id: null }, ctx, deps);
+    const def = systemToolDefinitions.find((d) => d.name === "create_workspace")!;
+    const signal = await def.handler({ name: "  ", owner_user_id: null }, ctx, deps);
 
     expect(signal.toolResult).toContain("Error");
     expect(signal.toolResult).toContain("empty");
@@ -140,8 +139,8 @@ describe("create_workspace handler", () => {
     const deps = makeDeps({ ownedWorkspaces: existing });
     const ctx = makeContext({ userId: "Uowner1234" });
 
-    const entry = systemTools.get("create_workspace")!;
-    const signal = await entry.handler({ name: "NinthWS", owner_user_id: null }, ctx, deps);
+    const def = systemToolDefinitions.find((d) => d.name === "create_workspace")!;
+    const signal = await def.handler({ name: "NinthWS", owner_user_id: null }, ctx, deps);
 
     expect(signal.toolResult).toContain("Error");
     expect(signal.toolResult).toContain("Maximum: 8");
@@ -153,7 +152,7 @@ describe("create_workspace handler", () => {
     const createdWs = makeWorkspace({ id: "ws-trimmed", name: "Trimmed" });
 
     const deps: AgentDependencies = {
-      registry: { tools: [], executors: new Map(), definitions: [] },
+      registry: { definitions: [], executors: new Map() },
       pendingActionStore: {} as AgentDependencies["pendingActionStore"],
       getGwsExecutors: async () => new Map(),
       workspaceStore: {
@@ -171,8 +170,8 @@ describe("create_workspace handler", () => {
       } as unknown as UserStore,
     };
 
-    const entry = systemTools.get("create_workspace")!;
-    await entry.handler({ name: "  Trimmed  ", owner_user_id: null }, makeContext(), deps);
+    const def = systemToolDefinitions.find((d) => d.name === "create_workspace")!;
+    await def.handler({ name: "  Trimmed  ", owner_user_id: null }, makeContext(), deps);
 
     expect(createCalls[0]!.name).toBe("Trimmed");
   });
@@ -195,8 +194,8 @@ describe("create_workspace handler", () => {
     };
     const ctx = makeContext({ userId: "Uadmin001", role: "admin" });
 
-    const entry = systemTools.get("create_workspace")!;
-    await entry.handler({ name: "Delegated", owner_user_id: "Ua0000000000000000000000000000001" }, ctx, deps);
+    const def = systemToolDefinitions.find((d) => d.name === "create_workspace")!;
+    await def.handler({ name: "Delegated", owner_user_id: "Ua0000000000000000000000000000001" }, ctx, deps);
 
     // owner는 대상 사용자
     expect(createCalls[0]!.ownerId).toBe("Ua0000000000000000000000000000001");
@@ -218,8 +217,8 @@ describe("create_workspace handler", () => {
     };
     const ctx = makeContext({ userId: "Uadmin001", role: "admin" });
 
-    const entry = systemTools.get("create_workspace")!;
-    await entry.handler({ name: "AdminWS", owner_user_id: null }, ctx, deps);
+    const def = systemToolDefinitions.find((d) => d.name === "create_workspace")!;
+    await def.handler({ name: "AdminWS", owner_user_id: null }, ctx, deps);
 
     expect(createCalls[0]!.ownerId).toBe("Uadmin001");
   });
@@ -235,8 +234,8 @@ describe("create_workspace handler", () => {
     };
     const ctx = makeContext({ userId: "Uregular001", role: "member" });
 
-    const entry = systemTools.get("create_workspace")!;
-    await entry.handler({ name: "SelfWS", owner_user_id: "Ub0000000000000000000000000000002" }, ctx, deps);
+    const def = systemToolDefinitions.find((d) => d.name === "create_workspace")!;
+    await def.handler({ name: "SelfWS", owner_user_id: "Ub0000000000000000000000000000002" }, ctx, deps);
 
     // owner_user_id 무시, 자기 자신이 owner
     expect(createCalls[0]!.ownerId).toBe("Uregular001");
@@ -252,8 +251,8 @@ describe("create_workspace handler", () => {
     });
     const ctx = makeContext({ userId: "Uadmin001", role: "admin" });
 
-    const entry = systemTools.get("create_workspace")!;
-    const signal = await entry.handler({ name: "TooMany", owner_user_id: null }, ctx, deps);
+    const def = systemToolDefinitions.find((d) => d.name === "create_workspace")!;
+    const signal = await def.handler({ name: "TooMany", owner_user_id: null }, ctx, deps);
 
     expect(signal.toolResult).toContain("Error");
     expect(signal.toolResult).toContain("Maximum: 64");
@@ -269,8 +268,8 @@ describe("create_workspace handler", () => {
     };
     const ctx = makeContext({ userId: "Uadmin001", role: "admin" });
 
-    const entry = systemTools.get("create_workspace")!;
-    const signal = await entry.handler(
+    const def = systemToolDefinitions.find((d) => d.name === "create_workspace")!;
+    const signal = await def.handler(
       { name: "WS", owner_user_id: "Ua0000000000000000000000000000001" },
       ctx,
       deps,
@@ -286,8 +285,8 @@ describe("create_workspace handler", () => {
     const deps = makeDeps({ isSystemAdmin: (id) => id === "Uadmin001" });
     const ctx = makeContext({ userId: "Uadmin001", role: "admin" });
 
-    const entry = systemTools.get("create_workspace")!;
-    const signal = await entry.handler(
+    const def = systemToolDefinitions.find((d) => d.name === "create_workspace")!;
+    const signal = await def.handler(
       { name: "WS", owner_user_id: "invalid-id" },
       ctx,
       deps,
@@ -310,8 +309,8 @@ describe("list_workspaces handler", () => {
     });
     const ctx = makeContext({ userId: "Uadmin001", role: "admin" });
 
-    const entry = systemTools.get("list_workspaces")!;
-    const signal = await entry.handler({}, ctx, deps);
+    const def = systemToolDefinitions.find((d) => d.name === "list_workspaces")!;
+    const signal = await def.handler({}, ctx, deps);
     const result = JSON.parse(signal.toolResult);
 
     expect(result.workspaces).toHaveLength(2);
@@ -337,8 +336,8 @@ describe("list_workspaces handler", () => {
     const deps = makeDeps({ memberWorkspaces: [ownedWs, memberWs] });
     const ctx = makeContext({ userId: "Uuser001", role: "member" });
 
-    const entry = systemTools.get("list_workspaces")!;
-    const signal = await entry.handler({}, ctx, deps);
+    const def = systemToolDefinitions.find((d) => d.name === "list_workspaces")!;
+    const signal = await def.handler({}, ctx, deps);
     const result = JSON.parse(signal.toolResult);
 
     expect(result.owned).toHaveLength(1);
@@ -365,8 +364,8 @@ describe("list_workspaces handler", () => {
     const deps = makeDeps({ memberWorkspaces: [memberWs] });
     const ctx = makeContext({ userId: "Uuser001", role: "member" });
 
-    const entry = systemTools.get("list_workspaces")!;
-    const signal = await entry.handler({}, ctx, deps);
+    const def = systemToolDefinitions.find((d) => d.name === "list_workspaces")!;
+    const signal = await def.handler({}, ctx, deps);
     const result = JSON.parse(signal.toolResult);
 
     expect(result.owned).toHaveLength(0);
@@ -377,8 +376,8 @@ describe("list_workspaces handler", () => {
     const deps = makeDeps({ memberWorkspaces: [] });
     const ctx = makeContext({ role: "member" });
 
-    const entry = systemTools.get("list_workspaces")!;
-    const signal = await entry.handler({}, ctx, deps);
+    const def = systemToolDefinitions.find((d) => d.name === "list_workspaces")!;
+    const signal = await def.handler({}, ctx, deps);
     const result = JSON.parse(signal.toolResult);
 
     expect(result.owned).toHaveLength(0);
@@ -409,8 +408,8 @@ describe("get_workspace_info handler", () => {
     });
     const ctx = makeContext({ userId: "Uadmin001", role: "admin" });
 
-    const entry = systemTools.get("get_workspace_info")!;
-    const signal = await entry.handler({ workspace_id: "ws-001" }, ctx, deps);
+    const def = systemToolDefinitions.find((d) => d.name === "get_workspace_info")!;
+    const signal = await def.handler({ workspace_id: "ws-001" }, ctx, deps);
     const result = JSON.parse(signal.toolResult);
 
     expect(result.id).toBe("ws-001");
@@ -427,8 +426,8 @@ describe("get_workspace_info handler", () => {
     });
     const ctx = makeContext({ userId: "Uowner1234", role: "owner", workspaceId: "ws-001" });
 
-    const entry = systemTools.get("get_workspace_info")!;
-    const signal = await entry.handler({ workspace_id: "ws-001" }, ctx, deps);
+    const def = systemToolDefinitions.find((d) => d.name === "get_workspace_info")!;
+    const signal = await def.handler({ workspace_id: "ws-001" }, ctx, deps);
     const result = JSON.parse(signal.toolResult);
 
     expect(result.id).toBe("ws-001");
@@ -444,8 +443,8 @@ describe("get_workspace_info handler", () => {
     });
     const ctx = makeContext({ userId: "Umember001", role: "member", workspaceId: "ws-001" });
 
-    const entry = systemTools.get("get_workspace_info")!;
-    const signal = await entry.handler({ workspace_id: "ws-001" }, ctx, deps);
+    const def = systemToolDefinitions.find((d) => d.name === "get_workspace_info")!;
+    const signal = await def.handler({ workspace_id: "ws-001" }, ctx, deps);
     const result = JSON.parse(signal.toolResult);
 
     expect(result.id).toBe("ws-001");
@@ -461,8 +460,8 @@ describe("get_workspace_info handler", () => {
     });
     const ctx = makeContext({ userId: "Uowner1234", role: "owner", workspaceId: "ws-current" });
 
-    const entry = systemTools.get("get_workspace_info")!;
-    const signal = await entry.handler({ workspace_id: null }, ctx, deps);
+    const def = systemToolDefinitions.find((d) => d.name === "get_workspace_info")!;
+    const signal = await def.handler({ workspace_id: null }, ctx, deps);
     const result = JSON.parse(signal.toolResult);
 
     expect(result.id).toBe("ws-current");
@@ -475,8 +474,8 @@ describe("get_workspace_info handler", () => {
     });
     const ctx = makeContext({ userId: "Ustranger", role: "member", workspaceId: "ws-mine" });
 
-    const entry = systemTools.get("get_workspace_info")!;
-    const signal = await entry.handler({ workspace_id: "ws-other" }, ctx, deps);
+    const def = systemToolDefinitions.find((d) => d.name === "get_workspace_info")!;
+    const signal = await def.handler({ workspace_id: "ws-other" }, ctx, deps);
 
     expect(signal.toolResult).toContain("Error");
   });
@@ -485,8 +484,8 @@ describe("get_workspace_info handler", () => {
     const deps = makeDeps();
     const ctx = makeContext({ userId: "Uuser001", role: "member" });
 
-    const entry = systemTools.get("get_workspace_info")!;
-    const signal = await entry.handler({ workspace_id: null }, ctx, deps);
+    const def = systemToolDefinitions.find((d) => d.name === "get_workspace_info")!;
+    const signal = await def.handler({ workspace_id: null }, ctx, deps);
 
     expect(signal.toolResult).toContain("Error");
   });
@@ -498,8 +497,8 @@ describe("get_workspace_info handler", () => {
     });
     const ctx = makeContext({ userId: "Uadmin001", role: "admin" });
 
-    const entry = systemTools.get("get_workspace_info")!;
-    const signal = await entry.handler({ workspace_id: "ws-nonexistent" }, ctx, deps);
+    const def = systemToolDefinitions.find((d) => d.name === "get_workspace_info")!;
+    const signal = await def.handler({ workspace_id: "ws-nonexistent" }, ctx, deps);
 
     expect(signal.toolResult).toContain("Error");
     expect(signal.toolResult).toContain("not found");
@@ -518,8 +517,8 @@ describe("get_workspace_info handler", () => {
     });
     const ctx = makeContext({ userId: "Uowner1234", role: "owner", workspaceId: "ws-001" });
 
-    const entry = systemTools.get("get_workspace_info")!;
-    const signal = await entry.handler({ workspace_id: "ws-001" }, ctx, deps);
+    const def = systemToolDefinitions.find((d) => d.name === "get_workspace_info")!;
+    const signal = await def.handler({ workspace_id: "ws-001" }, ctx, deps);
     const result = JSON.parse(signal.toolResult);
 
     expect(result.members[0]).toEqual({
@@ -544,8 +543,8 @@ describe("enter_workspace handler", () => {
     });
     const ctx = makeContext({ userId: "Uuser001", workspaceId: undefined, role: "member" });
 
-    const entry = systemTools.get("enter_workspace")!;
-    const signal = await entry.handler({ workspace_id: "ws-001" }, ctx, deps);
+    const def = systemToolDefinitions.find((d) => d.name === "enter_workspace")!;
+    const signal = await def.handler({ workspace_id: "ws-001" }, ctx, deps);
 
     const result = JSON.parse(signal.toolResult);
     expect(result.workspaceId).toBe("ws-001");
@@ -567,8 +566,8 @@ describe("enter_workspace handler", () => {
     });
     const ctx = makeContext({ userId: "Uuser001", workspaceId: undefined, role: "member" });
 
-    const entry = systemTools.get("enter_workspace")!;
-    const signal = await entry.handler({ workspace_id: null }, ctx, deps);
+    const def = systemToolDefinitions.find((d) => d.name === "enter_workspace")!;
+    const signal = await def.handler({ workspace_id: null }, ctx, deps);
 
     const result = JSON.parse(signal.toolResult);
     expect(result.workspaceId).toBe("ws-last");
@@ -579,8 +578,8 @@ describe("enter_workspace handler", () => {
     const deps = makeDeps();
     const ctx = makeContext({ userId: "Uuser001", workspaceId: undefined, role: "member" });
 
-    const entry = systemTools.get("enter_workspace")!;
-    const signal = await entry.handler({ workspace_id: null }, ctx, deps);
+    const def = systemToolDefinitions.find((d) => d.name === "enter_workspace")!;
+    const signal = await def.handler({ workspace_id: null }, ctx, deps);
 
     expect(signal.toolResult).toContain("Error");
     expect(signal.toolResult).toContain("No workspace specified");
@@ -590,8 +589,8 @@ describe("enter_workspace handler", () => {
     const deps = makeDeps({ getWorkspace: () => undefined });
     const ctx = makeContext({ userId: "Uuser001", workspaceId: undefined, role: "member" });
 
-    const entry = systemTools.get("enter_workspace")!;
-    const signal = await entry.handler({ workspace_id: "ws-nonexistent" }, ctx, deps);
+    const def = systemToolDefinitions.find((d) => d.name === "enter_workspace")!;
+    const signal = await def.handler({ workspace_id: "ws-nonexistent" }, ctx, deps);
 
     expect(signal.toolResult).toContain("Error");
     expect(signal.toolResult).toContain("not found");
@@ -605,8 +604,8 @@ describe("enter_workspace handler", () => {
     });
     const ctx = makeContext({ userId: "Uuser001", workspaceId: undefined, role: "member" });
 
-    const entry = systemTools.get("enter_workspace")!;
-    const signal = await entry.handler({ workspace_id: "ws-other" }, ctx, deps);
+    const def = systemToolDefinitions.find((d) => d.name === "enter_workspace")!;
+    const signal = await def.handler({ workspace_id: "ws-other" }, ctx, deps);
 
     expect(signal.toolResult).toContain("Error");
     expect(signal.toolResult).toContain("access");
@@ -627,8 +626,8 @@ describe("invite_member handler", () => {
     };
     const ctx = makeContext({ userId: "Uowner1234", workspaceId: "ws-001", role: "owner" });
 
-    const entry = systemTools.get("invite_member")!;
-    const signal = await entry.handler(
+    const def = systemToolDefinitions.find((d) => d.name === "invite_member")!;
+    const signal = await def.handler(
       { user_id: "Ua0000000000000000000000000000001", workspace_id: null },
       ctx, deps,
     );
@@ -643,8 +642,8 @@ describe("invite_member handler", () => {
     const deps = makeDeps();
     const ctx = makeContext({ userId: "Uowner1234", workspaceId: "ws-001", role: "owner" });
 
-    const entry = systemTools.get("invite_member")!;
-    const signal = await entry.handler(
+    const def = systemToolDefinitions.find((d) => d.name === "invite_member")!;
+    const signal = await def.handler(
       { user_id: "invalid-id", workspace_id: null },
       ctx, deps,
     );
@@ -660,8 +659,8 @@ describe("invite_member handler", () => {
     });
     const ctx = makeContext({ userId: "Umember001", workspaceId: "ws-001", role: "member" });
 
-    const entry = systemTools.get("invite_member")!;
-    const signal = await entry.handler(
+    const def = systemToolDefinitions.find((d) => d.name === "invite_member")!;
+    const signal = await def.handler(
       { user_id: "Ua0000000000000000000000000000001", workspace_id: "ws-001" },
       ctx, deps,
     );
@@ -675,8 +674,8 @@ describe("invite_member handler", () => {
     (deps.workspaceStore as any).getByOwner = () => [];
     const ctx = makeContext({ userId: "Uuser001", workspaceId: undefined, role: "member" });
 
-    const entry = systemTools.get("invite_member")!;
-    const signal = await entry.handler(
+    const def = systemToolDefinitions.find((d) => d.name === "invite_member")!;
+    const signal = await def.handler(
       { user_id: "Ua0000000000000000000000000000001", workspace_id: null },
       ctx, deps,
     );
@@ -694,8 +693,8 @@ describe("approve_action handler", () => {
     (deps.pendingActionStore as any).get = () => undefined;
     const ctx = makeContext({ userId: "Uowner1234", workspaceId: "ws-001", role: "owner" });
 
-    const entry = systemTools.get("approve_action")!;
-    const signal = await entry.handler({ action_id: "nonexistent" }, ctx, deps);
+    const def = systemToolDefinitions.find((d) => d.name === "approve_action")!;
+    const signal = await def.handler({ action_id: "nonexistent" }, ctx, deps);
 
     expect(signal.toolResult).toContain("Error");
     expect(signal.toolResult).toContain("not found");
@@ -717,8 +716,8 @@ describe("approve_action handler", () => {
     });
     const ctx = makeContext({ userId: "Umember001", workspaceId: "ws-001", role: "member" });
 
-    const entry = systemTools.get("approve_action")!;
-    const signal = await entry.handler({ action_id: "pa-001" }, ctx, deps);
+    const def = systemToolDefinitions.find((d) => d.name === "approve_action")!;
+    const signal = await def.handler({ action_id: "pa-001" }, ctx, deps);
 
     expect(signal.toolResult).toContain("Error");
     expect(signal.toolResult).toContain("owner");
@@ -733,8 +732,8 @@ describe("approve_action handler", () => {
     });
     const ctx = makeContext({ userId: "Uowner1234", workspaceId: "ws-001", role: "owner" });
 
-    const entry = systemTools.get("approve_action")!;
-    const signal = await entry.handler({ action_id: "pa-done" }, ctx, deps);
+    const def = systemToolDefinitions.find((d) => d.name === "approve_action")!;
+    const signal = await def.handler({ action_id: "pa-done" }, ctx, deps);
 
     expect(signal.toolResult).toContain("Error");
     expect(signal.toolResult).toContain("already been approved");
@@ -772,8 +771,8 @@ describe("approve_action handler", () => {
     });
 
     const ctx = makeContext({ userId: "Uowner1234", workspaceId: "ws-001", role: "owner" });
-    const entry = systemTools.get("approve_action")!;
-    const signal = await entry.handler({ action_id: "pa-001" }, ctx, deps);
+    const def = systemToolDefinitions.find((d) => d.name === "approve_action")!;
+    const signal = await def.handler({ action_id: "pa-001" }, ctx, deps);
 
     const result = JSON.parse(signal.toolResult);
     expect(result.status).toBe("approved");
@@ -802,8 +801,8 @@ describe("approve_action handler", () => {
     (deps.userStore as any).get = () => ({ status: "inactive", invitedBy: "self", invitedAt: "" });
 
     const ctx = makeContext({ userId: "Uowner1234", workspaceId: "ws-001", role: "owner" });
-    const entry = systemTools.get("approve_action")!;
-    const signal = await entry.handler({ action_id: "pa-002" }, ctx, deps);
+    const def = systemToolDefinitions.find((d) => d.name === "approve_action")!;
+    const signal = await def.handler({ action_id: "pa-002" }, ctx, deps);
 
     expect(signal.toolResult).toContain("Error");
     expect(signal.toolResult).toContain("no longer a member");
@@ -817,8 +816,8 @@ describe("reject_action handler", () => {
     (deps.pendingActionStore as any).get = () => undefined;
     const ctx = makeContext({ userId: "Uowner1234", workspaceId: "ws-001", role: "owner" });
 
-    const entry = systemTools.get("reject_action")!;
-    const signal = await entry.handler({ action_id: "nonexistent", reason: null }, ctx, deps);
+    const def = systemToolDefinitions.find((d) => d.name === "reject_action")!;
+    const signal = await def.handler({ action_id: "nonexistent", reason: null }, ctx, deps);
 
     expect(signal.toolResult).toContain("Error");
     expect(signal.toolResult).toContain("not found");
@@ -840,8 +839,8 @@ describe("reject_action handler", () => {
     });
     const ctx = makeContext({ userId: "Umember001", workspaceId: "ws-001", role: "member" });
 
-    const entry = systemTools.get("reject_action")!;
-    const signal = await entry.handler({ action_id: "pa-001", reason: "not now" }, ctx, deps);
+    const def = systemToolDefinitions.find((d) => d.name === "reject_action")!;
+    const signal = await def.handler({ action_id: "pa-001", reason: "not now" }, ctx, deps);
 
     expect(signal.toolResult).toContain("Error");
     expect(signal.toolResult).toContain("owner");
@@ -856,8 +855,8 @@ describe("reject_action handler", () => {
     });
     const ctx = makeContext({ userId: "Uowner1234", workspaceId: "ws-001", role: "owner" });
 
-    const entry = systemTools.get("reject_action")!;
-    const signal = await entry.handler({ action_id: "pa-done", reason: null }, ctx, deps);
+    const def = systemToolDefinitions.find((d) => d.name === "reject_action")!;
+    const signal = await def.handler({ action_id: "pa-done", reason: null }, ctx, deps);
 
     expect(signal.toolResult).toContain("Error");
     expect(signal.toolResult).toContain("already been rejected");
@@ -882,8 +881,8 @@ describe("reject_action handler", () => {
     };
 
     const ctx = makeContext({ userId: "Uowner1234", workspaceId: "ws-001", role: "owner" });
-    const entry = systemTools.get("reject_action")!;
-    const signal = await entry.handler({ action_id: "pa-003", reason: "not needed" }, ctx, deps);
+    const def = systemToolDefinitions.find((d) => d.name === "reject_action")!;
+    const signal = await def.handler({ action_id: "pa-003", reason: "not needed" }, ctx, deps);
 
     const result = JSON.parse(signal.toolResult);
     expect(result.status).toBe("rejected");
@@ -893,7 +892,7 @@ describe("reject_action handler", () => {
   });
 });
 
-// --- ToolDefinition (새 구조) 테스트 ---
+// --- ToolDefinition 테스트 ---
 
 describe("systemToolDefinitions (Zod)", () => {
   const expectedNames = [
@@ -916,21 +915,15 @@ describe("systemToolDefinitions (Zod)", () => {
     }
   });
 
-  test("Zod → JSON Schema 라운드트립: 레거시와 구조 일치", () => {
+  test("Zod → JSON Schema 라운드트립: 구조 검증", () => {
     for (const def of systemToolDefinitions) {
-      const anthropicTool = toAnthropicTool(def);
-      const legacyDef = systemToolDefs.find((d) => d.name === def.name)!;
+      const tool = toAnthropicTool(def);
 
-      expect(anthropicTool.name).toBe(legacyDef.name);
-      expect(anthropicTool.description).toBe(legacyDef.description);
-      expect(anthropicTool.strict).toBe(legacyDef.strict);
-      expect(anthropicTool.input_schema.type).toBe("object");
-      expect(anthropicTool.input_schema.additionalProperties).toBe(false);
-
-      // required 필드 수 일치
-      const newRequired = (anthropicTool.input_schema.required ?? []) as string[];
-      const oldRequired = (legacyDef.input_schema.required ?? []) as string[];
-      expect(newRequired.sort()).toEqual(oldRequired.sort());
+      expect(tool.name).toBe(def.name);
+      expect(tool.description).toBe(def.description);
+      expect(tool.strict).toBe(true);
+      expect(tool.input_schema.type).toBe("object");
+      expect(tool.input_schema.additionalProperties).toBe(false);
     }
   });
 

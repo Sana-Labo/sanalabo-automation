@@ -1,9 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { gwsTools } from "./tools.js";
+import { gwsToolDefinitions } from "./tools.js";
+import { toAnthropicTool } from "../../agent/tool-definition.js";
 
-describe("gwsTools", () => {
+/** 헬퍼: ToolDefinition → Anthropic.Tool 변환 배열 */
+const gwsTools = gwsToolDefinitions.map((d) => toAnthropicTool(d));
+
+describe("gwsToolDefinitions", () => {
   test("15개 도구 정의", () => {
-    expect(gwsTools).toHaveLength(15);
+    expect(gwsToolDefinitions).toHaveLength(15);
   });
 
   test("GWS 도구는 non-strict (strict tool 제한 20개 준수)", () => {
