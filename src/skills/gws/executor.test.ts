@@ -42,12 +42,12 @@ describe("createGwsExecutorFactory", () => {
     expect(result).toBeNull();
   });
 
-  test("토큰 있는 워크스페이스 → 15개 executor Map 반환", async () => {
+  test("토큰 있는 워크스페이스 → 16개 executor Map 반환", async () => {
     await tokenStore.save("ws-1", sampleTokens);
     const result = await factory.getExecutors("ws-1");
 
     expect(result).not.toBeNull();
-    expect(result!.size).toBe(15);
+    expect(result!.size).toBe(16);
     expect(result!.has("gmail_list")).toBe(true);
     expect(result!.has("gmail_send")).toBe(true);
     expect(result!.has("calendar_create")).toBe(true);
@@ -78,7 +78,7 @@ describe("createGwsExecutorFactory", () => {
     const second = await factory.getExecutors("ws-1");
 
     expect(second).not.toBe(first);
-    expect(second!.size).toBe(15);
+    expect(second!.size).toBe(16);
   });
 
   test("전체 캐시 클리어", async () => {

@@ -29,6 +29,7 @@ import { infraToolDefinitions } from "./infra-tools.js";
 import { createChannelTextSender, createLineExecutors } from "./line-tool-adapter.js";
 import { systemToolDefinitions } from "./system-tools.js";
 import { buildSystemPrompt } from "./system.js";
+import { gwsToolDefinitions } from "../skills/gws/tools.js";
 import { TranscriptRecorder } from "./transcript.js";
 
 const log = createLogger("agent");
@@ -102,7 +103,7 @@ export async function runAgentLoop(
   const userWorkspaces = context.workspaceId
     ? []
     : deps.workspaceStore.getByMember(context.userId);
-  const systemPrompt = buildSystemPrompt(context, workspace, userWorkspaces);
+  let systemPrompt = buildSystemPrompt(context, workspace, userWorkspaces);
 
   // 요청별 executor 구성: 기본 레지스트리 + 워크스페이스별 GWS executor
   // LINE push 도구는 래핑 executor (단순화 입력 → MCP 네이티브 변환 + userId 주입)
@@ -293,8 +294,23 @@ export async function runAgentLoop(
           }
           allTools = buildToolList();
           context = { ...context, workspaceId: enteredWs.id, role: deps.workspaceStore.getUserRole(enteredWs.id, context.userId) ?? context.role };
+          // system prompt 재생성 — On-stage용 (GWS 도구 안내 + Safety Rules)
+          systemPrompt = buildSystemPrompt(context, enteredWs);
           log.info("Executor rebuilt after workspace entry", { workspaceId: enteredWs.id, toolCount: allTools.length });
         }
+      }
+
+      // leave_workspace 후 GWS executor 제거 + Out-stage 전환 + system prompt 재생성
+      if (signal.leftWorkspace) {
+        for (const def of gwsToolDefinitions) {
+          executors.delete(def.name);
+        }
+        allTools = buildToolList();
+        context = { userId: context.userId, role: context.role };
+        // system prompt 재생성 — Out-stage용 (워크스페이스 선택 안내)
+        const userWorkspaces = deps.workspaceStore.getByMember(context.userId);
+        systemPrompt = buildSystemPrompt(context, undefined, userWorkspaces);
+        log.info("Workspace left, prompt rebuilt", { userId: context.userId, toolCount: allTools.length });
       }
     }
 

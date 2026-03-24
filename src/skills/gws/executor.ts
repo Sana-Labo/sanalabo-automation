@@ -102,7 +102,7 @@ export function createGwsExecutorFactory(
     const gmailClient = gmail({ version: "v1", auth });
     const calendarClient = calendar({ version: "v3", auth });
     const driveClient = drive({ version: "v3", auth });
-    const services = { gmail: gmailClient, calendar: calendarClient, drive: driveClient };
+    const services = { auth, gmail: gmailClient, calendar: calendarClient, drive: driveClient };
 
     // GwsToolDefinition 순회 → createExecutor 생성
     const rawExecutors = new Map<string, ToolExecutor>();

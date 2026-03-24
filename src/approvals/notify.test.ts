@@ -78,6 +78,7 @@ function makeWorkspaceStore(workspace?: WorkspaceRecord): WorkspaceStore {
     resolveWorkspace: () => workspace,
     getUserRole: () => undefined,
     setGwsAuthenticated: async () => {},
+    setGwsAccount: async () => {},
   };
 }
 

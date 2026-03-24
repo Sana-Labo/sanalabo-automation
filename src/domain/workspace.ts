@@ -16,12 +16,21 @@ export interface WorkspaceMembership {
   invitedBy: string;
 }
 
+/** OAuth Userinfo API로 조회한 Google 계정 프로필 */
+export interface GwsAccount {
+  email: string;
+  name?: string;
+  picture?: string;
+}
+
 /** 워크스페이스 레코드 */
 export interface WorkspaceRecord {
   id: string;
   name: string;
   ownerId: string;
   gwsAuthenticated: boolean;
+  /** OAuth 인증된 Google 계정 프로필 (인증 시 저장) */
+  gwsAccount?: GwsAccount;
   createdAt: string;
   members: Record<string, WorkspaceMembership>;
 }

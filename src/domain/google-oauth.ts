@@ -18,6 +18,9 @@ export const GOOGLE_SCOPES = [
   "https://www.googleapis.com/auth/gmail.modify",
   "https://www.googleapis.com/auth/calendar",
   "https://www.googleapis.com/auth/drive",
+  "openid",
+  "email",
+  "profile",
 ] as const;
 
 /** OAuth 인증 대기 상태 (인메모리, state → 사용자 매핑) */

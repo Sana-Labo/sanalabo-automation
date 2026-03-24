@@ -10,6 +10,7 @@ import { parseCallbackQuery } from "../domain/google-oauth.js";
 import {
   createOAuth2Client,
   exchangeCode,
+  fetchUserInfo,
   type GoogleAuthConfig,
 } from "../skills/gws/google-auth.js";
 import { consumePendingAuth } from "../skills/gws/oauth-state.js";
@@ -95,7 +96,16 @@ export function createGoogleOAuthRoute(deps: GoogleOAuthRouteDeps): Hono {
       // 5. gwsAuthenticated 플래그 설정
       await deps.workspaceStore.setGwsAuthenticated(auth.workspaceId, true);
 
-      // 6. GWS executor 캐시 무효화 (새 토큰으로 재생성 유도)
+      // 6. Google 계정 프로필 조회 + 저장 (best-effort)
+      try {
+        const account = await fetchUserInfo(client);
+        await deps.workspaceStore.setGwsAccount(auth.workspaceId, account);
+        log.info("GWS account saved", { workspaceId: auth.workspaceId, email: account.email });
+      } catch (e) {
+        log.warning("Failed to fetch Google account info", { workspaceId: auth.workspaceId, error: toErrorMessage(e) });
+      }
+
+      // 7. GWS executor 캐시 무효화 (새 토큰으로 재생성 유도)
       deps.invalidateExecutors(auth.workspaceId);
 
       log.info("OAuth completed", {
@@ -103,7 +113,7 @@ export function createGoogleOAuthRoute(deps: GoogleOAuthRouteDeps): Hono {
         workspaceId: auth.workspaceId,
       });
 
-      // 7. LINE push로 완료 통지
+      // 8. LINE push로 완료 통지
       const textExecutor = deps.registry.executors.get(LINE_PUSH_TEXT_TOOL);
       if (textExecutor) {
         textExecutor({
@@ -119,7 +129,7 @@ export function createGoogleOAuthRoute(deps: GoogleOAuthRouteDeps): Hono {
         });
       }
 
-      // 8. 브라우저에 성공 HTML
+      // 9. 브라우저에 성공 HTML
       return htmlResponse(
         "Authentication Complete",
         "You can close this window and return to LINE.",

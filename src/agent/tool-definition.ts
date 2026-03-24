@@ -77,6 +77,8 @@ export interface ToolDefinition<T = unknown> {
 
 /** GWS API 서비스 클라이언트 묶음 — 워크스페이스별 OAuth 토큰으로 생성 */
 export interface GwsServices {
+  /** OAuth2Client (Userinfo API 등 서비스 무관 호출용) */
+  auth: import("google-auth-library").OAuth2Client;
   gmail: gmail_v1.Gmail;
   calendar: calendar_v3.Calendar;
   drive: drive_v3.Drive;
@@ -99,10 +101,12 @@ export interface LineToolDefinition<T> extends ToolDefinition<T> {
   }) => (input: T) => Promise<string>;
 }
 
-/** System 도구 시그널 — 워크스페이스 진입 시 executor 재구성 트리거 */
+/** System 도구 시그널 — 워크스페이스 진입/퇴장 시 executor 재구성 트리거 */
 export interface SystemToolSignal extends InternalToolSignal {
   /** enter_workspace 호출 시 진입한 워크스페이스 ID */
   enteredWorkspaceId?: string;
+  /** leave_workspace 호출 시 true — GWS executor 제거 + context 클리어 */
+  leftWorkspace?: boolean;
 }
 
 /** System 도구 — deps 접근, strict 고정 */
