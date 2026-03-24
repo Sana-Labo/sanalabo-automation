@@ -141,28 +141,13 @@ describe("create_workspace handler", () => {
   });
 
   test("이름 앞뒤 공백은 트리밍되어 생성 (owner_user_id null)", async () => {
-    const setDefaultCalls: Array<{ userId: string; workspaceId: string }> = [];
     const createCalls: Array<{ name: string; ownerId: string }> = [];
     const createdWs = makeWorkspace({ id: "ws-trimmed", name: "Trimmed" });
 
-    const deps: AgentDependencies = {
-      registry: { definitions: [], executors: new Map() },
-      pendingActionStore: {} as AgentDependencies["pendingActionStore"],
-      getGwsExecutors: async () => new Map(),
-      workspaceStore: {
-        getByOwner: () => [],
-        create: async (name: string, ownerId: string) => {
-          createCalls.push({ name, ownerId });
-          return createdWs;
-        },
-      } as unknown as WorkspaceStore,
-      userStore: {
-        setLastWorkspaceId: async (userId: string, workspaceId: string) => {
-          setDefaultCalls.push({ userId, workspaceId });
-        },
-        isSystemAdmin: () => false,
-      } as unknown as UserStore,
-    };
+    const deps = makeDeps({
+      ownedWorkspaces: [],
+      createWorkspace: async (name, ownerId) => { createCalls.push({ name, ownerId }); return createdWs; },
+    });
 
     const def = systemToolDefinitions.find((d) => d.name === "create_workspace")!;
     await def.handler({ name: "  Trimmed  ", owner_user_id: null }, makeContext(), deps);

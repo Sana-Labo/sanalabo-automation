@@ -1,7 +1,7 @@
 import "../test-utils/setup-env.js";
 import { describe, test, expect, beforeEach } from "bun:test";
 import { createGoogleOAuthRoute, type GoogleOAuthRouteDeps } from "./googleOAuth.js";
-import { createPendingAuth } from "../skills/gws/oauth-state.js";
+import { createPendingAuth, _resetForTest } from "../skills/gws/oauth-state.js";
 
 /** 기록용 배열 */
 let savedTokens: Array<{ workspaceId: string; tokens: unknown }>;
@@ -76,6 +76,7 @@ describe("GET /auth/google/callback", () => {
   let app: ReturnType<typeof createGoogleOAuthRoute>;
 
   beforeEach(() => {
+    _resetForTest();
     app = createGoogleOAuthRoute(createMockDeps());
   });
 

@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterEach, spyOn } from "bun:test";
+import { describe, test, expect, beforeEach } from "bun:test";
 import {
   createPendingAuth,
   consumePendingAuth,
@@ -46,12 +46,12 @@ describe("oauth-state", () => {
   });
 
   test("cleanupExpiredAuths: 만료되지 않은 항목은 유지", () => {
-    createPendingAuth("U001", "ws-1");
+    const state = createPendingAuth("U001", "ws-1");
     const cleaned = cleanupExpiredAuths();
     expect(cleaned).toBe(0);
 
-    // 항목이 여전히 소비 가능
-    // (state를 다시 생성하지 않고 직접 테스트 — 위에서 이미 생성됨)
+    // 정리 후에도 소비 가능
+    expect(consumePendingAuth(state)).not.toBeNull();
   });
 
   test("cleanupExpiredAuths: 만료된 항목 삭제", () => {
