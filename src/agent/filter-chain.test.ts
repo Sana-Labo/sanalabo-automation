@@ -20,6 +20,7 @@ function makeFilterContext(overrides: Partial<FilterContext> = {}): FilterContex
     input: {},
     definition: undefined,
     context: { userId: "U_test", workspaceId: "ws_001", role: "owner" },
+    userMessage: "test message",
     metadata: {},
     ...overrides,
   };

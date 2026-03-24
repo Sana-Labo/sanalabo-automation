@@ -152,6 +152,14 @@ export async function runAgentLoop(
       });
   }
 
+  // 필터 체인 — 루프 밖 생성 (상태 비의존 클로저 + executors Map은 in-place 변경이므로 참조 안정)
+  const filters = [
+    createLoggingFilter(),
+    createWriteInterceptFilter(deps),
+    createZodValidationFilter(),
+    createExecutorFilter(state.executors),
+  ];
+
   log.debug("Agent loop started", () => ({ userId: state.context.userId, workspaceId: state.context.workspaceId, role: state.context.role }));
 
   while (turns < MAX_TURNS) {
@@ -205,14 +213,6 @@ export async function runAgentLoop(
     const toolUseBlocks = response.content.filter(
       (b): b is Anthropic.ToolUseBlock => b.type === "tool_use",
     );
-
-    // 필터 체인 구성: 로깅 → 승인 게이트 → Zod 검증 → executor
-    const filters = [
-      createLoggingFilter(),
-      createWriteInterceptFilter(deps),
-      createZodValidationFilter(),
-      createExecutorFilter(state.executors),
-    ];
 
     const dispatchResult = await dispatchAllTools(
       toolUseBlocks,
