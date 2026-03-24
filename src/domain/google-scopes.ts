@@ -66,7 +66,7 @@ export function computeRequiredScopes(
 /**
  * 부여된 scope가 필요 scope를 모두 포함하는지 검사
  *
- * @param grantedScopeString - 토큰의 scope 문자열 (space-delimited). undefined/빈 문자열 → false
+ * @param grantedScopeString - 토큰의 scope 문자열 (space-delimited). undefined/빈 문자열 시 requiredScopes가 비어있어야 true
  * @param requiredScopes - 필요한 scope 배열
  * @returns 모든 required scope가 granted에 포함되어 있으면 true
  */

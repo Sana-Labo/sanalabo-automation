@@ -30,6 +30,11 @@ export interface ConsentUrlParams {
 /**
  * Google OAuth consent URL 조립
  *
+ * - `prompt=consent`: 매번 동의 화면을 강제하여 refresh_token 발급을 보장.
+ *   증분 인증 시 UX가 다소 무겁지만(전체 scope 동의), exchangeCode의
+ *   refresh_token 필수 검증과 일관되며 업계 de facto 표준.
+ * - `include_granted_scopes=true`: 기존 승인 scope가 새 토큰에 자동 병합.
+ *
  * @param params - OAuth 파라미터
  * @returns 완성된 consent URL 문자열
  */
