@@ -7,7 +7,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { interceptWrite } from "../approvals/interceptor.js";
 import { notifyOwnerOfPending } from "../approvals/notify.js";
-import { config } from "../config.js";
 import {
   CHANNEL_SKILL_TOOL_NAMES,
   type AgentDependencies,
@@ -24,12 +23,9 @@ import {
 } from "./tool-definition.js";
 import { toErrorMessage } from "../utils/error.js";
 import { createLogger } from "../utils/logger.js";
-import { infraToolDefinitions } from "./infra-tools.js";
-import { createLineExecutors } from "./line-tool-adapter.js";
-import { systemToolDefinitions } from "./system-tools.js";
-import { buildSystemPrompt } from "./system.js";
 import { gwsToolDefinitions } from "../skills/gws/tools.js";
-import { TranscriptRecorder } from "./transcript.js";
+import { buildSystemPrompt } from "./system.js";
+import type { TranscriptRecorder } from "./transcript.js";
 
 const log = createLogger("agent");
 
@@ -57,59 +53,6 @@ export interface AgentLoopOptions {
   allowNoAction?: boolean;
   /** 트랜스크립트 기록용 트리거 유형 (기본: "webhook") */
   trigger?: "webhook" | "cron" | "postback";
-}
-
-// --- 초기화 ---
-
-/**
- * 에이전트 루프 초기 상태 구성
- *
- * context 해석 → executor 조합 → ToolDefinition 맵 → 도구 목록 → 트랜스크립트
- */
-export async function initLoopState(
-  userMessage: string,
-  deps: AgentDependencies,
-  initialContext: ToolContext,
-  options: AgentLoopOptions,
-): Promise<LoopState> {
-  const context = initialContext;
-  const workspace = context.workspaceId
-    ? deps.workspaceStore.get(context.workspaceId)
-    : undefined;
-  const userWorkspaces = context.workspaceId
-    ? []
-    : deps.workspaceStore.getByMember(context.userId);
-  const systemPrompt = buildSystemPrompt(context, workspace, userWorkspaces);
-
-  // executor 구성: 기본 레지스트리 + 워크스페이스별 GWS + LINE 래핑
-  const executors = new Map(deps.registry.executors);
-  if (workspace) {
-    await mergeGwsExecutors(executors, deps, workspace.id);
-  }
-  const lineExecs = createLineExecutors(deps.registry.executors, context.userId);
-  for (const [name, exec] of lineExecs) {
-    executors.set(name, exec);
-  }
-
-  // 전체 ToolDefinition 맵
-  const allDefMap = new Map<string, ToolDefinition<any>>();
-  for (const def of infraToolDefinitions) allDefMap.set(def.name, def);
-  for (const def of systemToolDefinitions) allDefMap.set(def.name, def);
-  for (const def of deps.registry.definitions) allDefMap.set(def.name, def);
-
-  const allTools = buildToolList(allDefMap, executors, options);
-
-  // 트랜스크립트
-  const transcript = new TranscriptRecorder(config.dataDir);
-  transcript.startRun({
-    userId: context.userId,
-    workspaceId: context.workspaceId,
-    trigger: options.trigger ?? "webhook",
-    userMessage,
-    systemPrompt,
-  });
-
-  return { context, systemPrompt, executors, allDefMap, allTools, transcript };
 }
 
 // --- 도구 목록 빌드 ---

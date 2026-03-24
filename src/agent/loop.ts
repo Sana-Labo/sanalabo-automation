@@ -16,10 +16,16 @@ import {
 import { type ToolDefinition } from "./tool-definition.js";
 import { toErrorMessage } from "../utils/error.js";
 import { createLogger } from "../utils/logger.js";
-import { createChannelTextSender } from "./line-tool-adapter.js";
+import { createChannelTextSender, createLineExecutors } from "./line-tool-adapter.js";
+import { infraToolDefinitions } from "./infra-tools.js";
+import { systemToolDefinitions } from "./system-tools.js";
+import { buildSystemPrompt } from "./system.js";
+import { TranscriptRecorder } from "./transcript.js";
 import {
-  initLoopState,
+  buildToolList,
+  mergeGwsExecutors,
   dispatchAllTools,
+  type LoopState,
   type AgentLoopOptions,
 } from "./dispatch.js";
 
@@ -81,7 +87,42 @@ export async function runAgentLoop(
   initialContext: ToolContext,
   options: AgentLoopOptions = {},
 ): Promise<AgentResult> {
-  const state = await initLoopState(userMessage, deps, initialContext, options);
+  // --- 초기화: context, executor, ToolDefinition 맵, 트랜스크립트 ---
+  const context = initialContext;
+  const workspace = context.workspaceId
+    ? deps.workspaceStore.get(context.workspaceId)
+    : undefined;
+  const userWorkspaces = context.workspaceId
+    ? []
+    : deps.workspaceStore.getByMember(context.userId);
+  const systemPrompt = buildSystemPrompt(context, workspace, userWorkspaces);
+
+  const executors = new Map(deps.registry.executors);
+  if (workspace) {
+    await mergeGwsExecutors(executors, deps, workspace.id);
+  }
+  const lineExecs = createLineExecutors(deps.registry.executors, context.userId);
+  for (const [name, exec] of lineExecs) {
+    executors.set(name, exec);
+  }
+
+  const allDefMap = new Map<string, ToolDefinition<any>>();
+  for (const def of infraToolDefinitions) allDefMap.set(def.name, def);
+  for (const def of systemToolDefinitions) allDefMap.set(def.name, def);
+  for (const def of deps.registry.definitions) allDefMap.set(def.name, def);
+
+  const allTools = buildToolList(allDefMap, executors, options);
+
+  const transcript = new TranscriptRecorder(config.dataDir);
+  transcript.startRun({
+    userId: context.userId,
+    workspaceId: context.workspaceId,
+    trigger: options.trigger ?? "webhook",
+    userMessage,
+    systemPrompt,
+  });
+
+  const state: LoopState = { context, systemPrompt, executors, allDefMap, allTools, transcript };
 
   const messages: Anthropic.MessageParam[] = [
     { role: "user", content: userMessage },
