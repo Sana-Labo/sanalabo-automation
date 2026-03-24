@@ -52,42 +52,42 @@ describe("configureClient", () => {
     expect(updated.access_token).toBe("ya29.new-access");
   });
 
-  test("access_token만 갱신 시에도 콜백 호출 (refresh_token은 기존 값 유지)", () => {
+  test("refresh_token 없는 tokens 이벤트는 콜백 미호출", () => {
     const client = createOAuth2Client(testConfig);
-    const tokens: GoogleTokens = { refresh_token: "1//original", scope: "openid email" };
+    const tokens: GoogleTokens = { refresh_token: "1//original" };
     const callback = mock((_updated: GoogleTokens) => {});
 
     configureClient(client, tokens, callback);
 
-    // access_token만 갱신 (refresh_token 없음)
+    // access_token만 갱신 (refresh_token 없음) → 디스크 저장 불필요
     client.emit("tokens", {
       access_token: "ya29.refreshed",
       expiry_date: 9999999999999,
     });
 
-    expect(callback).toHaveBeenCalledTimes(1);
-    const updated = callback.mock.calls[0]![0];
-    expect(updated.refresh_token).toBe("1//original");
-    expect(updated.access_token).toBe("ya29.refreshed");
-    expect(updated.scope).toBe("openid email");
+    expect(callback).not.toHaveBeenCalled();
   });
 
-  test("scope가 포함된 tokens 이벤트 시 scope 갱신", () => {
+  test("refresh_token 회전 시 scope 보존", () => {
     const client = createOAuth2Client(testConfig);
-    const tokens: GoogleTokens = { refresh_token: "1//original", scope: "openid" };
+    const tokens: GoogleTokens = {
+      refresh_token: "1//old-refresh",
+      scope: "openid email profile https://www.googleapis.com/auth/gmail.modify",
+    };
     const callback = mock((_updated: GoogleTokens) => {});
 
     configureClient(client, tokens, callback);
 
     client.emit("tokens", {
+      refresh_token: "1//new-refresh",
       access_token: "ya29.new",
-      scope: "openid email profile https://www.googleapis.com/auth/gmail.modify",
+      expiry_date: 9999999999999,
     });
 
     expect(callback).toHaveBeenCalledTimes(1);
     const updated = callback.mock.calls[0]![0];
+    expect(updated.refresh_token).toBe("1//new-refresh");
     expect(updated.scope).toBe("openid email profile https://www.googleapis.com/auth/gmail.modify");
-    expect(updated.refresh_token).toBe("1//original");
   });
 });
 

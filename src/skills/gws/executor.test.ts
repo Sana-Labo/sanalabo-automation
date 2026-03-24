@@ -153,7 +153,7 @@ describe("createGwsExecutorFactory", () => {
     expect(result!.has("drive_search")).toBe(false);
   });
 
-  test("identity scope만 부여 → Account(1)만", async () => {
+  test("identity scope만 부여 → GWS 서비스 도구 없음, account 도구만 존재", async () => {
     const identityOnlyTokens: GoogleTokens = {
       ...sampleTokens,
       scope: "openid email profile",
@@ -161,7 +161,9 @@ describe("createGwsExecutorFactory", () => {
     await tokenStore.save("ws-identity", identityOnlyTokens);
     factory.invalidate("ws-identity");
     const result = await factory.getExecutors("ws-identity");
-    expect(result!.size).toBe(1);
     expect(result!.has("get_gws_account")).toBe(true);
+    expect(result!.has("gmail_list")).toBe(false);
+    expect(result!.has("calendar_list")).toBe(false);
+    expect(result!.has("drive_search")).toBe(false);
   });
 });
