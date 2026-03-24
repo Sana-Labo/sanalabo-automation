@@ -1,36 +1,27 @@
 /**
  * 에이전트 루프 — Claude API tool_use 기반 자율 실행
  *
- * 3단계 디스패치: Infra(동기, 루프 제어) → System(비동기, Store I/O) → Skill(비동기 병렬, 외부 시스템)
- * 모든 도구는 ToolDefinition 기반. Zod 검증 파이프라인은 non-strict 도구에 적용.
+ * 오케스트레이터: LLM API 호출 + 메시지 관리 + 턴 제어.
+ * 도구 디스패치는 dispatch.ts에 위임.
  */
 import Anthropic from "@anthropic-ai/sdk";
-import { interceptWrite } from "../approvals/interceptor.js";
-import { notifyOwnerOfPending } from "../approvals/notify.js";
 import { config } from "../config.js";
 import {
-  CHANNEL_SKILL_TOOL_NAMES,
   type AgentDependencies,
   type AgentResult,
   type ToolContext,
   type ToolExecutor,
   type ToolRegistry,
 } from "../types.js";
-import {
-  toAnthropicTool,
-  formatZodError,
-  isInfraDef,
-  isSystemDef,
-  type ToolDefinition,
-} from "./tool-definition.js";
+import { type ToolDefinition } from "./tool-definition.js";
 import { toErrorMessage } from "../utils/error.js";
 import { createLogger } from "../utils/logger.js";
-import { infraToolDefinitions } from "./infra-tools.js";
-import { createChannelTextSender, createLineExecutors } from "./line-tool-adapter.js";
-import { systemToolDefinitions } from "./system-tools.js";
-import { buildSystemPrompt } from "./system.js";
-import { gwsToolDefinitions } from "../skills/gws/tools.js";
-import { TranscriptRecorder } from "./transcript.js";
+import { createChannelTextSender } from "./line-tool-adapter.js";
+import {
+  initLoopState,
+  dispatchAllTools,
+  type AgentLoopOptions,
+} from "./dispatch.js";
 
 const log = createLogger("agent");
 
@@ -81,13 +72,8 @@ function extractJsonText(content: Anthropic.ContentBlock[]): string {
   }
 }
 
-/** 에이전트 루프 옵션 */
-export interface AgentLoopOptions {
-  /** no_action 도구 허용 여부. cron 잡에서만 true (기본: false) */
-  allowNoAction?: boolean;
-  /** 트랜스크립트 기록용 트리거 유형 (기본: "webhook") */
-  trigger?: "webhook" | "cron" | "postback";
-}
+// AgentLoopOptions 재export — 기존 import 호환 유지
+export type { AgentLoopOptions } from "./dispatch.js";
 
 export async function runAgentLoop(
   userMessage: string,
@@ -95,37 +81,7 @@ export async function runAgentLoop(
   initialContext: ToolContext,
   options: AgentLoopOptions = {},
 ): Promise<AgentResult> {
-  let context = initialContext;
-  const workspace = context.workspaceId
-    ? deps.workspaceStore.get(context.workspaceId)
-    : undefined;
-  // Out-stage 판별: 워크스페이스 미진입 시 사용자 소속 WS 조회
-  const userWorkspaces = context.workspaceId
-    ? []
-    : deps.workspaceStore.getByMember(context.userId);
-  let systemPrompt = buildSystemPrompt(context, workspace, userWorkspaces);
-
-  // 요청별 executor 구성: 기본 레지스트리 + 워크스페이스별 GWS executor
-  // LINE push 도구는 래핑 executor (단순화 입력 → MCP 네이티브 변환 + userId 주입)
-  const executors = new Map(deps.registry.executors);
-  if (workspace) {
-    const gwsExecs = await deps.getGwsExecutors(workspace.id);
-    if (gwsExecs) {
-      for (const [name, exec] of gwsExecs) {
-        executors.set(name, exec);
-      }
-    }
-  }
-  const lineExecs = createLineExecutors(deps.registry.executors, context.userId);
-  for (const [name, exec] of lineExecs) {
-    executors.set(name, exec);
-  }
-
-  // 전체 ToolDefinition 맵 (O(1) lookup) — 디스패치 + Zod 검증 통합
-  const allDefMap = new Map<string, ToolDefinition<any>>();
-  for (const def of infraToolDefinitions) allDefMap.set(def.name, def);
-  for (const def of systemToolDefinitions) allDefMap.set(def.name, def);
-  for (const def of deps.registry.definitions) allDefMap.set(def.name, def);
+  const state = await initLoopState(userMessage, deps, initialContext, options);
 
   const messages: Anthropic.MessageParam[] = [
     { role: "user", content: userMessage },
@@ -134,37 +90,12 @@ export async function runAgentLoop(
   let turns = 0;
   let toolCalls = 0;
   let channelDelivered = false;
-
-  /** executor/handler가 존재하는 도구만 Claude에게 전달 */
-  function buildToolList(): Anthropic.Tool[] {
-    const tools: Anthropic.Tool[] = [];
-    for (const [name, def] of allDefMap) {
-      // no_action: cron 잡 전용. 사용자 대화에서는 제외
-      if (name === "no_action" && !options.allowNoAction) continue;
-      // 내부 도구(infra/system)는 handler 내장, skill 도구는 executor 필요
-      if (def.category !== "skill" || executors.has(name)) {
-        tools.push(toAnthropicTool(def));
-      }
-    }
-    return tools;
-  }
-  let allTools = buildToolList();
-
-  // --- 트랜스크립트 기록 ---
-  const transcript = new TranscriptRecorder(config.dataDir);
-  transcript.startRun({
-    userId: context.userId,
-    workspaceId: context.workspaceId,
-    trigger: options.trigger ?? "webhook",
-    userMessage,
-    systemPrompt,
-  });
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
 
   /** 트랜스크립트 기록 완료 (fire-and-forget) */
   function finalizeTranscript(result: AgentResult): void {
-    transcript
+    state.transcript
       .endRun({
         result,
         usage: { totalInputTokens, totalOutputTokens },
@@ -174,18 +105,18 @@ export async function runAgentLoop(
       });
   }
 
-  log.debug("Agent loop started", () => ({ userId: context.userId, workspaceId: context.workspaceId, role: context.role }));
+  log.debug("Agent loop started", () => ({ userId: state.context.userId, workspaceId: state.context.workspaceId, role: state.context.role }));
 
   while (turns < MAX_TURNS) {
     turns++;
     log.debug("Turn started", () => ({ turn: turns, maxTurns: MAX_TURNS }));
 
-    log.debug("Claude API request", () => ({ model: MODEL, messageCount: messages.length, toolCount: allTools.length }));
+    log.debug("Claude API request", () => ({ model: MODEL, messageCount: messages.length, toolCount: state.allTools.length }));
     const response = await client.messages.create({
       model: MODEL,
       max_tokens: 4096,
-      system: systemPrompt,
-      tools: allTools,
+      system: state.systemPrompt,
+      tools: state.allTools,
       output_config: OUTPUT_CONFIG,
       messages,
     });
@@ -196,11 +127,11 @@ export async function runAgentLoop(
     totalInputTokens += response.usage.input_tokens;
     totalOutputTokens += response.usage.output_tokens;
 
+    // max_tokens — 도구 호출 없이 종료
     if (response.stop_reason === "max_tokens") {
       const text = extractText(response.content) || "The response was too long and has been truncated.";
-      // 턴 기록 (tool result 없음)
-      transcript.recordTurn({
-        request: { model: MODEL, messageCount: messages.length, toolCount: allTools.length },
+      state.transcript.recordTurn({
+        request: { model: MODEL, messageCount: messages.length, toolCount: state.allTools.length },
         response: { stopReason: "max_tokens", content: response.content },
         toolResults: [],
       });
@@ -209,12 +140,12 @@ export async function runAgentLoop(
       return result;
     }
 
+    // end_turn — 도구 호출 없이 종료
     if (response.stop_reason !== "tool_use") {
       const text = extractJsonText(response.content);
       log.debug("Agent loop completed", () => ({ turns, toolCalls }));
-      // 턴 기록 (tool result 없음)
-      transcript.recordTurn({
-        request: { model: MODEL, messageCount: messages.length, toolCount: allTools.length },
+      state.transcript.recordTurn({
+        request: { model: MODEL, messageCount: messages.length, toolCount: state.allTools.length },
         response: { stopReason: response.stop_reason ?? "end_turn", content: response.content },
         toolResults: [],
       });
@@ -223,212 +154,42 @@ export async function runAgentLoop(
       return result;
     }
 
+    // tool_use — 3단계 디스패치 위임
     const toolUseBlocks = response.content.filter(
       (b): b is Anthropic.ToolUseBlock => b.type === "tool_use",
     );
 
-    // --- 3단계 디스패치 (소스: ToolDefinition) ---
-
-    // [1단계] Infra tool 선처리: 동기, 루프 제어 (exitLoop 가능)
-    const handled = new Set<string>();
-    const infraToolResults: Anthropic.ToolResultBlockParam[] = [];
-    for (const block of toolUseBlocks) {
-      const maybeDef = allDefMap.get(block.name);
-      if (!maybeDef || !isInfraDef(maybeDef)) continue;
-      const def = maybeDef;
-      toolCalls++;
-      handled.add(block.id);
-      log.debug("Infra tool handled", () => ({ tool: block.name, toolUseId: block.id }));
-      const signal = def.handler(
-        block.input as any,
-        context,
-      );
-      if (signal.exitLoop) {
-        // exitLoop 턴 기록
-        transcript.recordTurn({
-          request: { model: MODEL, messageCount: messages.length, toolCount: allTools.length },
-          response: { stopReason: "tool_use", content: response.content },
-          toolResults: [{ toolUseId: block.id, toolName: block.name, content: signal.toolResult, isError: false }],
-        });
-        const result: AgentResult = { text: signal.exitText, toolCalls, channelDelivered };
-        finalizeTranscript(result);
-        return result;
-      }
-      infraToolResults.push({
-        type: "tool_result",
-        tool_use_id: block.id,
-        content: signal.toolResult,
-      });
-    }
-
-    // [2단계] System tool: 비동기, deps 접근 (Store I/O)
-    const systemToolResults: Anthropic.ToolResultBlockParam[] = [];
-    for (const block of toolUseBlocks) {
-      if (handled.has(block.id)) continue;
-      const maybeDef = allDefMap.get(block.name);
-      if (!maybeDef || !isSystemDef(maybeDef)) continue;
-      const def = maybeDef;
-      toolCalls++;
-      handled.add(block.id);
-      log.debug("System tool handled", () => ({ tool: block.name, toolUseId: block.id }));
-      const signal = await def.handler(
-        block.input as any,
-        context,
-        deps,
-      );
-      systemToolResults.push({
-        type: "tool_result",
-        tool_use_id: block.id,
-        content: signal.toolResult,
-      });
-
-      // enter_workspace 후 executor + tools 동적 재구성
-      if (signal.enteredWorkspaceId) {
-        const enteredWs = deps.workspaceStore.get(signal.enteredWorkspaceId);
-        if (enteredWs) {
-          const gwsExecs = await deps.getGwsExecutors(enteredWs.id);
-          if (gwsExecs) {
-            for (const [name, exec] of gwsExecs) {
-              executors.set(name, exec);
-            }
-          }
-          allTools = buildToolList();
-          context = { ...context, workspaceId: enteredWs.id, role: deps.workspaceStore.getUserRole(enteredWs.id, context.userId) ?? context.role };
-          // system prompt 재생성 — On-stage용 (GWS 도구 안내 + Safety Rules)
-          systemPrompt = buildSystemPrompt(context, enteredWs);
-          log.info("Executor rebuilt after workspace entry", { workspaceId: enteredWs.id, toolCount: allTools.length });
-        }
-      }
-
-      // leave_workspace 후 GWS executor 제거 + Out-stage 전환 + system prompt 재생성
-      if (signal.leftWorkspace) {
-        for (const def of gwsToolDefinitions) {
-          executors.delete(def.name);
-        }
-        allTools = buildToolList();
-        context = { userId: context.userId, role: context.role };
-        // system prompt 재생성 — Out-stage용 (워크스페이스 선택 안내)
-        const userWorkspaces = deps.workspaceStore.getByMember(context.userId);
-        systemPrompt = buildSystemPrompt(context, undefined, userWorkspaces);
-        log.info("Workspace left, prompt rebuilt", { userId: context.userId, toolCount: allTools.length });
-      }
-    }
-
-    // [3단계] Skill tool: 비동기 병렬, 외부 시스템 통신
-    const remaining = toolUseBlocks.filter((b) => !handled.has(b.id));
-    const skillToolResults = await Promise.all(
-      remaining.map(async (block) => {
-        toolCalls++;
-        log.debug("Tool call", () => ({ tool: block.name, toolUseId: block.id }));
-        let toolInput = block.input as Record<string, unknown>;
-
-        // 비오너 멤버의 write 도구 가로채기
-        const interception = await interceptWrite(
-          block.name,
-          toolInput,
-          context,
-          deps.pendingActionStore,
-          userMessage,
-        );
-
-        if (interception.intercepted) {
-          log.debug("Write intercepted", () => ({ tool: block.name, pendingActionId: interception.pendingAction.id }));
-          notifyOwnerOfPending(
-            interception.pendingAction,
-            deps.registry,
-            deps.workspaceStore,
-          ).catch((e) => {
-            log.error("Failed to notify owner of pending action", { pendingActionId: interception.pendingAction.id, error: toErrorMessage(e) });
-          });
-
-          return {
-            type: "tool_result" as const,
-            tool_use_id: block.id,
-            content: "This operation requires the owner's approval. An approval request has been sent.",
-          };
-        }
-
-        const executor = executors.get(block.name);
-
-        if (!executor) {
-          return {
-            type: "tool_result" as const,
-            tool_use_id: block.id,
-            content: `Error: Unknown tool "${block.name}"`,
-            is_error: true,
-          };
-        }
-
-        // --- Zod 검증 파이프라인 (non-strict 도구만) ---
-        const def = allDefMap.get(block.name);
-        if (def && !def.strict) {
-          const parsed = def.inputSchema.safeParse(toolInput);
-          if (!parsed.success) {
-            log.debug("Input validation failed", () => ({ tool: block.name, error: formatZodError(parsed.error) }));
-            return {
-              type: "tool_result" as const,
-              tool_use_id: block.id,
-              content: `Input validation error (please fix and retry): ${formatZodError(parsed.error)}`,
-              is_error: true,
-            };
-          }
-          if (def.validateInput) {
-            const validation = def.validateInput(parsed.data);
-            if (!validation.valid) {
-              log.debug("Business validation failed", () => ({ tool: block.name, error: validation.error }));
-              return {
-                type: "tool_result" as const,
-                tool_use_id: block.id,
-                content: validation.error,
-                is_error: true,
-              };
-            }
-          }
-          toolInput = parsed.data;
-        }
-
-        try {
-          const result = await executor(toolInput);
-          log.debug("Tool succeeded", () => ({ tool: block.name, resultLength: result.length }));
-          if (CHANNEL_SKILL_TOOL_NAMES.has(block.name)) {
-            channelDelivered = true;
-          }
-          return {
-            type: "tool_result" as const,
-            tool_use_id: block.id,
-            content: result,
-          };
-        } catch (e) {
-          log.debug("Tool failed", () => ({ tool: block.name, error: toErrorMessage(e) }));
-          return {
-            type: "tool_result" as const,
-            tool_use_id: block.id,
-            content: `Error: ${toErrorMessage(e)}`,
-            is_error: true,
-          };
-        }
-      }),
+    const dispatchResult = await dispatchAllTools(
+      toolUseBlocks,
+      state,
+      deps,
+      options,
+      {
+        model: MODEL,
+        messageCount: messages.length,
+        toolCount: state.allTools.length,
+        stopReason: "tool_use",
+        content: response.content,
+      },
+      userMessage,
     );
 
-    const toolResults = [...infraToolResults, ...systemToolResults, ...skillToolResults];
+    toolCalls += dispatchResult.toolCallCount;
+    if (dispatchResult.channelDelivered) channelDelivered = true;
 
-    // 턴 기록 — 3단계 디스패치 결과를 포함
-    transcript.recordTurn({
-      request: { model: MODEL, messageCount: messages.length, toolCount: allTools.length },
-      response: { stopReason: "tool_use", content: response.content },
-      toolResults: toolUseBlocks.map((block) => {
-        const tr = toolResults.find((r) => r.tool_use_id === block.id);
-        return {
-          toolUseId: block.id,
-          toolName: block.name,
-          content: typeof tr?.content === "string" ? tr.content : JSON.stringify(tr?.content ?? ""),
-          isError: tr?.is_error === true,
-        };
-      }),
-    });
+    // exitLoop 시그널 — 즉시 종료
+    if (dispatchResult.exitResult) {
+      const result: AgentResult = {
+        text: dispatchResult.exitResult.text,
+        toolCalls,
+        channelDelivered,
+      };
+      finalizeTranscript(result);
+      return result;
+    }
 
     messages.push({ role: "assistant", content: response.content });
-    messages.push({ role: "user", content: toolResults });
+    messages.push({ role: "user", content: dispatchResult.results });
   }
 
   const text = "Reached the maximum number of tool calls. Aborting.";
