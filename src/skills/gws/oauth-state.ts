@@ -55,3 +55,8 @@ export function cleanupExpiredAuths(): number {
   }
   return count;
 }
+
+/** @internal 테스트 전용 — 인메모리 상태 초기화 */
+export function _resetForTest(): void {
+  pendingAuths.clear();
+}

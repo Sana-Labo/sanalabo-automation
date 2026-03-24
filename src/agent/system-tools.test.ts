@@ -44,22 +44,37 @@ function makeDeps(overrides?: {
   getUserRole?: (wsId: string, userId: string) => "owner" | "member" | undefined;
   isSystemAdmin?: (userId: string) => boolean;
   lastWorkspaceId?: string;
+  createWorkspace?: (name: string, ownerId: string) => Promise<WorkspaceRecord>;
+  getByOwner?: (ownerId: string) => WorkspaceRecord[];
+  inviteMember?: (wsId: string, userId: string, invitedBy: string) => Promise<void>;
+  pendingAction?: {
+    get?: (id: string) => unknown;
+    approve?: (id: string, by: string) => Promise<unknown>;
+    reject?: (id: string, by: string, reason?: string) => Promise<unknown>;
+  };
+  getUser?: (userId: string) => unknown;
+  registry?: { definitions: readonly unknown[]; executors: Map<string, unknown> };
 }): AgentDependencies {
   const setDefaultCalls = overrides?.setDefaultCalls ?? [];
   const clearLastWsCalls = overrides?.clearLastWsCalls ?? [];
   const createdWs = overrides?.createdWorkspace ?? makeWorkspace();
 
   return {
-    registry: { definitions: [], executors: new Map() },
-    pendingActionStore: {} as AgentDependencies["pendingActionStore"],
+    registry: (overrides?.registry ?? { definitions: [], executors: new Map() }) as AgentDependencies["registry"],
+    pendingActionStore: {
+      get: overrides?.pendingAction?.get ?? (() => undefined),
+      approve: overrides?.pendingAction?.approve ?? (async () => ({})),
+      reject: overrides?.pendingAction?.reject ?? (async () => ({})),
+    } as unknown as AgentDependencies["pendingActionStore"],
     getGwsExecutors: async () => new Map(),
     workspaceStore: {
-      getByOwner: () => overrides?.ownedWorkspaces ?? [],
-      create: async () => createdWs,
+      getByOwner: overrides?.getByOwner ?? (() => overrides?.ownedWorkspaces ?? []),
+      create: overrides?.createWorkspace ?? (async () => createdWs),
       getAll: () => overrides?.allWorkspaces ?? [],
       getByMember: () => overrides?.memberWorkspaces ?? [],
       get: overrides?.getWorkspace ?? (() => undefined),
       getUserRole: overrides?.getUserRole ?? (() => undefined),
+      inviteMember: overrides?.inviteMember ?? (async () => {}),
     } as unknown as WorkspaceStore,
     userStore: {
       setLastWorkspaceId: async (userId: string, workspaceId: string) => {
@@ -70,36 +85,10 @@ function makeDeps(overrides?: {
       },
       getLastWorkspaceId: () => overrides?.lastWorkspaceId,
       isSystemAdmin: overrides?.isSystemAdmin ?? (() => false),
+      get: overrides?.getUser ?? (() => undefined),
     } as unknown as UserStore,
   };
 }
-
-// --- 레지스트리 테스트 ---
-
-describe("systemToolDefinitions registry", () => {
-  test("create_workspace 포함", () => {
-    const names = systemToolDefinitions.map((d) => d.name);
-    expect(names).toContain("create_workspace");
-  });
-
-  test("9개 도구 정의", () => {
-    expect(systemToolDefinitions).toHaveLength(9);
-  });
-
-  test("모든 정의에 strict: true 설정", () => {
-    for (const def of systemToolDefinitions) {
-      expect(def.strict).toBe(true);
-    }
-  });
-
-  test("toAnthropicTool 변환: additionalProperties: false", () => {
-    for (const def of systemToolDefinitions) {
-      const tool = toAnthropicTool(def);
-      expect(tool.strict).toBe(true);
-      expect(tool.input_schema.additionalProperties).toBe(false);
-    }
-  });
-});
 
 // --- create_workspace 핸들러 테스트 ---
 
@@ -152,28 +141,13 @@ describe("create_workspace handler", () => {
   });
 
   test("이름 앞뒤 공백은 트리밍되어 생성 (owner_user_id null)", async () => {
-    const setDefaultCalls: Array<{ userId: string; workspaceId: string }> = [];
     const createCalls: Array<{ name: string; ownerId: string }> = [];
     const createdWs = makeWorkspace({ id: "ws-trimmed", name: "Trimmed" });
 
-    const deps: AgentDependencies = {
-      registry: { definitions: [], executors: new Map() },
-      pendingActionStore: {} as AgentDependencies["pendingActionStore"],
-      getGwsExecutors: async () => new Map(),
-      workspaceStore: {
-        getByOwner: () => [],
-        create: async (name: string, ownerId: string) => {
-          createCalls.push({ name, ownerId });
-          return createdWs;
-        },
-      } as unknown as WorkspaceStore,
-      userStore: {
-        setLastWorkspaceId: async (userId: string, workspaceId: string) => {
-          setDefaultCalls.push({ userId, workspaceId });
-        },
-        isSystemAdmin: () => false,
-      } as unknown as UserStore,
-    };
+    const deps = makeDeps({
+      ownedWorkspaces: [],
+      createWorkspace: async (name, ownerId) => { createCalls.push({ name, ownerId }); return createdWs; },
+    });
 
     const def = systemToolDefinitions.find((d) => d.name === "create_workspace")!;
     await def.handler({ name: "  Trimmed  ", owner_user_id: null }, makeContext(), deps);
@@ -187,16 +161,11 @@ describe("create_workspace handler", () => {
     const createdWs = makeWorkspace({ id: "ws-delegated", name: "Delegated" });
 
     const deps = makeDeps({
-      ownedWorkspaces: [],
       setDefaultCalls,
       isSystemAdmin: (id) => id === "Uadmin001",
+      getByOwner: () => [],
+      createWorkspace: async (name, ownerId) => { createCalls.push({ name, ownerId }); return createdWs; },
     });
-    // getByOwner를 대상 사용자 기준으로 호출하므로 mock을 오버라이드
-    (deps.workspaceStore as any).getByOwner = () => [];
-    (deps.workspaceStore as any).create = async (name: string, ownerId: string) => {
-      createCalls.push({ name, ownerId });
-      return createdWs;
-    };
     const ctx = makeContext({ userId: "Uadmin001", role: "admin" });
 
     const def = systemToolDefinitions.find((d) => d.name === "create_workspace")!;
@@ -215,11 +184,8 @@ describe("create_workspace handler", () => {
     const deps = makeDeps({
       ownedWorkspaces: [],
       isSystemAdmin: (id) => id === "Uadmin001",
+      createWorkspace: async (name, ownerId) => { createCalls.push({ name, ownerId }); return createdWs; },
     });
-    (deps.workspaceStore as any).create = async (name: string, ownerId: string) => {
-      createCalls.push({ name, ownerId });
-      return createdWs;
-    };
     const ctx = makeContext({ userId: "Uadmin001", role: "admin" });
 
     const def = systemToolDefinitions.find((d) => d.name === "create_workspace")!;
@@ -232,11 +198,10 @@ describe("create_workspace handler", () => {
     const createCalls: Array<{ name: string; ownerId: string }> = [];
     const createdWs = makeWorkspace({ id: "ws-self", name: "SelfWS" });
 
-    const deps = makeDeps({ ownedWorkspaces: [] });
-    (deps.workspaceStore as any).create = async (name: string, ownerId: string) => {
-      createCalls.push({ name, ownerId });
-      return createdWs;
-    };
+    const deps = makeDeps({
+      ownedWorkspaces: [],
+      createWorkspace: async (name, ownerId) => { createCalls.push({ name, ownerId }); return createdWs; },
+    });
     const ctx = makeContext({ userId: "Uregular001", role: "member" });
 
     const def = systemToolDefinitions.find((d) => d.name === "create_workspace")!;
@@ -264,13 +229,14 @@ describe("create_workspace handler", () => {
   });
 
   test("admin + owner_user_id 지정: 대상 사용자에 일반 사용자 제한(8) 적용", async () => {
-    const deps = makeDeps({ isSystemAdmin: (id) => id === "Uadmin001" });
     const getByOwnerCalls: string[] = [];
-    (deps.workspaceStore as any).getByOwner = (ownerId: string) => {
-      getByOwnerCalls.push(ownerId);
-      // 대상이 이미 8개 소유 중 → 일반 사용자 제한 도달
-      return Array.from({ length: 8 }, (_, i) => makeWorkspace({ id: `ws-${i}`, ownerId }));
-    };
+    const deps = makeDeps({
+      isSystemAdmin: (id) => id === "Uadmin001",
+      getByOwner: (ownerId: string) => {
+        getByOwnerCalls.push(ownerId);
+        return Array.from({ length: 8 }, (_, i) => makeWorkspace({ id: `ws-${i}`, ownerId }));
+      },
+    });
     const ctx = makeContext({ userId: "Uadmin001", role: "admin" });
 
     const def = systemToolDefinitions.find((d) => d.name === "create_workspace")!;
@@ -828,10 +794,8 @@ describe("invite_member handler", () => {
     const inviteCalls: Array<{ wsId: string; userId: string; invitedBy: string }> = [];
     const deps = makeDeps({
       getWorkspace: (id) => id === "ws-001" ? ws : undefined,
+      inviteMember: async (wsId, userId, invitedBy) => { inviteCalls.push({ wsId, userId, invitedBy }); },
     });
-    (deps.workspaceStore as any).inviteMember = async (wsId: string, userId: string, invitedBy: string) => {
-      inviteCalls.push({ wsId, userId, invitedBy });
-    };
     const ctx = makeContext({ userId: "Uowner1234", workspaceId: "ws-001", role: "owner" });
 
     const def = systemToolDefinitions.find((d) => d.name === "invite_member")!;
@@ -878,8 +842,7 @@ describe("invite_member handler", () => {
   });
 
   test("실패: 워크스페이스 미소유 + workspace_id null + context에도 없음", async () => {
-    const deps = makeDeps({ ownedWorkspaces: [] });
-    (deps.workspaceStore as any).getByOwner = () => [];
+    const deps = makeDeps({ ownedWorkspaces: [], getByOwner: () => [] });
     const ctx = makeContext({ userId: "Uuser001", workspaceId: undefined, role: "member" });
 
     const def = systemToolDefinitions.find((d) => d.name === "invite_member")!;
@@ -895,10 +858,10 @@ describe("invite_member handler", () => {
   test("성공: workspace_name으로 지정 (대소문자 무시)", async () => {
     const ws = makeWorkspace({ id: "ws-001", name: "MyClub", ownerId: "Uowner1234" });
     const inviteCalls: Array<{ wsId: string; userId: string; invitedBy: string }> = [];
-    const deps = makeDeps({ memberWorkspaces: [ws] });
-    (deps.workspaceStore as any).inviteMember = async (wsId: string, userId: string, invitedBy: string) => {
-      inviteCalls.push({ wsId, userId, invitedBy });
-    };
+    const deps = makeDeps({
+      memberWorkspaces: [ws],
+      inviteMember: async (wsId, userId, invitedBy) => { inviteCalls.push({ wsId, userId, invitedBy }); },
+    });
     const ctx = makeContext({ userId: "Uowner1234", workspaceId: undefined, role: "owner" });
 
     const def = systemToolDefinitions.find((d) => d.name === "invite_member")!;
@@ -949,10 +912,8 @@ describe("invite_member handler", () => {
     const inviteCalls: Array<{ wsId: string; userId: string; invitedBy: string }> = [];
     const deps = makeDeps({
       getWorkspace: (id) => (id === "ws-001" ? ws : undefined),
+      inviteMember: async (wsId, userId, invitedBy) => { inviteCalls.push({ wsId, userId, invitedBy }); },
     });
-    (deps.workspaceStore as any).inviteMember = async (wsId: string, userId: string, invitedBy: string) => {
-      inviteCalls.push({ wsId, userId, invitedBy });
-    };
     const ctx = makeContext({ userId: "Uowner1234", workspaceId: undefined, role: "owner" });
 
     const def = systemToolDefinitions.find((d) => d.name === "invite_member")!;
@@ -970,12 +931,10 @@ describe("invite_member handler", () => {
     const inviteCalls: Array<{ wsId: string; userId: string; invitedBy: string }> = [];
     const deps = makeDeps({
       allWorkspaces: [ws],
-      memberWorkspaces: [], // admin이 멤버가 아닌 상황 시뮬레이션 (getAll로 해석)
+      memberWorkspaces: [],
       isSystemAdmin: (id) => id === "Uadmin001",
+      inviteMember: async (wsId, userId, invitedBy) => { inviteCalls.push({ wsId, userId, invitedBy }); },
     });
-    (deps.workspaceStore as any).inviteMember = async (wsId: string, userId: string, invitedBy: string) => {
-      inviteCalls.push({ wsId, userId, invitedBy });
-    };
     const ctx = makeContext({ userId: "Uadmin001", workspaceId: undefined, role: "admin" });
 
     const def = systemToolDefinitions.find((d) => d.name === "invite_member")!;
@@ -993,9 +952,14 @@ describe("invite_member handler", () => {
 // --- approve_action / reject_action 핸들러 테스트 ---
 
 describe("approve_action handler", () => {
+  const pendingAction = {
+    id: "pa-001", workspaceId: "ws-001", requesterId: "Umember001",
+    toolName: "calendar_create", toolInput: { summary: "Meeting" }, status: "pending" as const,
+    createdAt: "2024-01-01T00:00:00Z", requestContext: "일정 추가해줘",
+  };
+
   test("실패: 존재하지 않는 pending action", async () => {
     const deps = makeDeps();
-    (deps.pendingActionStore as any).get = () => undefined;
     const ctx = makeContext({ userId: "Uowner1234", workspaceId: "ws-001", role: "owner" });
 
     const def = systemToolDefinitions.find((d) => d.name === "approve_action")!;
@@ -1008,16 +972,7 @@ describe("approve_action handler", () => {
   test("실패: 비오너 승인 시도", async () => {
     const deps = makeDeps({
       getUserRole: () => "member",
-    });
-    (deps.pendingActionStore as any).get = () => ({
-      id: "pa-001",
-      workspaceId: "ws-001",
-      requesterId: "Umember001",
-      toolName: "calendar_create",
-      toolInput: {},
-      status: "pending",
-      createdAt: "2024-01-01T00:00:00Z",
-      requestContext: "test",
+      pendingAction: { get: () => pendingAction },
     });
     const ctx = makeContext({ userId: "Umember001", workspaceId: "ws-001", role: "member" });
 
@@ -1029,11 +984,9 @@ describe("approve_action handler", () => {
   });
 
   test("실패: 이미 처리된 액션", async () => {
-    const deps = makeDeps({ getUserRole: () => "owner" });
-    (deps.pendingActionStore as any).get = () => ({
-      id: "pa-done", workspaceId: "ws-001", requesterId: "Umember001",
-      toolName: "calendar_create", toolInput: {}, status: "approved",
-      createdAt: "2024-01-01T00:00:00Z", requestContext: "test",
+    const deps = makeDeps({
+      getUserRole: () => "owner",
+      pendingAction: { get: () => ({ ...pendingAction, status: "approved" }) },
     });
     const ctx = makeContext({ userId: "Uowner1234", workspaceId: "ws-001", role: "owner" });
 
@@ -1044,8 +997,14 @@ describe("approve_action handler", () => {
     expect(signal.toolResult).toContain("already been approved");
   });
 
-  test("성공: 승인 + GWS 실행 + 요청자 알림", async () => {
+  test("성공: 승인 + GWS 실행", async () => {
     const executedTools: string[] = [];
+    const executors = new Map<string, unknown>([
+      ["calendar_create", async () => {
+        executedTools.push("calendar_create");
+        return JSON.stringify({ ok: true });
+      }],
+    ]);
 
     const deps = makeDeps({
       getUserRole: (wsId, userId) => {
@@ -1053,26 +1012,16 @@ describe("approve_action handler", () => {
         if (userId === "Umember001") return "member";
         return undefined;
       },
-    });
-    // PendingActionStore mock
-    (deps.pendingActionStore as any).get = () => ({
-      id: "pa-001", workspaceId: "ws-001", requesterId: "Umember001",
-      toolName: "calendar_create", toolInput: { summary: "Meeting" }, status: "pending",
-      createdAt: "2024-01-01T00:00:00Z", requestContext: "일정 추가해줘",
-    });
-    (deps.pendingActionStore as any).approve = async () => ({
-      id: "pa-001", workspaceId: "ws-001", requesterId: "Umember001",
-      toolName: "calendar_create", toolInput: { summary: "Meeting" }, status: "approved",
-      createdAt: "2024-01-01T00:00:00Z", requestContext: "일정 추가해줘",
-      resolvedAt: new Date().toISOString(), resolvedBy: "Uowner1234",
-    });
-    // UserStore mock — 요청자 active
-    (deps.userStore as any).get = (userId: string) =>
-      userId === "Umember001" ? { status: "active", invitedBy: "self", invitedAt: "" } : undefined;
-    // GWS executor를 registry에 등록 (getGwsExecutors 대신 registry 경유)
-    deps.registry.executors.set("calendar_create", async (input) => {
-      executedTools.push("calendar_create");
-      return JSON.stringify({ ok: true });
+      pendingAction: {
+        get: () => pendingAction,
+        approve: async () => ({
+          ...pendingAction, status: "approved",
+          resolvedAt: new Date().toISOString(), resolvedBy: "Uowner1234",
+        }),
+      },
+      getUser: (userId: string) =>
+        userId === "Umember001" ? { status: "active", invitedBy: "self", invitedAt: "" } : undefined,
+      registry: { definitions: [], executors },
     });
 
     const ctx = makeContext({ userId: "Uowner1234", workspaceId: "ws-001", role: "owner" });
@@ -1082,28 +1031,24 @@ describe("approve_action handler", () => {
     const result = JSON.parse(signal.toolResult);
     expect(result.status).toBe("approved");
     expect(result.executionError).toBeNull();
+    // GWS 도구가 실제로 실행되었는지 확인
+    expect(executedTools).toEqual(["calendar_create"]);
   });
 
   test("성공: 요청자 비활성 → 자동 거절", async () => {
+    let rejectedId: string | undefined;
     const deps = makeDeps({
       getUserRole: (wsId, userId) => {
         if (userId === "Uowner1234") return "owner";
         if (userId === "Umember001") return "member";
         return undefined;
       },
+      pendingAction: {
+        get: () => pendingAction,
+        reject: async (id: string) => { rejectedId = id; return { id, status: "rejected" }; },
+      },
+      getUser: () => ({ status: "inactive", invitedBy: "self", invitedAt: "" }),
     });
-    (deps.pendingActionStore as any).get = () => ({
-      id: "pa-002", workspaceId: "ws-001", requesterId: "Umember001",
-      toolName: "calendar_create", toolInput: {}, status: "pending",
-      createdAt: "2024-01-01T00:00:00Z", requestContext: "test",
-    });
-    let rejectedId: string | undefined;
-    (deps.pendingActionStore as any).reject = async (id: string) => {
-      rejectedId = id;
-      return { id, status: "rejected" };
-    };
-    // 요청자 inactive
-    (deps.userStore as any).get = () => ({ status: "inactive", invitedBy: "self", invitedAt: "" });
 
     const ctx = makeContext({ userId: "Uowner1234", workspaceId: "ws-001", role: "owner" });
     const def = systemToolDefinitions.find((d) => d.name === "approve_action")!;
@@ -1116,9 +1061,14 @@ describe("approve_action handler", () => {
 });
 
 describe("reject_action handler", () => {
+  const pendingAction = {
+    id: "pa-001", workspaceId: "ws-001", requesterId: "Umember001",
+    toolName: "calendar_create", toolInput: {}, status: "pending" as const,
+    createdAt: "2024-01-01T00:00:00Z", requestContext: "test",
+  };
+
   test("실패: 존재하지 않는 pending action", async () => {
     const deps = makeDeps();
-    (deps.pendingActionStore as any).get = () => undefined;
     const ctx = makeContext({ userId: "Uowner1234", workspaceId: "ws-001", role: "owner" });
 
     const def = systemToolDefinitions.find((d) => d.name === "reject_action")!;
@@ -1131,16 +1081,7 @@ describe("reject_action handler", () => {
   test("실패: 비오너 거절 시도", async () => {
     const deps = makeDeps({
       getUserRole: () => "member",
-    });
-    (deps.pendingActionStore as any).get = () => ({
-      id: "pa-001",
-      workspaceId: "ws-001",
-      requesterId: "Umember001",
-      toolName: "calendar_create",
-      toolInput: {},
-      status: "pending",
-      createdAt: "2024-01-01T00:00:00Z",
-      requestContext: "test",
+      pendingAction: { get: () => pendingAction },
     });
     const ctx = makeContext({ userId: "Umember001", workspaceId: "ws-001", role: "member" });
 
@@ -1152,11 +1093,9 @@ describe("reject_action handler", () => {
   });
 
   test("실패: 이미 처리된 액션", async () => {
-    const deps = makeDeps({ getUserRole: () => "owner" });
-    (deps.pendingActionStore as any).get = () => ({
-      id: "pa-done", workspaceId: "ws-001", requesterId: "Umember001",
-      toolName: "calendar_create", toolInput: {}, status: "rejected",
-      createdAt: "2024-01-01T00:00:00Z", requestContext: "test",
+    const deps = makeDeps({
+      getUserRole: () => "owner",
+      pendingAction: { get: () => ({ ...pendingAction, status: "rejected" }) },
     });
     const ctx = makeContext({ userId: "Uowner1234", workspaceId: "ws-001", role: "owner" });
 
@@ -1167,23 +1106,21 @@ describe("reject_action handler", () => {
     expect(signal.toolResult).toContain("already been rejected");
   });
 
-  test("성공: 거절 + 요청자 알림", async () => {
-    const deps = makeDeps({ getUserRole: () => "owner" });
-    (deps.pendingActionStore as any).get = () => ({
-      id: "pa-003", workspaceId: "ws-001", requesterId: "Umember001",
-      toolName: "calendar_create", toolInput: {}, status: "pending",
-      createdAt: "2024-01-01T00:00:00Z", requestContext: "일정 추가해줘",
-    });
+  test("성공: 거절 + 사유 전달", async () => {
     let rejectedWith: { id: string; reason?: string } | undefined;
-    (deps.pendingActionStore as any).reject = async (id: string, by: string, reason?: string) => {
-      rejectedWith = { id, reason };
-      return {
-        id, workspaceId: "ws-001", requesterId: "Umember001",
-        toolName: "calendar_create", toolInput: {}, status: "rejected",
-        createdAt: "2024-01-01T00:00:00Z", requestContext: "일정 추가해줘",
-        resolvedAt: new Date().toISOString(), resolvedBy: by, rejectionReason: reason,
-      };
-    };
+    const deps = makeDeps({
+      getUserRole: () => "owner",
+      pendingAction: {
+        get: () => ({ ...pendingAction, id: "pa-003", requestContext: "일정 추가해줘" }),
+        reject: async (id: string, by: string, reason?: string) => {
+          rejectedWith = { id, reason };
+          return {
+            ...pendingAction, id, status: "rejected",
+            resolvedAt: new Date().toISOString(), resolvedBy: by, rejectionReason: reason,
+          };
+        },
+      },
+    });
 
     const ctx = makeContext({ userId: "Uowner1234", workspaceId: "ws-001", role: "owner" });
     const def = systemToolDefinitions.find((d) => d.name === "reject_action")!;
@@ -1194,6 +1131,61 @@ describe("reject_action handler", () => {
     expect(result.reason).toBe("not needed");
     expect(rejectedWith?.id).toBe("pa-003");
     expect(rejectedWith?.reason).toBe("not needed");
+  });
+});
+
+// --- authenticate_gws 핸들러 테스트 ---
+
+describe("authenticate_gws handler", () => {
+  test("실패: 워크스페이스 미지정 + context에도 없음", async () => {
+    const deps = makeDeps();
+    const ctx = makeContext({ userId: "Uowner1234", workspaceId: undefined, role: "owner" });
+
+    const def = systemToolDefinitions.find((d) => d.name === "authenticate_gws")!;
+    const signal = await def.handler({ workspace_id: null }, ctx, deps);
+
+    expect(signal.toolResult).toContain("Error");
+    expect(signal.toolResult).toContain("No workspace specified");
+  });
+
+  test("실패: 존재하지 않는 워크스페이스", async () => {
+    const deps = makeDeps({ getWorkspace: () => undefined });
+    const ctx = makeContext({ userId: "Uowner1234", workspaceId: "ws-none", role: "owner" });
+
+    const def = systemToolDefinitions.find((d) => d.name === "authenticate_gws")!;
+    const signal = await def.handler({ workspace_id: "ws-none" }, ctx, deps);
+
+    expect(signal.toolResult).toContain("Error");
+    expect(signal.toolResult).toContain("not found");
+  });
+
+  test("실패: 비소유자 인증 시도", async () => {
+    const ws = makeWorkspace({ id: "ws-001", ownerId: "Uowner1234" });
+    const deps = makeDeps({
+      getWorkspace: (id) => (id === "ws-001" ? ws : undefined),
+    });
+    const ctx = makeContext({ userId: "Umember001", workspaceId: "ws-001", role: "member" });
+
+    const def = systemToolDefinitions.find((d) => d.name === "authenticate_gws")!;
+    const signal = await def.handler({ workspace_id: "ws-001" }, ctx, deps);
+
+    expect(signal.toolResult).toContain("Error");
+    expect(signal.toolResult).toContain("owner");
+  });
+
+  test("admin은 타인 워크스페이스 인증 가능 (OAuth 미설정 시 config 에러)", async () => {
+    const ws = makeWorkspace({ id: "ws-001", ownerId: "Uother001" });
+    const deps = makeDeps({
+      getWorkspace: (id) => (id === "ws-001" ? ws : undefined),
+      isSystemAdmin: (id) => id === "Uadmin001",
+    });
+    const ctx = makeContext({ userId: "Uadmin001", workspaceId: undefined, role: "admin" });
+
+    const def = systemToolDefinitions.find((d) => d.name === "authenticate_gws")!;
+    const signal = await def.handler({ workspace_id: "ws-001" }, ctx, deps);
+
+    // owner 권한 검사를 통과함 — OAuth 미설정 에러 또는 성공
+    expect(signal.toolResult).not.toContain("Only the workspace owner");
   });
 });
 

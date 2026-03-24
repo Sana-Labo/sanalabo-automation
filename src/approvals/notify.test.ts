@@ -93,6 +93,19 @@ describe("notifyOwnerOfPending", () => {
     expect(flexCalls).toHaveLength(1);
     expect(flexCalls[0]!.input.userId).toBe(ws.ownerId);
     expect(textCalls).toHaveLength(0);
+
+    // Flex Message 구조 검증: postback data에 action.id 포함
+    const msg = flexCalls[0]!.input.message as Record<string, unknown>;
+    expect(msg.type).toBe("flex");
+    const contents = msg.contents as Record<string, unknown>;
+    const footer = contents.footer as Record<string, unknown>;
+    const buttons = (footer.contents as Array<Record<string, unknown>>);
+    const approveBtn = buttons[0]!;
+    const rejectBtn = buttons[1]!;
+    const approveAction = approveBtn.action as Record<string, string>;
+    const rejectAction = rejectBtn.action as Record<string, string>;
+    expect(approveAction.data).toContain(`id=${action.id}`);
+    expect(rejectAction.data).toContain(`id=${action.id}`);
   });
 
   test("falls back to push_text_message when push_flex_message is not available", async () => {

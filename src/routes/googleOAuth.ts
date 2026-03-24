@@ -33,6 +33,10 @@ export interface GoogleOAuthRouteDeps {
   registry: ToolRegistry;
   /** GWS executor 캐시 무효화 (새 토큰으로 재생성 유도) */
   invalidateExecutors: (workspaceId: string) => void;
+  /** @internal 테스트 주입 — 기본값: google-auth.ts의 exchangeCode */
+  _exchangeCode?: typeof exchangeCode;
+  /** @internal 테스트 주입 — 기본값: google-auth.ts의 fetchUserInfo */
+  _fetchUserInfo?: typeof fetchUserInfo;
 }
 
 /** HTML 이스케이프 (XSS 방지) */
@@ -88,7 +92,8 @@ export function createGoogleOAuthRoute(deps: GoogleOAuthRouteDeps): Hono {
     // 3. 인가 코드 → 토큰 교환
     try {
       const client = createOAuth2Client(deps.authConfig);
-      const tokens = await exchangeCode(client, parsed.params.code);
+      const doExchange = deps._exchangeCode ?? exchangeCode;
+      const tokens = await doExchange(client, parsed.params.code);
 
       // 4. 토큰 암호화 저장
       await deps.tokenStore.save(auth.workspaceId, tokens);
@@ -98,7 +103,8 @@ export function createGoogleOAuthRoute(deps: GoogleOAuthRouteDeps): Hono {
 
       // 6. Google 계정 프로필 조회 + 저장 (best-effort)
       try {
-        const account = await fetchUserInfo(client);
+        const doFetchUser = deps._fetchUserInfo ?? fetchUserInfo;
+        const account = await doFetchUser(client);
         await deps.workspaceStore.setGwsAccount(auth.workspaceId, account);
         log.info("GWS account saved", { workspaceId: auth.workspaceId, email: account.email });
       } catch (e) {

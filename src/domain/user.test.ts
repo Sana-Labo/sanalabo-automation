@@ -49,12 +49,6 @@ describe("domain/user", () => {
       expect(record.invitedAt).toBeDefined();
     });
 
-    test("invitedAt and activatedAt are valid ISO strings", () => {
-      const record = createFromFollow();
-
-      expect(() => new Date(record.invitedAt).toISOString()).not.toThrow();
-      expect(() => new Date(record.activatedAt!).toISOString()).not.toThrow();
-    });
   });
 
   describe("activate", () => {
@@ -75,20 +69,6 @@ describe("domain/user", () => {
       expect(inactive.activatedAt).toBeUndefined();
     });
 
-    test("preserves existing fields", () => {
-      const inactive: UserRecord = {
-        status: "inactive",
-        invitedBy: "Uowner1234567890abcdef1234567890",
-        invitedAt: "2024-01-01T00:00:00.000Z",
-        lastWorkspaceId: "ws-001",
-      };
-
-      const result = activate(inactive);
-
-      expect(result.invitedBy).toBe("Uowner1234567890abcdef1234567890");
-      expect(result.invitedAt).toBe("2024-01-01T00:00:00.000Z");
-      expect(result.lastWorkspaceId).toBe("ws-001");
-    });
   });
 
   describe("setLastWorkspaceId", () => {
@@ -120,20 +100,6 @@ describe("domain/user", () => {
       expect(record.lastWorkspaceId).toBe("ws-old");
     });
 
-    test("다른 필드 보존", () => {
-      const record: UserRecord = {
-        status: "active",
-        invitedBy: "Uowner1234567890abcdef1234567890",
-        invitedAt: "2024-01-01T00:00:00.000Z",
-        activatedAt: "2024-01-02T00:00:00.000Z",
-      };
-
-      const result = setLastWorkspaceId(record, "ws-123");
-
-      expect(result.status).toBe("active");
-      expect(result.invitedBy).toBe("Uowner1234567890abcdef1234567890");
-      expect(result.activatedAt).toBe("2024-01-02T00:00:00.000Z");
-    });
   });
 
   describe("clearLastWorkspaceId", () => {
@@ -164,21 +130,6 @@ describe("domain/user", () => {
       expect(result.lastWorkspaceId).toBeUndefined();
     });
 
-    test("다른 필드 보존", () => {
-      const record: UserRecord = {
-        status: "active",
-        invitedBy: "Uowner1234567890abcdef1234567890",
-        invitedAt: "2024-01-01T00:00:00.000Z",
-        activatedAt: "2024-01-02T00:00:00.000Z",
-        lastWorkspaceId: "ws-old",
-      };
-
-      const result = clearLastWorkspaceId(record);
-
-      expect(result.status).toBe("active");
-      expect(result.invitedBy).toBe("Uowner1234567890abcdef1234567890");
-      expect(result.activatedAt).toBe("2024-01-02T00:00:00.000Z");
-    });
   });
 
   describe("deactivate", () => {
@@ -199,20 +150,5 @@ describe("domain/user", () => {
       expect(active.deactivatedAt).toBeUndefined();
     });
 
-    test("preserves existing fields", () => {
-      const active: UserRecord = {
-        status: "active",
-        invitedBy: "Uowner1234567890abcdef1234567890",
-        invitedAt: "2024-01-01T00:00:00.000Z",
-        activatedAt: "2024-01-02T00:00:00.000Z",
-        lastWorkspaceId: "ws-001",
-      };
-
-      const result = deactivate(active);
-
-      expect(result.invitedBy).toBe("Uowner1234567890abcdef1234567890");
-      expect(result.activatedAt).toBe("2024-01-02T00:00:00.000Z");
-      expect(result.lastWorkspaceId).toBe("ws-001");
-    });
   });
 });

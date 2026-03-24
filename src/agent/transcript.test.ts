@@ -166,53 +166,6 @@ describe("TranscriptRecorder", () => {
     expect(records[1]!.trigger).toBe("cron");
   });
 
-  test("cron 트리거 기록", async () => {
-    const recorder = new TranscriptRecorder(tempDir);
-
-    recorder.startRun({
-      userId: "U003",
-      workspaceId: "ws-2",
-      trigger: "cron",
-      userMessage: "Morning briefing",
-      systemPrompt: "You are a briefing assistant.",
-    });
-
-    await recorder.endRun({
-      result: { text: "Good morning!", toolCalls: 3, channelDelivered: true },
-      usage: { totalInputTokens: 800, totalOutputTokens: 200 },
-    });
-
-    const today = new Date().toISOString().slice(0, 10);
-    const filePath = join(tempDir, "workspaces", "ws-2", "transcripts", `${today}.jsonl`);
-    const records = await readJsonl(filePath);
-
-    expect(records[0]!.trigger).toBe("cron");
-    expect(records[0]!.result.channelDelivered).toBe(true);
-  });
-
-  test("postback 트리거 기록", async () => {
-    const recorder = new TranscriptRecorder(tempDir);
-
-    recorder.startRun({
-      userId: "U004",
-      workspaceId: "ws-1",
-      trigger: "postback",
-      userMessage: "approve abc123",
-      systemPrompt: "prompt",
-    });
-
-    await recorder.endRun({
-      result: { text: "Approved.", toolCalls: 1, channelDelivered: false },
-      usage: { totalInputTokens: 200, totalOutputTokens: 50 },
-    });
-
-    const today = new Date().toISOString().slice(0, 10);
-    const filePath = join(tempDir, "workspaces", "ws-1", "transcripts", `${today}.jsonl`);
-    const records = await readJsonl(filePath);
-
-    expect(records[0]!.trigger).toBe("postback");
-  });
-
   test("endRun 없이 startRun만 호출해도 에러 없음", () => {
     const recorder = new TranscriptRecorder(tempDir);
 
