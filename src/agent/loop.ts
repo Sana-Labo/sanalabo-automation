@@ -28,6 +28,12 @@ import {
   type LoopState,
   type AgentLoopOptions,
 } from "./dispatch.js";
+import {
+  createLoggingFilter,
+  createWriteInterceptFilter,
+  createZodValidationFilter,
+  createExecutorFilter,
+} from "./filter-chain.js";
 
 const log = createLogger("agent");
 
@@ -200,6 +206,14 @@ export async function runAgentLoop(
       (b): b is Anthropic.ToolUseBlock => b.type === "tool_use",
     );
 
+    // 필터 체인 구성: 로깅 → 승인 게이트 → Zod 검증 → executor
+    const filters = [
+      createLoggingFilter(),
+      createWriteInterceptFilter(deps),
+      createZodValidationFilter(),
+      createExecutorFilter(state.executors),
+    ];
+
     const dispatchResult = await dispatchAllTools(
       toolUseBlocks,
       state,
@@ -213,6 +227,7 @@ export async function runAgentLoop(
         content: response.content,
       },
       userMessage,
+      filters,
     );
 
     toolCalls += dispatchResult.toolCallCount;
