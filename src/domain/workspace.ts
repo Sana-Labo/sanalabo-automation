@@ -91,3 +91,18 @@ export function validateWorkspaceName(
 
   return { valid: true, name: trimmed };
 }
+
+/**
+ * owner의 기존 워크스페이스 이름 목록에서 중복 여부 판정 (대소문자 무시)
+ *
+ * @param existingNames - owner가 소유한 워크스페이스 이름 배열
+ * @param newName - 새로 생성할 워크스페이스 이름 (트리밍 전 허용)
+ * @returns 중복이면 true
+ */
+export function isWorkspaceNameTaken(
+  existingNames: readonly string[],
+  newName: string,
+): boolean {
+  const normalized = newName.trim().toLowerCase();
+  return existingNames.some((name) => name.trim().toLowerCase() === normalized);
+}

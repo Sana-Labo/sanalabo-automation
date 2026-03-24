@@ -2,6 +2,7 @@ import { describe, test, expect } from "bun:test";
 import {
   canCreateWorkspace,
   getMaxOwnedWorkspaces,
+  isWorkspaceNameTaken,
   validateWorkspaceName,
   MAX_WORKSPACE_NAME_LENGTH,
 } from "./workspace.js";
@@ -86,6 +87,29 @@ describe("domain/workspace", () => {
     test("트리밍 후 빈 문자열 → valid: false", () => {
       const result = validateWorkspaceName("   ");
       expect(result.valid).toBe(false);
+    });
+  });
+
+  describe("isWorkspaceNameTaken", () => {
+    test("동일 이름 존재 → true", () => {
+      expect(isWorkspaceNameTaken(["Work", "Personal"], "Work")).toBe(true);
+    });
+
+    test("동일 이름 없음 → false", () => {
+      expect(isWorkspaceNameTaken(["Work", "Personal"], "School")).toBe(false);
+    });
+
+    test("대소문자 무시 비교", () => {
+      expect(isWorkspaceNameTaken(["MyClub"], "myclub")).toBe(true);
+      expect(isWorkspaceNameTaken(["myclub"], "MYCLUB")).toBe(true);
+    });
+
+    test("빈 배열 → false", () => {
+      expect(isWorkspaceNameTaken([], "Work")).toBe(false);
+    });
+
+    test("앞뒤 공백이 있는 입력도 트리밍 후 비교", () => {
+      expect(isWorkspaceNameTaken(["Work"], "  Work  ")).toBe(true);
     });
   });
 });

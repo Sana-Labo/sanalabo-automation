@@ -300,6 +300,42 @@ describe("create_workspace handler", () => {
     expect(signal.toolResult).toContain("Error");
     expect(signal.toolResult).toContain("Invalid LINE userId");
   });
+
+  test("per-owner 이름 유일성: 동일 owner 동명 거부", async () => {
+    const existing = [makeWorkspace({ id: "ws-001", name: "Work", ownerId: "Uowner1234" })];
+    const deps = makeDeps({ ownedWorkspaces: existing });
+    const ctx = makeContext({ userId: "Uowner1234" });
+
+    const def = systemToolDefinitions.find((d) => d.name === "create_workspace")!;
+    const signal = await def.handler({ name: "Work", owner_user_id: null }, ctx, deps);
+
+    expect(signal.toolResult).toContain("Error");
+    expect(signal.toolResult).toContain("already have a workspace named");
+  });
+
+  test("per-owner 이름 유일성: 대소문자 무시", async () => {
+    const existing = [makeWorkspace({ id: "ws-001", name: "Work", ownerId: "Uowner1234" })];
+    const deps = makeDeps({ ownedWorkspaces: existing });
+    const ctx = makeContext({ userId: "Uowner1234" });
+
+    const def = systemToolDefinitions.find((d) => d.name === "create_workspace")!;
+    const signal = await def.handler({ name: "work", owner_user_id: null }, ctx, deps);
+
+    expect(signal.toolResult).toContain("Error");
+    expect(signal.toolResult).toContain("already have a workspace named");
+  });
+
+  test("per-owner 이름 유일성: 다른 owner 동명 허용", async () => {
+    // 다른 사용자가 "Work"을 소유하고 있어도, 현재 사용자의 소유 WS에는 없음
+    const deps = makeDeps({ ownedWorkspaces: [] });
+    const ctx = makeContext({ userId: "Uother00001" });
+
+    const def = systemToolDefinitions.find((d) => d.name === "create_workspace")!;
+    const signal = await def.handler({ name: "Work", owner_user_id: null }, ctx, deps);
+
+    const result = JSON.parse(signal.toolResult);
+    expect(result.message).toContain("created successfully");
+  });
 });
 
 // --- list_workspaces 핸들러 테스트 ---
@@ -533,6 +569,80 @@ describe("get_workspace_info handler", () => {
       invitedBy: "system",
     });
   });
+
+  test("성공: workspace_name으로 조회 (대소문자 무시)", async () => {
+    const ws = makeWorkspace({ id: "ws-001", name: "MyClub", ownerId: "Uowner1234" });
+    const deps = makeDeps({
+      memberWorkspaces: [ws],
+      getWorkspace: (id) => (id === "ws-001" ? ws : undefined),
+    });
+    const ctx = makeContext({ userId: "Uowner1234", role: "owner" });
+
+    const def = systemToolDefinitions.find((d) => d.name === "get_workspace_info")!;
+    const signal = await def.handler({ workspace_id: null, workspace_name: "myclub" }, ctx, deps);
+    const result = JSON.parse(signal.toolResult);
+
+    expect(result.id).toBe("ws-001");
+    expect(result.name).toBe("MyClub");
+  });
+
+  test("실패: workspace_name이 소속 WS에 없음", async () => {
+    const deps = makeDeps({ memberWorkspaces: [] });
+    const ctx = makeContext({ userId: "Uowner1234", role: "owner" });
+
+    const def = systemToolDefinitions.find((d) => d.name === "get_workspace_info")!;
+    const signal = await def.handler({ workspace_id: null, workspace_name: "NonExistent" }, ctx, deps);
+
+    expect(signal.toolResult).toContain("Error");
+    expect(signal.toolResult).toContain("NonExistent");
+  });
+
+  test("disambiguation: 동명 WS 2개 → 후보 목록 반환", async () => {
+    const ws1 = makeWorkspace({ id: "ws-001", name: "Work", ownerId: "Uowner1234" });
+    const ws2 = makeWorkspace({ id: "ws-002", name: "Work", ownerId: "Uother001" });
+    const deps = makeDeps({ memberWorkspaces: [ws1, ws2] });
+    const ctx = makeContext({ userId: "Uowner1234", role: "owner" });
+
+    const def = systemToolDefinitions.find((d) => d.name === "get_workspace_info")!;
+    const signal = await def.handler({ workspace_id: null, workspace_name: "Work" }, ctx, deps);
+    const result = JSON.parse(signal.toolResult);
+
+    expect(result.error).toContain("Multiple workspaces");
+    expect(result.candidates).toHaveLength(2);
+    expect(result.candidates[0].id).toBe("ws-001");
+    expect(result.candidates[1].id).toBe("ws-002");
+  });
+
+  test("workspace_id 우선: workspace_id와 workspace_name 둘 다 있으면 workspace_id 사용", async () => {
+    const ws = makeWorkspace({ id: "ws-001", name: "MyClub", ownerId: "Uowner1234" });
+    const deps = makeDeps({
+      getWorkspace: (id) => (id === "ws-001" ? ws : undefined),
+    });
+    const ctx = makeContext({ userId: "Uowner1234", role: "owner" });
+
+    const def = systemToolDefinitions.find((d) => d.name === "get_workspace_info")!;
+    const signal = await def.handler({ workspace_id: "ws-001", workspace_name: "OtherName" }, ctx, deps);
+    const result = JSON.parse(signal.toolResult);
+
+    expect(result.id).toBe("ws-001");
+  });
+
+  test("admin: workspace_name으로 비소속 WS 조회 가능", async () => {
+    const ws = makeWorkspace({ id: "ws-other", name: "OtherWS", ownerId: "Uother001" });
+    const deps = makeDeps({
+      allWorkspaces: [ws],
+      memberWorkspaces: [], // admin은 멤버가 아님
+      isSystemAdmin: (id) => id === "Uadmin001",
+    });
+    const ctx = makeContext({ userId: "Uadmin001", role: "admin" });
+
+    const def = systemToolDefinitions.find((d) => d.name === "get_workspace_info")!;
+    const signal = await def.handler({ workspace_id: null, workspace_name: "OtherWS" }, ctx, deps);
+    const result = JSON.parse(signal.toolResult);
+
+    expect(result.id).toBe("ws-other");
+    expect(result.ownerId).toBe("Uother001");
+  });
 });
 
 // --- enter_workspace 핸들러 테스트 ---
@@ -662,6 +772,22 @@ describe("enter_workspace handler", () => {
     const result = JSON.parse(signal.toolResult);
     expect(result.workspaceId).toBe("ws-001");
   });
+
+  test("disambiguation: 동명 WS 2개 → 후보 목록 반환", async () => {
+    const ws1 = makeWorkspace({ id: "ws-001", name: "Work", ownerId: "Uowner1234" });
+    const ws2 = makeWorkspace({ id: "ws-002", name: "Work", ownerId: "Uother001" });
+    const deps = makeDeps({ memberWorkspaces: [ws1, ws2] });
+    const ctx = makeContext({ userId: "Uuser001", workspaceId: undefined, role: "member" });
+
+    const def = systemToolDefinitions.find((d) => d.name === "enter_workspace")!;
+    const signal = await def.handler({ workspace_id: null, workspace_name: "Work" }, ctx, deps);
+    const result = JSON.parse(signal.toolResult);
+
+    expect(result.error).toContain("Multiple workspaces");
+    expect(result.candidates).toHaveLength(2);
+    expect(result.candidates[0].id).toBe("ws-001");
+    expect(result.candidates[1].id).toBe("ws-002");
+  });
 });
 
 // --- leave_workspace 핸들러 테스트 ---
@@ -764,6 +890,103 @@ describe("invite_member handler", () => {
 
     expect(signal.toolResult).toContain("Error");
     expect(signal.toolResult).toContain("do not own");
+  });
+
+  test("성공: workspace_name으로 지정 (대소문자 무시)", async () => {
+    const ws = makeWorkspace({ id: "ws-001", name: "MyClub", ownerId: "Uowner1234" });
+    const inviteCalls: Array<{ wsId: string; userId: string; invitedBy: string }> = [];
+    const deps = makeDeps({ memberWorkspaces: [ws] });
+    (deps.workspaceStore as any).inviteMember = async (wsId: string, userId: string, invitedBy: string) => {
+      inviteCalls.push({ wsId, userId, invitedBy });
+    };
+    const ctx = makeContext({ userId: "Uowner1234", workspaceId: undefined, role: "owner" });
+
+    const def = systemToolDefinitions.find((d) => d.name === "invite_member")!;
+    const signal = await def.handler(
+      { user_id: "Ua0000000000000000000000000000001", workspace_id: null, workspace_name: "myclub" },
+      ctx, deps,
+    );
+
+    const result = JSON.parse(signal.toolResult);
+    expect(result.workspaceName).toBe("MyClub");
+    expect(inviteCalls).toHaveLength(1);
+    expect(inviteCalls[0]!.wsId).toBe("ws-001");
+  });
+
+  test("실패: workspace_name이 소속 WS에 없음", async () => {
+    const deps = makeDeps({ memberWorkspaces: [] });
+    const ctx = makeContext({ userId: "Uowner1234", workspaceId: undefined, role: "owner" });
+
+    const def = systemToolDefinitions.find((d) => d.name === "invite_member")!;
+    const signal = await def.handler(
+      { user_id: "Ua0000000000000000000000000000001", workspace_id: null, workspace_name: "NonExistent" },
+      ctx, deps,
+    );
+
+    expect(signal.toolResult).toContain("Error");
+    expect(signal.toolResult).toContain("NonExistent");
+  });
+
+  test("disambiguation: 동명 WS 2개 → 후보 목록 반환", async () => {
+    const ws1 = makeWorkspace({ id: "ws-001", name: "Work", ownerId: "Uowner1234" });
+    const ws2 = makeWorkspace({ id: "ws-002", name: "Work", ownerId: "Uother001" });
+    const deps = makeDeps({ memberWorkspaces: [ws1, ws2] });
+    const ctx = makeContext({ userId: "Uowner1234", workspaceId: undefined, role: "owner" });
+
+    const def = systemToolDefinitions.find((d) => d.name === "invite_member")!;
+    const signal = await def.handler(
+      { user_id: "Ua0000000000000000000000000000001", workspace_id: null, workspace_name: "Work" },
+      ctx, deps,
+    );
+    const result = JSON.parse(signal.toolResult);
+
+    expect(result.error).toContain("Multiple workspaces");
+    expect(result.candidates).toHaveLength(2);
+  });
+
+  test("workspace_id 우선: workspace_id와 workspace_name 둘 다 있으면 workspace_id 사용", async () => {
+    const ws = makeWorkspace({ id: "ws-001", name: "MyClub", ownerId: "Uowner1234" });
+    const inviteCalls: Array<{ wsId: string; userId: string; invitedBy: string }> = [];
+    const deps = makeDeps({
+      getWorkspace: (id) => (id === "ws-001" ? ws : undefined),
+    });
+    (deps.workspaceStore as any).inviteMember = async (wsId: string, userId: string, invitedBy: string) => {
+      inviteCalls.push({ wsId, userId, invitedBy });
+    };
+    const ctx = makeContext({ userId: "Uowner1234", workspaceId: undefined, role: "owner" });
+
+    const def = systemToolDefinitions.find((d) => d.name === "invite_member")!;
+    const signal = await def.handler(
+      { user_id: "Ua0000000000000000000000000000001", workspace_id: "ws-001", workspace_name: "OtherName" },
+      ctx, deps,
+    );
+
+    const result = JSON.parse(signal.toolResult);
+    expect(result.workspaceId).toBe("ws-001");
+  });
+
+  test("admin: workspace_name으로 비소속 WS에 초대 가능", async () => {
+    const ws = makeWorkspace({ id: "ws-other", name: "OtherWS", ownerId: "Uadmin001" });
+    const inviteCalls: Array<{ wsId: string; userId: string; invitedBy: string }> = [];
+    const deps = makeDeps({
+      allWorkspaces: [ws],
+      memberWorkspaces: [], // admin이 멤버가 아닌 상황 시뮬레이션 (getAll로 해석)
+      isSystemAdmin: (id) => id === "Uadmin001",
+    });
+    (deps.workspaceStore as any).inviteMember = async (wsId: string, userId: string, invitedBy: string) => {
+      inviteCalls.push({ wsId, userId, invitedBy });
+    };
+    const ctx = makeContext({ userId: "Uadmin001", workspaceId: undefined, role: "admin" });
+
+    const def = systemToolDefinitions.find((d) => d.name === "invite_member")!;
+    const signal = await def.handler(
+      { user_id: "Ua0000000000000000000000000000001", workspace_id: null, workspace_name: "OtherWS" },
+      ctx, deps,
+    );
+
+    const result = JSON.parse(signal.toolResult);
+    expect(result.workspaceId).toBe("ws-other");
+    expect(inviteCalls).toHaveLength(1);
   });
 });
 

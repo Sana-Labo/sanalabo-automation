@@ -18,7 +18,7 @@ import {
   type ToolRegistry,
 } from "../types.js";
 import { isActive, isValidLineUserId } from "../domain/user.js";
-import { canCreateWorkspace, getMaxOwnedWorkspaces, validateWorkspaceName, type WorkspaceRecord } from "../domain/workspace.js";
+import { canCreateWorkspace, getMaxOwnedWorkspaces, isWorkspaceNameTaken, validateWorkspaceName, type WorkspaceRecord } from "../domain/workspace.js";
 import { notifyActionResult } from "../approvals/notify.js";
 import { config } from "../config.js";
 import { buildConsentUrl } from "../domain/google-oauth.js";
@@ -28,6 +28,33 @@ import { createLogger } from "../utils/logger.js";
 import { systemTool, type SystemToolDefinition, type SystemToolSignal } from "./tool-definition.js";
 
 const log = createLogger("agent");
+
+// --- 공통 헬퍼 ---
+
+/** 워크스페이스 배열에서 이름으로 검색 (대소문자 무시) */
+function resolveWorkspaceByName(
+  workspaces: readonly WorkspaceRecord[],
+  name: string,
+): WorkspaceRecord[] {
+  const normalized = name.trim().toLowerCase();
+  return workspaces.filter((ws) => ws.name.trim().toLowerCase() === normalized);
+}
+
+/** 다중 매칭 시 disambiguation 응답 생성 */
+function disambiguationResult(
+  matches: readonly WorkspaceRecord[],
+  name: string,
+): string {
+  return JSON.stringify({
+    error: `Multiple workspaces match name "${name}". Specify workspace_id.`,
+    candidates: matches.map((ws) => ({
+      id: ws.id,
+      name: ws.name,
+      ownerId: ws.ownerId,
+      memberCount: Object.keys(ws.members).length,
+    })),
+  });
+}
 
 // --- Zod 스키마 ---
 
@@ -48,6 +75,10 @@ const getWorkspaceInfoSchema = z.object({
     .string()
     .nullable()
     .describe("Workspace ID to query. If null, uses the current workspace context."),
+  workspace_name: z
+    .string()
+    .nullable()
+    .describe("Workspace display name to query. Used when the user specifies a name instead of ID."),
 });
 
 const enterWorkspaceSchema = z.object({
@@ -69,6 +100,10 @@ const inviteMemberSchema = z.object({
     .describe(
       "Workspace ID to invite to. If null, uses the current workspace context or the caller's only owned workspace.",
     ),
+  workspace_name: z
+    .string()
+    .nullable()
+    .describe("Workspace display name to invite to. Used when the user specifies a name instead of ID."),
 });
 
 const approveActionSchema = z.object({
@@ -275,9 +310,14 @@ const createWorkspaceDef = systemTool({
       return { toolResult: `Error: ${validation.error}` };
     }
 
-    // 3. 소유 제한 검증 (순수 함수 + Store 조회) — owner 기준
-    const limit = getMaxOwnedWorkspaces(delegated ? false : isAdmin);
+    // 3. per-owner 이름 유일성 검증 (대소문자 무시)
     const owned = deps.workspaceStore.getByOwner(ownerId);
+    if (isWorkspaceNameTaken(owned.map((ws) => ws.name), validation.name)) {
+      return { toolResult: `Error: You already have a workspace named "${validation.name}".` };
+    }
+
+    // 4. 소유 제한 검증 (순수 함수 + Store 조회) — owner 기준
+    const limit = getMaxOwnedWorkspaces(delegated ? false : isAdmin);
     if (!canCreateWorkspace(owned.length, limit)) {
       const msg = delegated
         ? `Error: User ${ownerId} already owns ${owned.length} workspace(s). Maximum: ${limit}.`
@@ -285,14 +325,14 @@ const createWorkspaceDef = systemTool({
       return { toolResult: msg };
     }
 
-    // 4. 워크스페이스 생성 (Store I/O)
+    // 5. 워크스페이스 생성 (Store I/O)
     const ws = await deps.workspaceStore.create(validation.name, ownerId);
     log.info("Workspace created", { workspaceId: ws.id, ownerId });
 
-    // 5. 마지막 워크스페이스 설정 (Store I/O) — owner에게 설정 (자동 진입)
+    // 6. 마지막 워크스페이스 설정 (Store I/O) — owner에게 설정 (자동 진입)
     await deps.userStore.setLastWorkspaceId(ownerId, ws.id);
 
-    // 6. 자동 OAuth 트리거: Google 인증 링크 발송 (환경변수 설정 시)
+    // 7. 자동 OAuth 트리거: Google 인증 링크 발송 (환경변수 설정 시)
     let authSent = false;
     if (config.googleClientId && config.googleRedirectUri) {
       try {
@@ -349,18 +389,39 @@ const getWorkspaceInfoDef = systemTool({
     "Get detailed workspace information. Admins can view any workspace; owners can view their own; members can view workspaces they belong to.",
   inputSchema: getWorkspaceInfoSchema,
   async handler(input, context, deps) {
-    const wsId = input.workspace_id ?? context.workspaceId;
-    if (!wsId) {
-      return {
-        toolResult: "Error: No workspace specified and no current workspace context.",
-      };
+    // 1. 워크스페이스 해석: workspace_id → workspace_name → context.workspaceId
+    let ws: WorkspaceRecord | undefined;
+    if (input.workspace_id) {
+      ws = deps.workspaceStore.get(input.workspace_id);
+      if (!ws) {
+        return { toolResult: `Error: Workspace not found: ${input.workspace_id}` };
+      }
+    } else if (input.workspace_name) {
+      // admin은 전체, 일반 사용자는 소속 WS에서 검색
+      const isAdmin = deps.userStore.isSystemAdmin(context.userId);
+      const searchScope = isAdmin
+        ? deps.workspaceStore.getAll()
+        : deps.workspaceStore.getByMember(context.userId);
+      const matches = resolveWorkspaceByName(searchScope, input.workspace_name);
+      if (matches.length === 0) {
+        return { toolResult: `Error: No workspace found with name "${input.workspace_name}". Use list_workspaces to see available workspaces.` };
+      }
+      if (matches.length > 1) {
+        return { toolResult: disambiguationResult(matches, input.workspace_name) };
+      }
+      ws = matches[0]!;
+    } else {
+      const wsId = context.workspaceId;
+      if (!wsId) {
+        return { toolResult: "Error: No workspace specified and no current workspace context." };
+      }
+      ws = deps.workspaceStore.get(wsId);
+      if (!ws) {
+        return { toolResult: `Error: Workspace not found: ${wsId}` };
+      }
     }
 
-    const ws = deps.workspaceStore.get(wsId);
-    if (!ws) {
-      return { toolResult: `Error: Workspace not found: ${wsId}` };
-    }
-
+    // 2. 접근 권한 검증
     const isAdmin = deps.userStore.isSystemAdmin(context.userId);
     const isOwner = ws.ownerId === context.userId;
     const isMember = ws.members[context.userId] !== undefined;
@@ -387,12 +448,15 @@ const enterWorkspaceDef = systemTool({
         return { toolResult: `Error: Workspace not found: ${input.workspace_id}` };
       }
     } else if (input.workspace_name) {
-      // 사용자 소속 워크스페이스에서 이름으로 검색 (대소문자 무시)
       const memberWs = deps.workspaceStore.getByMember(context.userId);
-      ws = memberWs.find((w) => w.name.toLowerCase() === input.workspace_name!.toLowerCase());
-      if (!ws) {
+      const matches = resolveWorkspaceByName(memberWs, input.workspace_name);
+      if (matches.length === 0) {
         return { toolResult: `Error: No workspace found with name "${input.workspace_name}". Use list_workspaces to see available workspaces.` };
       }
+      if (matches.length > 1) {
+        return { toolResult: disambiguationResult(matches, input.workspace_name) };
+      }
+      ws = matches[0]!;
     } else {
       const lastWsId = deps.userStore.getLastWorkspaceId(context.userId);
       if (!lastWsId) {
@@ -461,34 +525,53 @@ const inviteMemberDef = systemTool({
       return { toolResult: `Error: Invalid LINE userId format: ${input.user_id}` };
     }
 
-    // 2. 워크스페이스 해석
-    let wsId = input.workspace_id ?? context.workspaceId;
-
-    // context에도 없으면 소유 WS가 1개인 경우 자동 선택
-    if (!wsId) {
+    // 2. 워크스페이스 해석: workspace_id → workspace_name → context.workspaceId → 단일 소유 WS
+    let ws: WorkspaceRecord | undefined;
+    if (input.workspace_id) {
+      ws = deps.workspaceStore.get(input.workspace_id);
+      if (!ws) {
+        return { toolResult: `Error: Workspace not found: ${input.workspace_id}` };
+      }
+    } else if (input.workspace_name) {
+      // admin은 전체, 일반 사용자는 소속 WS에서 검색
+      const isAdmin = deps.userStore.isSystemAdmin(context.userId);
+      const searchScope = isAdmin
+        ? deps.workspaceStore.getAll()
+        : deps.workspaceStore.getByMember(context.userId);
+      const matches = resolveWorkspaceByName(searchScope, input.workspace_name);
+      if (matches.length === 0) {
+        return { toolResult: `Error: No workspace found with name "${input.workspace_name}". Use list_workspaces to see available workspaces.` };
+      }
+      if (matches.length > 1) {
+        return { toolResult: disambiguationResult(matches, input.workspace_name) };
+      }
+      ws = matches[0]!;
+    } else if (context.workspaceId) {
+      ws = deps.workspaceStore.get(context.workspaceId);
+      if (!ws) {
+        return { toolResult: `Error: Workspace not found: ${context.workspaceId}` };
+      }
+    } else {
+      // context에도 없으면 소유 WS가 1개인 경우 자동 선택
       const ownedWs = deps.workspaceStore.getByOwner(context.userId);
       if (ownedWs.length === 0) {
         return { toolResult: "Error: You do not own any workspaces. Create a workspace first." };
       }
       if (ownedWs.length === 1) {
-        wsId = ownedWs[0]!.id;
+        ws = ownedWs[0]!;
       } else {
         return { toolResult: "Error: You own multiple workspaces. Specify workspace_id." };
       }
     }
 
-    // 3. 워크스페이스 존재 + Owner 권한 검증
-    const ws = deps.workspaceStore.get(wsId);
-    if (!ws) {
-      return { toolResult: `Error: Workspace not found: ${wsId}` };
-    }
+    // 3. Owner 권한 검증
     if (ws.ownerId !== context.userId && !deps.userStore.isSystemAdmin(context.userId)) {
       return { toolResult: "Error: Only the workspace owner can invite members." };
     }
 
     // 4. 멤버 추가 (Store I/O)
-    await deps.workspaceStore.inviteMember(wsId, input.user_id, context.userId);
-    log.info("Member invited", { workspaceId: wsId, targetId: input.user_id, invitedBy: context.userId });
+    await deps.workspaceStore.inviteMember(ws.id, input.user_id, context.userId);
+    log.info("Member invited", { workspaceId: ws.id, targetId: input.user_id, invitedBy: context.userId });
 
     return {
       toolResult: JSON.stringify({
