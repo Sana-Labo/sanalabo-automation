@@ -3,25 +3,10 @@
  *
  * OAuth consent URL 조립, 콜백 파싱, 인증 상태 판정 등
  * 외부 I/O 없음. google-auth-library에 의존하지 않음.
- */
-
-// --- 상수 ---
-
-/**
- * Google OAuth 스코프 (널널한 권한 — 도구 추가 시 재인증 불필요)
  *
- * - gmail.modify: 메일 읽기/쓰기/발송/라벨 변경
- * - calendar: 캘린더 이벤트 읽기/쓰기
- * - drive: 파일 읽기/쓰기/공유
+ * scope 상수는 google-scopes.ts에 정의. 각 도구가 requiredScopes로 선언하고,
+ * computeRequiredScopes()로 consent URL에 필요한 scope를 동적 계산.
  */
-export const GOOGLE_SCOPES = [
-  "https://www.googleapis.com/auth/gmail.modify",
-  "https://www.googleapis.com/auth/calendar",
-  "https://www.googleapis.com/auth/drive",
-  "openid",
-  "email",
-  "profile",
-] as const;
 
 /** OAuth 인증 대기 상태 (인메모리, state → 사용자 매핑) */
 export interface PendingAuth {
@@ -38,7 +23,8 @@ export interface ConsentUrlParams {
   clientId: string;
   redirectUri: string;
   state: string;
-  scopes?: readonly string[];
+  /** 요청할 OAuth scope (computeRequiredScopes()로 도구 정의에서 동적 계산) */
+  scopes: readonly string[];
 }
 
 /**
@@ -52,8 +38,9 @@ export function buildConsentUrl(params: ConsentUrlParams): string {
   url.searchParams.set("client_id", params.clientId);
   url.searchParams.set("redirect_uri", params.redirectUri);
   url.searchParams.set("response_type", "code");
-  url.searchParams.set("scope", (params.scopes ?? GOOGLE_SCOPES).join(" "));
+  url.searchParams.set("scope", params.scopes.join(" "));
   url.searchParams.set("access_type", "offline");
+  url.searchParams.set("include_granted_scopes", "true");
   url.searchParams.set("prompt", "consent");
   url.searchParams.set("state", params.state);
   return url.toString();

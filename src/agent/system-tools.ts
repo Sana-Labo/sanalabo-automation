@@ -22,6 +22,8 @@ import { canCreateWorkspace, getMaxOwnedWorkspaces, isWorkspaceNameTaken, valida
 import { notifyActionResult } from "../approvals/notify.js";
 import { config } from "../config.js";
 import { buildConsentUrl } from "../domain/google-oauth.js";
+import { computeRequiredScopes } from "../domain/google-scopes.js";
+import { gwsToolDefinitions } from "../skills/gws/tools.js";
 import { createPendingAuth } from "../skills/gws/oauth-state.js";
 import { toErrorMessage } from "../utils/error.js";
 import { createLogger } from "../utils/logger.js";
@@ -341,6 +343,7 @@ const createWorkspaceDef = systemTool({
           clientId: config.googleClientId,
           redirectUri: config.googleRedirectUri,
           state,
+          scopes: computeRequiredScopes(gwsToolDefinitions),
         });
         await sendOAuthUrl(ownerId, consentUrl, ws.name, deps.registry);
         authSent = true;
@@ -715,6 +718,7 @@ const authenticateGwsDef = systemTool({
       clientId: config.googleClientId,
       redirectUri: config.googleRedirectUri,
       state,
+      scopes: computeRequiredScopes(gwsToolDefinitions),
     });
 
     // Flex Message 직접 전송 (결정론적)
