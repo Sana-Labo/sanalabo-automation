@@ -43,6 +43,8 @@ export interface FilterContext {
   isError?: boolean;
   /** 채널 도구 실행 여부 */
   channelDelivered?: boolean;
+  /** 원본 사용자 메시지 — writeInterceptFilter에서 승인 요청 컨텍스트로 사용 */
+  userMessage: string;
   /** 필터 간 데이터 전달용 메타데이터 */
   metadata: Record<string, unknown>;
 }
@@ -127,7 +129,7 @@ export function createWriteInterceptFilter(deps: AgentDependencies): ToolFilter 
       ctx.input,
       ctx.context,
       deps.pendingActionStore,
-      ctx.metadata.userMessage as string,
+      ctx.userMessage,
       isMutating,
     );
 

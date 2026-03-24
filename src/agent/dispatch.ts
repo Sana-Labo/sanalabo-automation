@@ -121,7 +121,6 @@ export async function mergeGwsExecutors(
 /** exitLoop 시 루프를 종료하기 위한 결과 (toolCalls 제외 — 루프 레벨에서 누적) */
 export interface ExitResult {
   text: string;
-  channelDelivered: boolean;
 }
 
 /** infra 디스패치 결과 */
@@ -217,12 +216,15 @@ export async function dispatchAllTools(
     state.transcript.recordTurn({
       request: { model: turnInfo.model, messageCount: turnInfo.messageCount, toolCount: turnInfo.toolCount },
       response: { stopReason: turnInfo.stopReason, content: turnInfo.content },
-      toolResults: infraResult.results.map((r) => ({
-        toolUseId: r.tool_use_id,
-        toolName: toolUseBlocks.find((b) => b.id === r.tool_use_id)?.name ?? "",
-        content: typeof r.content === "string" ? r.content : JSON.stringify(r.content ?? ""),
-        isError: false,
-      })),
+      toolResults: infraResult.results.map((r) => {
+        const block = plan.infra.find((b) => b.id === r.tool_use_id);
+        return {
+          toolUseId: r.tool_use_id,
+          toolName: block?.name ?? "",
+          content: typeof r.content === "string" ? r.content : JSON.stringify(r.content ?? ""),
+          isError: false,
+        };
+      }),
     });
     return {
       results: infraResult.results,
@@ -241,12 +243,13 @@ export async function dispatchAllTools(
   const allResults = [...infraResult.results, ...systemResult.results, ...skillResult.results];
   const totalToolCalls = infraResult.toolCallCount + systemResult.toolCallCount + skillResult.toolCallCount;
 
-  // 턴 트랜스크립트 기록 — 3단계 결과 통합
+  // 턴 트랜스크립트 기록 — O(n) Map lookup
+  const resultById = new Map(allResults.map((r) => [r.tool_use_id, r]));
   state.transcript.recordTurn({
     request: { model: turnInfo.model, messageCount: turnInfo.messageCount, toolCount: turnInfo.toolCount },
     response: { stopReason: turnInfo.stopReason, content: turnInfo.content },
     toolResults: toolUseBlocks.map((block) => {
-      const tr = allResults.find((r) => r.tool_use_id === block.id);
+      const tr = resultById.get(block.id);
       return {
         toolUseId: block.id,
         toolName: block.name,
@@ -258,7 +261,6 @@ export async function dispatchAllTools(
 
   return {
     results: allResults,
-    exitResult: undefined,
     toolCallCount: totalToolCalls,
     channelDelivered: skillResult.channelDelivered,
   };
@@ -277,9 +279,8 @@ export function dispatchInfra(
   let toolCallCount = 0;
 
   for (const block of toolUseBlocks) {
-    const maybeDef = state.allDefMap.get(block.name);
-    if (!maybeDef || !isInfraDef(maybeDef)) continue;
-    const def = maybeDef;
+    const def = state.allDefMap.get(block.name);
+    if (!def || !isInfraDef(def)) continue;
     toolCallCount++;
     log.debug("Infra tool handled", () => ({ tool: block.name, toolUseId: block.id }));
     const signal = def.handler(block.input as any, state.context);
@@ -291,7 +292,7 @@ export function dispatchInfra(
       });
       return {
         results,
-        exitResult: { text: signal.exitText, channelDelivered: false },
+        exitResult: { text: signal.exitText },
         toolCallCount,
       };
     }
@@ -322,9 +323,8 @@ export async function dispatchSystem(
   let toolCallCount = 0;
 
   for (const block of toolUseBlocks) {
-    const maybeDef = state.allDefMap.get(block.name);
-    if (!maybeDef || !isSystemDef(maybeDef)) continue;
-    const def = maybeDef;
+    const def = state.allDefMap.get(block.name);
+    if (!def || !isSystemDef(def)) continue;
     toolCallCount++;
     log.debug("System tool handled", () => ({ tool: block.name, toolUseId: block.id }));
     const signal = await def.handler(block.input as any, state.context, deps);
@@ -352,8 +352,8 @@ export async function dispatchSystem(
 
     // leave_workspace 후 GWS executor 제거 + Out-stage 전환
     if (signal.leftWorkspace) {
-      for (const def of gwsToolDefinitions) {
-        state.executors.delete(def.name);
+      for (const gwsDef of gwsToolDefinitions) {
+        state.executors.delete(gwsDef.name);
       }
       rebuildTools(state, options);
       state.context = { userId: state.context.userId, role: state.context.role };
@@ -392,7 +392,8 @@ export async function dispatchSkill(
       input: block.input as Record<string, unknown>,
       definition: state.allDefMap.get(block.name),
       context: state.context,
-      metadata: { userMessage },
+      userMessage,
+      metadata: {},
     };
 
     await executeFilterChain(filters, ctx);
