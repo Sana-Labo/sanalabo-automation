@@ -115,4 +115,52 @@ describe("createGwsExecutorFactory", () => {
 
     factory2.invalidate();
   });
+
+  // --- scope 기반 필터링 (A-3) ---
+
+  test("scope undefined (마이그레이션) → 전체 16개 executor 생성", async () => {
+    // sampleTokens에 scope 없음 → hasSufficientScopes returns true
+    await tokenStore.save("ws-1", sampleTokens);
+    const result = await factory.getExecutors("ws-1");
+    expect(result!.size).toBe(16);
+  });
+
+  test("전체 scope 부여 → 16개 executor", async () => {
+    const fullScopeTokens: GoogleTokens = {
+      ...sampleTokens,
+      scope: "https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/drive openid email profile",
+    };
+    await tokenStore.save("ws-scope", fullScopeTokens);
+    factory.invalidate("ws-scope");
+    const result = await factory.getExecutors("ws-scope");
+    expect(result!.size).toBe(16);
+  });
+
+  test("Gmail scope만 부여 → Gmail(7) + Account(1) = 8개", async () => {
+    const gmailOnlyTokens: GoogleTokens = {
+      ...sampleTokens,
+      scope: "https://www.googleapis.com/auth/gmail.modify openid email profile",
+    };
+    await tokenStore.save("ws-gmail", gmailOnlyTokens);
+    factory.invalidate("ws-gmail");
+    const result = await factory.getExecutors("ws-gmail");
+    expect(result!.size).toBe(8);
+    expect(result!.has("gmail_list")).toBe(true);
+    expect(result!.has("gmail_send")).toBe(true);
+    expect(result!.has("get_gws_account")).toBe(true);
+    expect(result!.has("calendar_list")).toBe(false);
+    expect(result!.has("drive_search")).toBe(false);
+  });
+
+  test("identity scope만 부여 → Account(1)만", async () => {
+    const identityOnlyTokens: GoogleTokens = {
+      ...sampleTokens,
+      scope: "openid email profile",
+    };
+    await tokenStore.save("ws-identity", identityOnlyTokens);
+    factory.invalidate("ws-identity");
+    const result = await factory.getExecutors("ws-identity");
+    expect(result!.size).toBe(1);
+    expect(result!.has("get_gws_account")).toBe(true);
+  });
 });

@@ -18,6 +18,7 @@ import {
 import { gwsToolDefinitions } from "./tools.js";
 import type { TokenStore, GoogleTokens } from "./token-store.js";
 import type { ToolExecutor } from "../../types.js";
+import { hasSufficientScopes } from "../../domain/google-scopes.js";
 import { toErrorMessage } from "../../utils/error.js";
 import { createLogger } from "../../utils/logger.js";
 
@@ -104,9 +105,13 @@ export function createGwsExecutorFactory(
     const driveClient = drive({ version: "v3", auth });
     const services = { auth, gmail: gmailClient, calendar: calendarClient, drive: driveClient };
 
-    // GwsToolDefinition 순회 → createExecutor 생성
+    // GwsToolDefinition 순회 → scope 충족 도구만 executor 생성 (A-3 필터링)
     const rawExecutors = new Map<string, ToolExecutor>();
     for (const def of gwsToolDefinitions) {
+      if (!hasSufficientScopes(tokens.scope, def.requiredScopes)) {
+        log.debug("Skipping tool (insufficient scopes)", { tool: def.name, workspaceId });
+        continue;
+      }
       const typedExecutor = def.createExecutor(services);
       rawExecutors.set(def.name, (input) => typedExecutor(input as any));
     }
