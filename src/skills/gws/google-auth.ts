@@ -41,14 +41,13 @@ export function configureClient(
 
   if (onTokenRefresh) {
     client.on("tokens", (newTokens) => {
-      if (newTokens.refresh_token) {
-        onTokenRefresh({
-          ...tokens,
-          access_token: newTokens.access_token ?? tokens.access_token,
-          refresh_token: newTokens.refresh_token,
-          expiry_date: newTokens.expiry_date ?? tokens.expiry_date,
-        });
-      }
+      onTokenRefresh({
+        ...tokens,
+        access_token: newTokens.access_token ?? tokens.access_token,
+        refresh_token: newTokens.refresh_token ?? tokens.refresh_token,
+        expiry_date: newTokens.expiry_date ?? tokens.expiry_date,
+        scope: newTokens.scope ?? tokens.scope,
+      });
     });
   }
 }

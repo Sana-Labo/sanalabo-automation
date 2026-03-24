@@ -52,9 +52,9 @@ describe("configureClient", () => {
     expect(updated.access_token).toBe("ya29.new-access");
   });
 
-  test("refresh_token 없는 tokens 이벤트는 콜백 미호출", () => {
+  test("access_token만 갱신 시에도 콜백 호출 (refresh_token은 기존 값 유지)", () => {
     const client = createOAuth2Client(testConfig);
-    const tokens: GoogleTokens = { refresh_token: "1//original" };
+    const tokens: GoogleTokens = { refresh_token: "1//original", scope: "openid email" };
     const callback = mock((_updated: GoogleTokens) => {});
 
     configureClient(client, tokens, callback);
@@ -65,7 +65,29 @@ describe("configureClient", () => {
       expiry_date: 9999999999999,
     });
 
-    expect(callback).not.toHaveBeenCalled();
+    expect(callback).toHaveBeenCalledTimes(1);
+    const updated = callback.mock.calls[0]![0];
+    expect(updated.refresh_token).toBe("1//original");
+    expect(updated.access_token).toBe("ya29.refreshed");
+    expect(updated.scope).toBe("openid email");
+  });
+
+  test("scope가 포함된 tokens 이벤트 시 scope 갱신", () => {
+    const client = createOAuth2Client(testConfig);
+    const tokens: GoogleTokens = { refresh_token: "1//original", scope: "openid" };
+    const callback = mock((_updated: GoogleTokens) => {});
+
+    configureClient(client, tokens, callback);
+
+    client.emit("tokens", {
+      access_token: "ya29.new",
+      scope: "openid email profile https://www.googleapis.com/auth/gmail.modify",
+    });
+
+    expect(callback).toHaveBeenCalledTimes(1);
+    const updated = callback.mock.calls[0]![0];
+    expect(updated.scope).toBe("openid email profile https://www.googleapis.com/auth/gmail.modify");
+    expect(updated.refresh_token).toBe("1//original");
   });
 });
 
