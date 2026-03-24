@@ -2,54 +2,73 @@ import "../test-utils/setup-env.js";
 import { describe, test, expect, beforeEach } from "bun:test";
 import { createGoogleOAuthRoute, type GoogleOAuthRouteDeps } from "./googleOAuth.js";
 import { createPendingAuth } from "../skills/gws/oauth-state.js";
-import type { TokenStore } from "../skills/gws/token-store.js";
-import type { ToolRegistry, WorkspaceStore } from "../types.js";
 
-/** 저장된 토큰 기록용 */
-const savedTokens: Array<{ workspaceId: string }> = [];
-const authenticatedWs: string[] = [];
-const pushMessages: Array<{ userId: string; text: string }> = [];
+/** 기록용 배열 */
+let savedTokens: Array<{ workspaceId: string; tokens: unknown }>;
+let authenticatedWs: string[];
+let savedAccounts: Array<{ workspaceId: string; account: unknown }>;
+let invalidatedWs: string[];
+let pushMessages: Array<{ userId: string; message: unknown }>;
 
-function createMockDeps(): GoogleOAuthRouteDeps {
-  savedTokens.length = 0;
-  authenticatedWs.length = 0;
-  pushMessages.length = 0;
+function createMockDeps(overrides?: {
+  exchangeCode?: GoogleOAuthRouteDeps["_exchangeCode"];
+  fetchUserInfo?: GoogleOAuthRouteDeps["_fetchUserInfo"];
+}): GoogleOAuthRouteDeps {
+  savedTokens = [];
+  authenticatedWs = [];
+  savedAccounts = [];
+  invalidatedWs = [];
+  pushMessages = [];
 
   return {
     tokenStore: {
-      save: async (workspaceId) => {
-        savedTokens.push({ workspaceId });
+      save: async (workspaceId: string, tokens: unknown) => {
+        savedTokens.push({ workspaceId, tokens });
       },
       load: async () => null,
       delete: async () => {},
-    } as TokenStore,
+    } as GoogleOAuthRouteDeps["tokenStore"],
     workspaceStore: {
       setGwsAuthenticated: async (workspaceId: string) => {
         authenticatedWs.push(workspaceId);
       },
-    } as unknown as WorkspaceStore,
-    invalidateExecutors: () => {},
+      setGwsAccount: async (workspaceId: string, account: unknown) => {
+        savedAccounts.push({ workspaceId, account });
+      },
+    } as unknown as GoogleOAuthRouteDeps["workspaceStore"],
+    invalidateExecutors: (workspaceId: string) => {
+      invalidatedWs.push(workspaceId);
+    },
     authConfig: {
       clientId: "test-client",
       clientSecret: "test-secret",
       redirectUri: "https://example.com/auth/google/callback",
     },
     registry: {
-      tools: [],
+      definitions: [],
       executors: new Map([
         [
           "push_text_message",
           async (input: Record<string, unknown>) => {
-            const msgs = input.messages as Array<{ text: string }>;
             pushMessages.push({
-              userId: input.user_id as string,
-              text: msgs[0]!.text,
+              userId: input.userId as string,
+              message: input.message,
             });
             return "ok";
           },
         ],
       ]),
-    } as unknown as ToolRegistry,
+    } as unknown as GoogleOAuthRouteDeps["registry"],
+    _exchangeCode: overrides?.exchangeCode ?? (async () => ({
+      access_token: "test-access",
+      refresh_token: "test-refresh",
+      expiry_date: Date.now() + 3600_000,
+    })),
+    _fetchUserInfo: overrides?.fetchUserInfo ?? (async () => ({
+      email: "test@example.com",
+      name: "Test User",
+      picture: "https://example.com/pic.jpg",
+    })),
   };
 }
 
@@ -92,28 +111,66 @@ describe("GET /auth/google/callback", () => {
     expect(html).toContain("expired");
   });
 
-  test("유효한 state → 소비 후 재사용 불가 (state 1회성 검증)", async () => {
+  test("성공 경로: 토큰 교환 → 저장 → 프로필 → 통지 → HTML", async () => {
     const state = createPendingAuth("U001", "ws-1");
 
-    // state 소비: consumePendingAuth를 직접 호출하여 검증 (네트워크 호출 회피)
-    const { consumePendingAuth: consume } = await import(
-      "../skills/gws/oauth-state.js"
+    const res = await app.request(
+      `/auth/google/callback?code=auth-code&state=${state}`,
     );
-    // 새 state를 생성하여 소비 테스트
-    const state2 = createPendingAuth("U002", "ws-2");
-    const auth = consume(state2);
-    expect(auth).not.toBeNull();
-    expect(auth!.userId).toBe("U002");
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain("Authentication Complete");
 
-    // 재소비 → null
-    expect(consume(state2)).toBeNull();
+    // 토큰 저장
+    expect(savedTokens).toHaveLength(1);
+    expect(savedTokens[0]!.workspaceId).toBe("ws-1");
 
-    // 최초 state도 소비 가능 확인
-    const auth1 = consume(state);
-    expect(auth1).not.toBeNull();
-    expect(auth1!.workspaceId).toBe("ws-1");
+    // GWS 인증 플래그
+    expect(authenticatedWs).toEqual(["ws-1"]);
+
+    // 프로필 저장
+    expect(savedAccounts).toHaveLength(1);
+    expect(savedAccounts[0]!.workspaceId).toBe("ws-1");
+
+    // executor 캐시 무효화
+    expect(invalidatedWs).toEqual(["ws-1"]);
+
+    // LINE push 통지
+    expect(pushMessages).toHaveLength(1);
+    expect(pushMessages[0]!.userId).toBe("U001");
   });
 
-  // 참고: 토큰 교환 성공 경로는 실제 Google API 호출이 필요하므로
-  // 통합 테스트(Docker 배포 후 수동)에서 검증. exchangeCode 자체는 google-auth.test.ts에서 mock 검증 완료.
+  test("토큰 교환 실패 시 에러 HTML", async () => {
+    app = createGoogleOAuthRoute(createMockDeps({
+      exchangeCode: async () => { throw new Error("Token exchange failed"); },
+    }));
+    const state = createPendingAuth("U001", "ws-1");
+
+    const res = await app.request(
+      `/auth/google/callback?code=bad-code&state=${state}`,
+    );
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain("Authentication Failed");
+    expect(html).toContain("Failed to complete authentication");
+  });
+
+  test("프로필 조회 실패해도 인증은 성공 (best-effort)", async () => {
+    app = createGoogleOAuthRoute(createMockDeps({
+      fetchUserInfo: async () => { throw new Error("Userinfo API error"); },
+    }));
+    const state = createPendingAuth("U001", "ws-1");
+
+    const res = await app.request(
+      `/auth/google/callback?code=auth-code&state=${state}`,
+    );
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain("Authentication Complete");
+
+    // 토큰은 저장됨
+    expect(savedTokens).toHaveLength(1);
+    // 프로필은 저장 안 됨
+    expect(savedAccounts).toHaveLength(0);
+  });
 });

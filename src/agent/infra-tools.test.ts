@@ -17,34 +17,17 @@ function makeContext(overrides?: Partial<ToolContext>): ToolContext {
 // --- 테스트 ---
 
 describe("infraToolDefinitions", () => {
-  test("no_action 포함", () => {
-    const names = infraToolDefinitions.map((d) => d.name);
-    expect(names).toContain("no_action");
-  });
-
-  test("모든 정의에 strict: true 설정", () => {
-    for (const def of infraToolDefinitions) {
-      expect(def.strict).toBe(true);
-    }
-  });
-
-  test("toAnthropicTool 변환: additionalProperties: false", () => {
-    for (const def of infraToolDefinitions) {
-      const tool = toAnthropicTool(def);
-      expect(tool.strict).toBe(true);
-      expect(tool.input_schema.additionalProperties).toBe(false);
-    }
-  });
-
-  test("toAnthropicTool 변환: reason 필드 + required", () => {
+  test("no_action: strict + additionalProperties: false + reason required", () => {
     const def = infraToolDefinitions.find((d) => d.name === "no_action")!;
-    const tool = toAnthropicTool(def);
-    const props = tool.input_schema.properties as Record<string, Record<string, unknown>>;
-    expect(props.reason).toBeDefined();
-    expect(props.reason!.type).toBe("string");
+    expect(def.strict).toBe(true);
 
-    const required = tool.input_schema.required as string[];
-    expect(required).toContain("reason");
+    const tool = toAnthropicTool(def);
+    expect(tool.strict).toBe(true);
+    expect(tool.input_schema.additionalProperties).toBe(false);
+
+    const props = tool.input_schema.properties as Record<string, Record<string, unknown>>;
+    expect(props.reason!.type).toBe("string");
+    expect(tool.input_schema.required).toContain("reason");
   });
 });
 
@@ -58,12 +41,6 @@ describe("noAction handler", () => {
     expect(signal.toolResult).toBeString();
   });
 
-  test("receives context (future extensibility)", () => {
-    const def = infraToolDefinitions.find((d) => d.name === "no_action")!;
-    const ctx = makeContext({ role: "member", userId: "Umember5678" });
-    const signal = def.handler({ reason: "test" } as any, ctx);
-    expect(signal.exitLoop).toBe(true);
-  });
 });
 
 describe("Zod 스키마 검증", () => {

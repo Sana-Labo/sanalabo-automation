@@ -197,6 +197,29 @@ describe("JsonWorkspaceStore", () => {
     );
   });
 
+  test("setGwsAccount: saves account info", async () => {
+    const ws = await store.create("WS1", "Uowner01");
+
+    await store.setGwsAccount(ws.id, {
+      email: "owner@example.com",
+      name: "Owner",
+      picture: "https://example.com/pic.jpg",
+    });
+
+    const updated = store.get(ws.id)!;
+    expect(updated.gwsAccount).toEqual({
+      email: "owner@example.com",
+      name: "Owner",
+      picture: "https://example.com/pic.jpg",
+    });
+  });
+
+  test("setGwsAccount: nonexistent workspace throws", async () => {
+    await expect(
+      store.setGwsAccount("nonexistent", { email: "a@b.com" }),
+    ).rejects.toThrow("Workspace not found");
+  });
+
   test("persistence: data survives reload", async () => {
     const base = td.path();
     const storePath = `${base}/workspaces.json`;
