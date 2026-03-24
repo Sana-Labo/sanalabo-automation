@@ -117,6 +117,10 @@ export function createLoggingFilter(): ToolFilter {
  */
 export function createWriteInterceptFilter(deps: AgentDependencies): ToolFilter {
   return async (ctx, next) => {
+    // dynamic 도구의 isMutating 런타임 판별
+    const isMutating = ctx.definition?.concurrency === "dynamic"
+      ? ctx.definition.isMutating?.(ctx.input) ?? false
+      : undefined;
     const interception = await interceptWrite(
       ctx.toolName,
       ctx.definition?.concurrency,
@@ -124,6 +128,7 @@ export function createWriteInterceptFilter(deps: AgentDependencies): ToolFilter 
       ctx.context,
       deps.pendingActionStore,
       ctx.metadata.userMessage as string,
+      isMutating,
     );
 
     if (interception.intercepted) {

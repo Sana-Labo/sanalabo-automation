@@ -26,8 +26,9 @@ export async function interceptWrite(
   context: ToolContext,
   pendingStore: PendingActionStore,
   requestContext: string,
+  isMutating?: boolean,
 ): Promise<InterceptResult> {
-  const decision = canExecute(concurrency, context.role);
+  const decision = canExecute(concurrency, context.role, isMutating);
 
   if (decision === "allow") {
     return { intercepted: false };
