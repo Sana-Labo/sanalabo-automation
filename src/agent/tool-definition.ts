@@ -46,6 +46,17 @@ export type ValidationResult =
 export type ToolCategory = "infra" | "system" | "skill";
 
 /**
+ * 도구 동시성 특성 — 디스패치 시 병렬/순차 실행을 결정
+ *
+ * Claude Code CLI/Codex CLI의 동시성 제어 패턴 참고.
+ *
+ * - `read`: 읽기 전용, 병렬 실행 가능 (기본값)
+ * - `write`: 상태 변경, 순차 실행 필요. member 역할은 owner 승인 필요
+ * - `dynamic`: 입력에 따라 동적 판별 — {@link ToolDefinition.isMutating} 사용
+ */
+export type ToolConcurrency = "read" | "write" | "dynamic";
+
+/**
  * 모든 도구의 공통 기반 인터페이스
  *
  * 업계 표준 패턴: 도구 = 스키마 + 실행의 자기 완결적 단위.
@@ -62,13 +73,25 @@ export interface ToolDefinition<T = unknown> {
   inputSchema: z.ZodType<T>;
   /**
    * strict tool 지정 (기본: false).
-   * true면 Anthropic constrained decoding 적용 — 런타임 Zod 검증과 validateInput 모두 스킵.
-   * constrained decoding이 JSON Schema 적합성을 보장하므로 이중 검증 불필요.
+   * true면 Anthropic constrained decoding 적용.
+   * 업계 best practice에 따라 strict 도구도 Zod 검증을 통과함 (이중 안전).
    */
   strict?: boolean;
   /**
+   * 동시성 특성 (기본: `"read"`).
+   * skill 도구의 병렬/순차 실행 결정 + member 역할의 write 승인 게이트에 사용.
+   * `ToolDefinition.concurrency`가 WRITE_TOOLS Set을 대체하는 단일 출처.
+   */
+  concurrency?: ToolConcurrency;
+  /**
+   * 동적 동시성 판별 — `concurrency: "dynamic"` 도구에서만 사용.
+   * 입력을 분석하여 쓰기 여부를 결정 (예: Bash 명령어 분석).
+   *
+   * @returns true면 쓰기(순차 실행 + 승인 필요), false면 읽기(병렬 가능)
+   */
+  isMutating?: (input: T) => boolean;
+  /**
    * Layer 2 비즈니스 검증 (Zod 파싱 성공 후 실행). 선택적 — Zod로 표현 불가한 검증용.
-   * 주의: strict 도구에서는 실행되지 않음 (constrained decoding에 의존).
    */
   validateInput?: (input: T) => ValidationResult;
 }
@@ -149,6 +172,7 @@ export function gwsTool<T>(def: {
   name: string;
   description: string;
   inputSchema: z.ZodType<T>;
+  concurrency?: ToolConcurrency;
   createExecutor: (services: GwsServices) => (input: T) => Promise<string>;
   validateInput?: (input: T) => ValidationResult;
 }): GwsToolDefinition<T> {
@@ -165,6 +189,7 @@ export function lineTool<T>(def: {
   name: string;
   description: string;
   inputSchema: z.ZodType<T>;
+  concurrency?: ToolConcurrency;
   createExecutor: (deps: {
     origExecutor: ToolExecutor;
     userId: string;

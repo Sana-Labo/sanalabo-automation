@@ -5,28 +5,27 @@
  * Infra(동기, 루프 제어) → System(비동기, Store I/O) → Skill(비동기 병렬, 외부 시스템)
  */
 import type Anthropic from "@anthropic-ai/sdk";
-import { interceptWrite } from "../approvals/interceptor.js";
-import { notifyOwnerOfPending } from "../approvals/notify.js";
 import {
-  CHANNEL_SKILL_TOOL_NAMES,
   type AgentDependencies,
-  type AgentResult,
   type ToolContext,
   type ToolExecutor,
 } from "../types.js";
 import {
   toAnthropicTool,
-  formatZodError,
   isInfraDef,
   isSystemDef,
   type ToolDefinition,
 } from "./tool-definition.js";
-import { toErrorMessage } from "../utils/error.js";
 import { createLogger } from "../utils/logger.js";
 import type { WorkspaceRecord } from "../domain/workspace.js";
 import { gwsToolDefinitions } from "../skills/gws/tools.js";
 import { buildSystemPrompt } from "./system.js";
 import type { TranscriptRecorder } from "./transcript.js";
+import {
+  executeFilterChain,
+  type FilterContext,
+  type ToolFilter,
+} from "./filter-chain.js";
 
 const log = createLogger("agent");
 
@@ -143,13 +142,54 @@ export interface TurnInfo {
   content: Anthropic.ContentBlock[];
 }
 
+// --- DispatchPlan (Categorized Batch) ---
+
+/**
+ * 도구 호출 분류 결과 — OpenAI Agents SDK Plan-then-Execute 패턴
+ *
+ * tool_use 블록을 카테고리별로 사전 분류하여, 각 카테고리에 적합한 실행 전략 적용.
+ * handled Set 기반 암묵적 분류를 대체하는 명시적 분류 객체.
+ */
+export interface DispatchPlan {
+  infra: Anthropic.ToolUseBlock[];
+  system: Anthropic.ToolUseBlock[];
+  skill: Anthropic.ToolUseBlock[];
+}
+
+/**
+ * tool_use 블록을 카테고리별로 분류
+ *
+ * @param blocks - LLM 응답의 tool_use 블록들
+ * @param defMap - 전체 ToolDefinition 맵
+ * @returns 카테고리별 분류 결과. 미등록 도구는 skill로 분류 (executor 미발견 에러로 처리)
+ */
+export function classifyToolCalls(
+  blocks: Anthropic.ToolUseBlock[],
+  defMap: Map<string, ToolDefinition<any>>,
+): DispatchPlan {
+  const plan: DispatchPlan = { infra: [], system: [], skill: [] };
+  for (const block of blocks) {
+    const def = defMap.get(block.name);
+    if (def && isInfraDef(def)) {
+      plan.infra.push(block);
+    } else if (def && isSystemDef(def)) {
+      plan.system.push(block);
+    } else {
+      // skill 도구 + 미등록 도구 (미등록은 executorFilter에서 에러 처리)
+      plan.skill.push(block);
+    }
+  }
+  return plan;
+}
+
 // --- 3단계 디스패치 ---
 
 /**
  * 3단계 디스패치 + 턴 트랜스크립트 기록
  *
- * infra → system → skill 순서로 실행 후 결과를 통합하여 recordTurn 1회 호출.
+ * DispatchPlan으로 사전 분류 → 카테고리별 실행 → 결과 통합 → recordTurn 1회.
  *
+ * @param filters - skill 도구에 적용할 필터 체인
  * @returns 통합 tool_result 배열 + 루프 종료 결과(있는 경우) + 통계
  */
 export async function dispatchAllTools(
@@ -159,14 +199,18 @@ export async function dispatchAllTools(
   options: AgentLoopOptions,
   turnInfo: TurnInfo,
   userMessage: string,
+  filters: ToolFilter[],
 ): Promise<{
   results: Anthropic.ToolResultBlockParam[];
   exitResult?: ExitResult;
   toolCallCount: number;
   channelDelivered: boolean;
 }> {
+  // Plan: 카테고리별 분류
+  const plan = classifyToolCalls(toolUseBlocks, state.allDefMap);
+
   // [1단계] Infra
-  const infraResult = dispatchInfra(toolUseBlocks, state);
+  const infraResult = dispatchInfra(plan.infra, state);
 
   if (infraResult.exitResult) {
     // exitLoop 턴 기록
@@ -188,25 +232,11 @@ export async function dispatchAllTools(
     };
   }
 
-  // infra에서 처리된 ID Set
-  const handledIds = new Set(infraResult.results.map((r) => r.tool_use_id));
-
   // [2단계] System
-  const systemResult = await dispatchSystem(
-    toolUseBlocks.filter((b) => !handledIds.has(b.id)),
-    state,
-    deps,
-    options,
-  );
-  for (const r of systemResult.results) handledIds.add(r.tool_use_id);
+  const systemResult = await dispatchSystem(plan.system, state, deps, options);
 
-  // [3단계] Skill
-  const skillResult = await dispatchSkill(
-    toolUseBlocks.filter((b) => !handledIds.has(b.id)),
-    state,
-    deps,
-    userMessage,
-  );
+  // [3단계] Skill — 필터 체인 + 읽기/쓰기 분리
+  const skillResult = await dispatchSkill(plan.skill, state, filters, userMessage);
 
   const allResults = [...infraResult.results, ...systemResult.results, ...skillResult.results];
   const totalToolCalls = infraResult.toolCallCount + systemResult.toolCallCount + skillResult.toolCallCount;
@@ -337,114 +367,74 @@ export async function dispatchSystem(
 }
 
 /**
- * [3단계] Skill 도구 디스패치 — 비동기 병렬, 외부 시스템 통신
+ * [3단계] Skill 도구 디스패치 — 필터 체인 + 읽기/쓰기 동시성 분리
  *
- * interceptWrite → Zod 검증 → executor 실행.
- * 모든 skill 도구를 Promise.all로 병렬 실행 (PR #28에서 읽기/쓰기 분리 예정).
+ * 각 도구가 필터 체인을 통과: logging → writeIntercept → zodValidation → executor.
+ * concurrency 기반 실행 전략:
+ * - read 도구: Promise.all 병렬
+ * - write 도구: 순차 실행
+ * - dynamic 도구: isMutating(input) 결과에 따라 분류
  */
 export async function dispatchSkill(
   toolUseBlocks: Anthropic.ToolUseBlock[],
   state: LoopState,
-  deps: AgentDependencies,
+  filters: ToolFilter[],
   userMessage: string,
 ): Promise<{ results: Anthropic.ToolResultBlockParam[]; toolCallCount: number; channelDelivered: boolean }> {
   // JS 단일 스레드에서 Promise.all 내 동기 변수 변경은 안전 — await 간 인터리빙만 발생
   let channelDelivered = false;
-  let toolCallCount = 0;
 
-  const results = await Promise.all(
-    toolUseBlocks.map(async (block) => {
-      toolCallCount++;
-      log.debug("Tool call", () => ({ tool: block.name, toolUseId: block.id }));
-      let toolInput = block.input as Record<string, unknown>;
+  /** 단일 도구를 필터 체인으로 실행 */
+  async function executeOne(block: Anthropic.ToolUseBlock): Promise<Anthropic.ToolResultBlockParam> {
+    const ctx: FilterContext = {
+      toolName: block.name,
+      toolUseId: block.id,
+      input: block.input as Record<string, unknown>,
+      definition: state.allDefMap.get(block.name),
+      context: state.context,
+      metadata: { userMessage },
+    };
 
-      // 비오너 멤버의 write 도구 가로채기
-      const interception = await interceptWrite(
-        block.name,
-        toolInput,
-        state.context,
-        deps.pendingActionStore,
-        userMessage,
-      );
+    await executeFilterChain(filters, ctx);
 
-      if (interception.intercepted) {
-        log.debug("Write intercepted", () => ({ tool: block.name, pendingActionId: interception.pendingAction.id }));
-        notifyOwnerOfPending(
-          interception.pendingAction,
-          deps.registry,
-          deps.workspaceStore,
-        ).catch((e) => {
-          log.error("Failed to notify owner of pending action", { pendingActionId: interception.pendingAction.id, error: toErrorMessage(e) });
-        });
+    if (ctx.channelDelivered) channelDelivered = true;
 
-        return {
-          type: "tool_result" as const,
-          tool_use_id: block.id,
-          content: "This operation requires the owner's approval. An approval request has been sent.",
-        };
-      }
+    return {
+      type: "tool_result" as const,
+      tool_use_id: block.id,
+      content: ctx.result ?? "",
+      ...(ctx.isError ? { is_error: true } : {}),
+    };
+  }
 
-      const executor = state.executors.get(block.name);
+  // 읽기/쓰기 분류 (concurrency 기반)
+  const readBlocks: Anthropic.ToolUseBlock[] = [];
+  const writeBlocks: Anthropic.ToolUseBlock[] = [];
 
-      if (!executor) {
-        return {
-          type: "tool_result" as const,
-          tool_use_id: block.id,
-          content: `Error: Unknown tool "${block.name}"`,
-          is_error: true,
-        };
-      }
+  for (const block of toolUseBlocks) {
+    const def = state.allDefMap.get(block.name);
+    const concurrency = def?.concurrency ?? "read";
+    if (concurrency === "write") {
+      writeBlocks.push(block);
+    } else if (concurrency === "dynamic" && def?.isMutating?.(block.input as any)) {
+      writeBlocks.push(block);
+    } else {
+      readBlocks.push(block);
+    }
+  }
 
-      // Zod 검증 파이프라인 (non-strict 도구만 — PR #28에서 전체 적용 예정)
-      const def = state.allDefMap.get(block.name);
-      if (def && !def.strict) {
-        const parsed = def.inputSchema.safeParse(toolInput);
-        if (!parsed.success) {
-          log.debug("Input validation failed", () => ({ tool: block.name, error: formatZodError(parsed.error) }));
-          return {
-            type: "tool_result" as const,
-            tool_use_id: block.id,
-            content: `Input validation error (please fix and retry): ${formatZodError(parsed.error)}`,
-            is_error: true,
-          };
-        }
-        if (def.validateInput) {
-          const validation = def.validateInput(parsed.data);
-          if (!validation.valid) {
-            log.debug("Business validation failed", () => ({ tool: block.name, error: validation.error }));
-            return {
-              type: "tool_result" as const,
-              tool_use_id: block.id,
-              content: validation.error,
-              is_error: true,
-            };
-          }
-        }
-        toolInput = parsed.data;
-      }
+  // Phase A: 읽기 도구 — 병렬 실행
+  const readResults = await Promise.all(readBlocks.map(executeOne));
 
-      try {
-        const result = await executor(toolInput);
-        log.debug("Tool succeeded", () => ({ tool: block.name, resultLength: result.length }));
-        if (CHANNEL_SKILL_TOOL_NAMES.has(block.name)) {
-          channelDelivered = true;
-        }
-        return {
-          type: "tool_result" as const,
-          tool_use_id: block.id,
-          content: result,
-        };
-      } catch (e) {
-        log.debug("Tool failed", () => ({ tool: block.name, error: toErrorMessage(e) }));
-        return {
-          type: "tool_result" as const,
-          tool_use_id: block.id,
-          content: `Error: ${toErrorMessage(e)}`,
-          is_error: true,
-        };
-      }
-    }),
-  );
+  // Phase B: 쓰기 도구 — 순차 실행
+  const writeResults: Anthropic.ToolResultBlockParam[] = [];
+  for (const block of writeBlocks) {
+    writeResults.push(await executeOne(block));
+  }
 
-  return { results, toolCallCount, channelDelivered };
+  return {
+    results: [...readResults, ...writeResults],
+    toolCallCount: toolUseBlocks.length,
+    channelDelivered,
+  };
 }

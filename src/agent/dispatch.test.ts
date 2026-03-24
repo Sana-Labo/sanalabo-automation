@@ -4,6 +4,7 @@ import type { AgentDependencies, PendingActionStore, ToolContext, ToolExecutor }
 import type { ToolDefinition } from "./tool-definition.js";
 import {
   buildToolList,
+  classifyToolCalls,
   dispatchInfra,
   dispatchSystem,
   dispatchSkill,
@@ -12,6 +13,13 @@ import {
   type AgentLoopOptions,
 } from "./dispatch.js";
 import { infraTool, systemTool, gwsTool, toAnthropicTool } from "./tool-definition.js";
+import {
+  createLoggingFilter,
+  createWriteInterceptFilter,
+  createZodValidationFilter,
+  createExecutorFilter,
+  type ToolFilter,
+} from "./filter-chain.js";
 import { z } from "zod";
 import { TranscriptRecorder } from "./transcript.js";
 
@@ -272,6 +280,19 @@ describe("dispatchSystem", () => {
 // --- dispatchSkill ---
 
 describe("dispatchSkill", () => {
+  /** 필터 체인 생성 헬퍼 — executor 필터만 또는 전체 필터 */
+  function makeFilters(executors: Map<string, ToolExecutor>, deps?: AgentDependencies): ToolFilter[] {
+    if (deps) {
+      return [
+        createLoggingFilter(),
+        createWriteInterceptFilter(deps),
+        createZodValidationFilter(),
+        createExecutorFilter(executors),
+      ];
+    }
+    return [createExecutorFilter(executors)];
+  }
+
   test("executor 정상 실행", async () => {
     const executors = new Map<string, ToolExecutor>([
       ["gmail_list", async () => '{"messages": []}'],
@@ -285,10 +306,9 @@ describe("dispatchSkill", () => {
       })],
     ]);
     const state = makeLoopState({ executors, allDefMap: defMap });
-    const deps = makeDeps();
     const blocks = [makeToolUseBlock("gmail_list", {})];
 
-    const result = await dispatchSkill(blocks, state, deps, "test");
+    const result = await dispatchSkill(blocks, state, makeFilters(executors), "test");
 
     expect(result.results).toHaveLength(1);
     expect(result.toolCallCount).toBe(1);
@@ -298,10 +318,9 @@ describe("dispatchSkill", () => {
 
   test("executor 없으면 에러 반환", async () => {
     const state = makeLoopState();
-    const deps = makeDeps();
     const blocks = [makeToolUseBlock("unknown_tool", {})];
 
-    const result = await dispatchSkill(blocks, state, deps, "test");
+    const result = await dispatchSkill(blocks, state, makeFilters(new Map()), "test");
 
     expect(result.results).toHaveLength(1);
     const r0 = result.results[0] as { content: string; is_error?: boolean };
@@ -322,10 +341,9 @@ describe("dispatchSkill", () => {
       })],
     ]);
     const state = makeLoopState({ executors, allDefMap: defMap });
-    const deps = makeDeps();
     const blocks = [makeToolUseBlock("gmail_list", {})];
 
-    const result = await dispatchSkill(blocks, state, deps, "test");
+    const result = await dispatchSkill(blocks, state, makeFilters(executors), "test");
 
     expect(result.results).toHaveLength(1);
     const r0 = result.results[0] as { content: string; is_error?: boolean };
@@ -337,14 +355,24 @@ describe("dispatchSkill", () => {
     const executors = new Map<string, ToolExecutor>([
       ["gmail_send", async () => "sent"],
     ]);
+    const defMap = new Map<string, ToolDefinition<any>>([
+      ["gmail_send", gwsTool({
+        name: "gmail_send",
+        description: "Send email",
+        inputSchema: z.object({}),
+        concurrency: "write",
+        createExecutor: () => async () => "ok",
+      })],
+    ]);
     const state = makeLoopState({
       executors,
+      allDefMap: defMap,
       context: { userId: "U_member", workspaceId: "ws_001", role: "member" },
     });
     const deps = makeDeps();
     const blocks = [makeToolUseBlock("gmail_send", { to: "a@b.com" })];
 
-    const result = await dispatchSkill(blocks, state, deps, "Send email");
+    const result = await dispatchSkill(blocks, state, makeFilters(executors, deps), "Send email");
 
     expect(result.results).toHaveLength(1);
     const r0 = result.results[0] as { content: string; is_error?: boolean };
@@ -357,11 +385,67 @@ describe("dispatchSkill", () => {
     ]);
     const defMap = new Map<string, ToolDefinition<any>>();
     const state = makeLoopState({ executors, allDefMap: defMap });
-    const deps = makeDeps();
     const blocks = [makeToolUseBlock("push_text_message", { userId: "U_test", message: { type: "text", text: "hi" } })];
 
-    const result = await dispatchSkill(blocks, state, deps, "test");
+    const result = await dispatchSkill(blocks, state, makeFilters(executors), "test");
 
     expect(result.channelDelivered).toBe(true);
+  });
+});
+
+// --- classifyToolCalls ---
+
+describe("classifyToolCalls", () => {
+  test("카테고리별 분류", () => {
+    const noActionDef = infraTool({
+      name: "no_action",
+      description: "No action",
+      inputSchema: z.object({ reason: z.string() }),
+      handler: () => ({ toolResult: "ok", exitLoop: true, exitText: "" }),
+    });
+    const enterDef = systemTool({
+      name: "enter_workspace",
+      description: "Enter",
+      inputSchema: z.object({}),
+      handler: async () => ({ toolResult: "ok" }),
+    });
+    const gmailDef = gwsTool({
+      name: "gmail_list",
+      description: "List",
+      inputSchema: z.object({}),
+      createExecutor: () => async () => "ok",
+    });
+
+    const defMap = new Map<string, ToolDefinition<any>>([
+      ["no_action", noActionDef],
+      ["enter_workspace", enterDef],
+      ["gmail_list", gmailDef],
+    ]);
+
+    const blocks = [
+      makeToolUseBlock("no_action", { reason: "test" }),
+      makeToolUseBlock("enter_workspace", {}),
+      makeToolUseBlock("gmail_list", {}),
+    ];
+
+    const plan = classifyToolCalls(blocks, defMap);
+
+    expect(plan.infra).toHaveLength(1);
+    expect(plan.system).toHaveLength(1);
+    expect(plan.skill).toHaveLength(1);
+    expect(plan.infra[0]?.name).toBe("no_action");
+    expect(plan.system[0]?.name).toBe("enter_workspace");
+    expect(plan.skill[0]?.name).toBe("gmail_list");
+  });
+
+  test("미등록 도구는 skill로 분류", () => {
+    const plan = classifyToolCalls(
+      [makeToolUseBlock("unknown_tool", {})],
+      new Map(),
+    );
+
+    expect(plan.infra).toHaveLength(0);
+    expect(plan.system).toHaveLength(0);
+    expect(plan.skill).toHaveLength(1);
   });
 });

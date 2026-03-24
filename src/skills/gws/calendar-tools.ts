@@ -67,6 +67,7 @@ export const calendarCreate = gwsTool({
   name: "calendar_create",
   description:
     "Create a new calendar event. Always confirm with user via LINE before executing.",
+  concurrency: "write",
   inputSchema: calendarCreateSchema,
   createExecutor: (s) => async (input) => {
     const res = await s.calendar.events.insert({
@@ -92,6 +93,7 @@ export const calendarCreate = gwsTool({
 export const calendarUpdate = gwsTool({
   name: "calendar_update",
   description: "Update an existing calendar event. Only specified fields will be changed.",
+  concurrency: "write",
   inputSchema: calendarUpdateSchema,
   createExecutor: (s) => async (input) => {
     const requestBody: calendar_v3.Schema$Event = {};
@@ -119,6 +121,7 @@ export const calendarDelete = gwsTool({
   name: "calendar_delete",
   description:
     "Delete a calendar event. This action is irreversible — always confirm with the user before deleting.",
+  concurrency: "write",
   inputSchema: calendarDeleteSchema,
   createExecutor: (s) => async (input) => {
     await s.calendar.events.delete({

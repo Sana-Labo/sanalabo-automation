@@ -120,6 +120,7 @@ export const gmailCreateDraft = gwsTool({
   name: "gmail_create_draft",
   description:
     "Create a draft email in Gmail. This does NOT send the email — it only saves a draft. After creating, inform the user that the draft has been saved and they must send it from Gmail.",
+  concurrency: "write",
   inputSchema: gmailCreateDraftSchema,
   createExecutor: (s) => async (input) => {
     const raw = buildRawEmail({
@@ -141,6 +142,7 @@ export const gmailSend = gwsTool({
   name: "gmail_send",
   description:
     "Send an email. This action is irreversible — always confirm with the user before sending.",
+  concurrency: "write",
   inputSchema: gmailSendSchema,
   createExecutor: (s) => async (input) => {
     const raw = buildRawEmail({
@@ -164,6 +166,7 @@ export const gmailReply = gwsTool({
   name: "gmail_reply",
   description:
     "Reply to an existing email thread. This action is irreversible — always confirm with the user before replying.",
+  concurrency: "write",
   inputSchema: gmailReplySchema,
   createExecutor: (s) => async (input) => {
     // 원본 메시지에서 스레드 정보 추출
@@ -203,6 +206,7 @@ export const gmailModifyLabels = gwsTool({
   name: "gmail_modify_labels",
   description:
     "Add or remove labels from an email. Use this for archiving (remove INBOX), marking as read (remove UNREAD), starring, etc.",
+  concurrency: "write",
   inputSchema: gmailModifyLabelsSchema,
   createExecutor: (s) => async (input) => {
     const res = await s.gmail.users.messages.modify({
@@ -221,6 +225,7 @@ export const gmailModifyLabels = gwsTool({
 export const gmailTrash = gwsTool({
   name: "gmail_trash",
   description: "Move an email to the trash.",
+  concurrency: "write",
   inputSchema: gmailTrashSchema,
   createExecutor: (s) => async (input) => {
     const res = await s.gmail.users.messages.trash({
