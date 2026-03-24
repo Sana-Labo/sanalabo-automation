@@ -6,6 +6,7 @@
  */
 import { z } from "zod";
 import { gwsTool, type GwsToolDefinition } from "../../agent/tool-definition.js";
+import { IdentityScope } from "../../domain/google-scopes.js";
 import type { Role } from "../../types.js";
 import { fetchFullUserInfo } from "./google-auth.js";
 import { gmailToolDefinitions } from "./gmail-tools.js";
@@ -19,6 +20,7 @@ const MEMBER_VISIBLE_FIELDS = ["email", "name", "verified_email", "picture", "lo
 
 const getGwsAccountDef = gwsTool({
   name: "get_gws_account",
+  requiredScopes: [IdentityScope.OPENID, IdentityScope.EMAIL, IdentityScope.PROFILE],
   description:
     "Get the Google account profile linked to this workspace. Returns full details for owners, limited info for members.",
   inputSchema: z.object({

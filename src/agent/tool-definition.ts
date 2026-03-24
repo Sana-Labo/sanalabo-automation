@@ -110,6 +110,8 @@ export interface GwsServices {
 /** GWS 스킬 도구 — 워크스페이스별 API 클라이언트 주입 */
 export interface GwsToolDefinition<T> extends ToolDefinition<T> {
   category: "skill";
+  /** 이 도구가 요구하는 Google OAuth scope (google-scopes.ts 상수 참조) */
+  requiredScopes: readonly string[];
   /** API 서비스 주입 → 타입 안전 executor 반환 */
   createExecutor: (services: GwsServices) => (input: T) => Promise<string>;
 }
@@ -172,6 +174,7 @@ export function gwsTool<T>(def: {
   name: string;
   description: string;
   inputSchema: z.ZodType<T>;
+  requiredScopes: readonly string[];
   concurrency?: ToolConcurrency;
   createExecutor: (services: GwsServices) => (input: T) => Promise<string>;
   validateInput?: (input: T) => ValidationResult;

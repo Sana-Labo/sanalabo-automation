@@ -10,6 +10,12 @@ describe("gwsToolDefinitions", () => {
     expect(gwsToolDefinitions).toHaveLength(16);
   });
 
+  test("모든 도구가 비어있지 않은 requiredScopes 선언", () => {
+    for (const def of gwsToolDefinitions) {
+      expect(def.requiredScopes.length).toBeGreaterThan(0);
+    }
+  });
+
   test("GWS 도구는 non-strict (strict tool 제한 20개 준수)", () => {
     for (const tool of gwsTools) {
       expect(tool.strict).toBeUndefined();

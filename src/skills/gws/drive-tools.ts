@@ -6,6 +6,7 @@
 import { z } from "zod";
 import { Readable } from "node:stream";
 import { gwsTool, type GwsToolDefinition } from "../../agent/tool-definition.js";
+import { DriveScope } from "../../domain/google-scopes.js";
 import { getExportMimeType, jsonResult } from "./api-helpers.js";
 
 // --- 스키마 ---
@@ -35,6 +36,7 @@ const driveShareSchema = z.object({
 
 export const driveSearch = gwsTool({
   name: "drive_search",
+  requiredScopes: [DriveScope.FULL],
   description: "Search files in Google Drive.",
   inputSchema: driveSearchSchema,
   createExecutor: (s) => async (input) => {
@@ -50,6 +52,7 @@ export const driveSearch = gwsTool({
 
 export const driveGetContent = gwsTool({
   name: "drive_get_content",
+  requiredScopes: [DriveScope.FULL],
   description:
     "Get the content of a file from Google Drive. For Google Docs/Sheets/Slides, exports as text. For other files, returns metadata.",
   inputSchema: driveGetContentSchema,
@@ -91,6 +94,7 @@ export const driveGetContent = gwsTool({
 
 export const driveUpload = gwsTool({
   name: "drive_upload",
+  requiredScopes: [DriveScope.FULL],
   description:
     "Upload a text file to Google Drive. For creating Google Docs, set mimeType to 'application/vnd.google-apps.document'.",
   concurrency: "write",
@@ -120,6 +124,7 @@ export const driveUpload = gwsTool({
 
 export const driveShare = gwsTool({
   name: "drive_share",
+  requiredScopes: [DriveScope.FULL],
   description: "Share a file or folder with a user or make it public.",
   concurrency: "write",
   inputSchema: driveShareSchema,
