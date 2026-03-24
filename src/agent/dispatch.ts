@@ -23,6 +23,7 @@ import {
 } from "./tool-definition.js";
 import { toErrorMessage } from "../utils/error.js";
 import { createLogger } from "../utils/logger.js";
+import type { WorkspaceRecord } from "../domain/workspace.js";
 import { gwsToolDefinitions } from "../skills/gws/tools.js";
 import { buildSystemPrompt } from "./system.js";
 import type { TranscriptRecorder } from "./transcript.js";
@@ -89,8 +90,8 @@ export function rebuildTools(state: LoopState, options: AgentLoopOptions): void 
 /** 시스템 프롬프트 재생성 (컨텍스트 변경 후 호출) */
 export function rebuildPrompt(
   state: LoopState,
-  workspace?: Parameters<typeof buildSystemPrompt>[1],
-  userWorkspaces?: Parameters<typeof buildSystemPrompt>[2],
+  workspace?: WorkspaceRecord,
+  userWorkspaces?: readonly WorkspaceRecord[],
 ): void {
   state.systemPrompt = buildSystemPrompt(state.context, workspace, userWorkspaces);
 }
@@ -118,11 +119,17 @@ export async function mergeGwsExecutors(
 
 // --- 디스패치 결과 타입 ---
 
+/** exitLoop 시 루프를 종료하기 위한 결과 (toolCalls 제외 — 루프 레벨에서 누적) */
+export interface ExitResult {
+  text: string;
+  channelDelivered: boolean;
+}
+
 /** infra 디스패치 결과 */
 export interface InfraDispatchResult {
   results: Anthropic.ToolResultBlockParam[];
   /** exitLoop 시그널이 발생한 경우 루프를 종료하기 위한 결과 */
-  exitResult?: AgentResult;
+  exitResult?: ExitResult;
   /** 처리된 도구 호출 수 */
   toolCallCount: number;
 }
@@ -154,7 +161,7 @@ export async function dispatchAllTools(
   userMessage: string,
 ): Promise<{
   results: Anthropic.ToolResultBlockParam[];
-  exitResult?: AgentResult;
+  exitResult?: ExitResult;
   toolCallCount: number;
   channelDelivered: boolean;
 }> {
@@ -254,7 +261,7 @@ export function dispatchInfra(
       });
       return {
         results,
-        exitResult: { text: signal.exitText, toolCalls: toolCallCount, channelDelivered: false },
+        exitResult: { text: signal.exitText, channelDelivered: false },
         toolCallCount,
       };
     }
@@ -341,11 +348,13 @@ export async function dispatchSkill(
   deps: AgentDependencies,
   userMessage: string,
 ): Promise<{ results: Anthropic.ToolResultBlockParam[]; toolCallCount: number; channelDelivered: boolean }> {
+  // JS 단일 스레드에서 Promise.all 내 동기 변수 변경은 안전 — await 간 인터리빙만 발생
   let channelDelivered = false;
-  const toolCallCount = toolUseBlocks.length;
+  let toolCallCount = 0;
 
   const results = await Promise.all(
     toolUseBlocks.map(async (block) => {
+      toolCallCount++;
       log.debug("Tool call", () => ({ tool: block.name, toolUseId: block.id }));
       let toolInput = block.input as Record<string, unknown>;
 

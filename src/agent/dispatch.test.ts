@@ -33,7 +33,7 @@ function makeLoopState(overrides: Partial<LoopState> = {}): LoopState {
     executors: new Map(),
     allDefMap: new Map(),
     allTools: [],
-    transcript: new TranscriptRecorder("$TMPDIR"),
+    transcript: new TranscriptRecorder(process.env.TMPDIR ?? "/tmp"),
     ...overrides,
   };
 }
