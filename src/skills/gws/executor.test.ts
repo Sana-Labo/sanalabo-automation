@@ -19,6 +19,7 @@ const testAuthConfig: GoogleAuthConfig = {
 const sampleTokens: GoogleTokens = {
   refresh_token: "1//test-refresh-token",
   access_token: "ya29.test-access",
+  scope: "https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/drive openid email profile",
 };
 
 describe("createGwsExecutorFactory", () => {
@@ -118,11 +119,11 @@ describe("createGwsExecutorFactory", () => {
 
   // --- scope 기반 필터링 (A-3) ---
 
-  test("scope undefined (마이그레이션) → 전체 16개 executor 생성", async () => {
-    // sampleTokens에 scope 없음 → hasSufficientScopes returns true
-    await tokenStore.save("ws-1", sampleTokens);
-    const result = await factory.getExecutors("ws-1");
-    expect(result!.size).toBe(16);
+  test("scope undefined → executor 0개 (scope 없으면 도구 차단)", async () => {
+    await tokenStore.save("ws-no-scope", { ...sampleTokens, scope: undefined });
+    factory.invalidate("ws-no-scope");
+    const result = await factory.getExecutors("ws-no-scope");
+    expect(result!.size).toBe(0);
   });
 
   test("전체 scope 부여 → 16개 executor", async () => {

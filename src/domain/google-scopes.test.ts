@@ -68,8 +68,12 @@ describe("computeRequiredScopes", () => {
 });
 
 describe("hasSufficientScopes", () => {
-  test("undefined granted → true (마이그레이션: 기존 토큰)", () => {
-    expect(hasSufficientScopes(undefined, [GmailScope.MODIFY])).toBe(true);
+  test("undefined granted + required 있음 → false", () => {
+    expect(hasSufficientScopes(undefined, [GmailScope.MODIFY])).toBe(false);
+  });
+
+  test("undefined granted + required 없음 → true", () => {
+    expect(hasSufficientScopes(undefined, [])).toBe(true);
   });
 
   test("모든 required scope 포함 → true", () => {

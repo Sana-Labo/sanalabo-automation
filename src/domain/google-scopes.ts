@@ -66,7 +66,7 @@ export function computeRequiredScopes(
 /**
  * 부여된 scope가 필요 scope를 모두 포함하는지 검사
  *
- * @param grantedScopeString - 토큰의 scope 문자열 (space-delimited). undefined → true (마이그레이션)
+ * @param grantedScopeString - 토큰의 scope 문자열 (space-delimited). undefined/빈 문자열 → false
  * @param requiredScopes - 필요한 scope 배열
  * @returns 모든 required scope가 granted에 포함되어 있으면 true
  */
@@ -74,9 +74,7 @@ export function hasSufficientScopes(
   grantedScopeString: string | undefined,
   requiredScopes: readonly string[],
 ): boolean {
-  // 마이그레이션: 기존 토큰은 scope 필드 없이 전체 GOOGLE_SCOPES로 생성됨
-  if (grantedScopeString === undefined) return true;
-  if (requiredScopes.length === 0) return true;
+  if (!grantedScopeString) return requiredScopes.length === 0;
   const granted = new Set(grantedScopeString.split(" "));
   return requiredScopes.every((s) => granted.has(s));
 }
