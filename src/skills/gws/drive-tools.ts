@@ -93,6 +93,7 @@ export const driveUpload = gwsTool({
   name: "drive_upload",
   description:
     "Upload a text file to Google Drive. For creating Google Docs, set mimeType to 'application/vnd.google-apps.document'.",
+  concurrency: "write",
   inputSchema: driveUploadSchema,
   createExecutor: (s) => async (input) => {
     const res = await s.drive.files.create({
@@ -120,6 +121,7 @@ export const driveUpload = gwsTool({
 export const driveShare = gwsTool({
   name: "drive_share",
   description: "Share a file or folder with a user or make it public.",
+  concurrency: "write",
   inputSchema: driveShareSchema,
   createExecutor: (s) => async (input) => {
     const role = input.role ?? "reader";

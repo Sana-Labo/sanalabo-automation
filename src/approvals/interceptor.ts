@@ -1,4 +1,5 @@
 import { canExecute } from "../skills/gws/access.js";
+import type { ToolConcurrency } from "../agent/tool-definition.js";
 import type { PendingAction, PendingActionStore, ToolContext } from "../types.js";
 import { createLogger } from "../utils/logger.js";
 
@@ -8,14 +9,25 @@ export type InterceptResult =
   | { intercepted: true; pendingAction: PendingAction }
   | { intercepted: false };
 
+/**
+ * 도구의 동시성 속성과 역할에 기반한 쓰기 도구 가로채기
+ *
+ * @param toolName - 도구 이름 (로깅용)
+ * @param concurrency - 도구의 동시성 특성 ({@link ToolConcurrency})
+ * @param toolInput - 도구 입력
+ * @param context - 실행 컨텍스트 (userId, role, workspaceId)
+ * @param pendingStore - PendingAction 저장소
+ * @param requestContext - 원본 사용자 메시지 (승인 요청 컨텍스트)
+ */
 export async function interceptWrite(
   toolName: string,
+  concurrency: ToolConcurrency | undefined,
   toolInput: Record<string, unknown>,
   context: ToolContext,
   pendingStore: PendingActionStore,
   requestContext: string,
 ): Promise<InterceptResult> {
-  const decision = canExecute(toolName, context.role);
+  const decision = canExecute(concurrency, context.role);
 
   if (decision === "allow") {
     return { intercepted: false };

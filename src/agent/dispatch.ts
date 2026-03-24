@@ -358,9 +358,11 @@ export async function dispatchSkill(
       log.debug("Tool call", () => ({ tool: block.name, toolUseId: block.id }));
       let toolInput = block.input as Record<string, unknown>;
 
-      // 비오너 멤버의 write 도구 가로채기
+      // 비오너 멤버의 write 도구 가로채기 — concurrency 기반 판별
+      const def = state.allDefMap.get(block.name);
       const interception = await interceptWrite(
         block.name,
+        def?.concurrency,
         toolInput,
         state.context,
         deps.pendingActionStore,
@@ -396,7 +398,6 @@ export async function dispatchSkill(
       }
 
       // Zod 검증 파이프라인 (non-strict 도구만 — PR #28에서 전체 적용 예정)
-      const def = state.allDefMap.get(block.name);
       if (def && !def.strict) {
         const parsed = def.inputSchema.safeParse(toolInput);
         if (!parsed.success) {

@@ -337,8 +337,18 @@ describe("dispatchSkill", () => {
     const executors = new Map<string, ToolExecutor>([
       ["gmail_send", async () => "sent"],
     ]);
+    const defMap = new Map<string, ToolDefinition<any>>([
+      ["gmail_send", gwsTool({
+        name: "gmail_send",
+        description: "Send email",
+        inputSchema: z.object({}),
+        concurrency: "write",
+        createExecutor: () => async () => "ok",
+      })],
+    ]);
     const state = makeLoopState({
       executors,
+      allDefMap: defMap,
       context: { userId: "U_member", workspaceId: "ws_001", role: "member" },
     });
     const deps = makeDeps();

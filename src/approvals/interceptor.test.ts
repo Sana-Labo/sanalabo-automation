@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { interceptWrite } from "./interceptor.js";
-import type { PendingAction, PendingActionStore, Role, ToolContext } from "../types.js";
+import type { PendingActionStore, Role, ToolContext } from "../types.js";
 
 const mockStore: PendingActionStore = {
   create: async (input) => ({
@@ -33,9 +33,10 @@ function makeContext(role: Role): ToolContext {
 }
 
 describe("interceptWrite", () => {
-  test("owner + read tool → not intercepted", async () => {
+  test("owner + read concurrency → not intercepted", async () => {
     const result = await interceptWrite(
       "gmail_list",
+      "read",
       { query: "is:unread" },
       makeContext("owner"),
       mockStore,
@@ -44,9 +45,10 @@ describe("interceptWrite", () => {
     expect(result.intercepted).toBe(false);
   });
 
-  test("owner + write tool → not intercepted (owner is always allowed)", async () => {
+  test("owner + write concurrency → not intercepted (owner is always allowed)", async () => {
     const result = await interceptWrite(
       "gmail_create_draft",
+      "write",
       { to: "a@b.com", subject: "hi", body: "hello" },
       makeContext("owner"),
       mockStore,
@@ -55,9 +57,10 @@ describe("interceptWrite", () => {
     expect(result.intercepted).toBe(false);
   });
 
-  test("member + read tool → not intercepted", async () => {
+  test("member + read concurrency → not intercepted", async () => {
     const result = await interceptWrite(
       "gmail_list",
+      "read",
       { query: "is:unread" },
       makeContext("member"),
       mockStore,
@@ -66,9 +69,10 @@ describe("interceptWrite", () => {
     expect(result.intercepted).toBe(false);
   });
 
-  test("member + write tool (gmail_create_draft) → intercepted with pendingAction", async () => {
+  test("member + write concurrency → intercepted with pendingAction", async () => {
     const result = await interceptWrite(
       "gmail_create_draft",
+      "write",
       { to: "a@b.com", subject: "hi", body: "hello" },
       makeContext("member"),
       mockStore,
@@ -81,9 +85,10 @@ describe("interceptWrite", () => {
     }
   });
 
-  test("member + write tool (calendar_create) → intercepted", async () => {
+  test("member + write concurrency (calendar) → intercepted", async () => {
     const result = await interceptWrite(
       "calendar_create",
+      "write",
       { summary: "Meeting", start: "2026-01-01T09:00:00", end: "2026-01-01T10:00:00" },
       makeContext("member"),
       mockStore,
@@ -99,6 +104,7 @@ describe("interceptWrite", () => {
 
     const result = await interceptWrite(
       "gmail_create_draft",
+      "write",
       toolInput,
       context,
       mockStore,
@@ -117,9 +123,10 @@ describe("interceptWrite", () => {
     }
   });
 
-  test("admin + read tool → not intercepted", async () => {
+  test("admin + read concurrency → not intercepted", async () => {
     const result = await interceptWrite(
       "gmail_list",
+      "read",
       { query: "is:unread" },
       makeContext("admin"),
       mockStore,
@@ -128,13 +135,26 @@ describe("interceptWrite", () => {
     expect(result.intercepted).toBe(false);
   });
 
-  test("admin + write tool → not intercepted (admin is always allowed)", async () => {
+  test("admin + write concurrency → not intercepted (admin is always allowed)", async () => {
     const result = await interceptWrite(
       "gmail_create_draft",
+      "write",
       { to: "a@b.com", subject: "hi", body: "hello" },
       makeContext("admin"),
       mockStore,
       "Create email draft",
+    );
+    expect(result.intercepted).toBe(false);
+  });
+
+  test("member + undefined concurrency → not intercepted (defaults to read)", async () => {
+    const result = await interceptWrite(
+      "push_text_message",
+      undefined,
+      { text: "hello" },
+      makeContext("member"),
+      mockStore,
+      "Send message",
     );
     expect(result.intercepted).toBe(false);
   });
