@@ -5,6 +5,7 @@
  */
 import { z } from "zod";
 import { gwsTool, type GwsToolDefinition } from "../../agent/tool-definition.js";
+import { GmailScope } from "../../domain/google-scopes.js";
 import { extractBody, getHeader, buildRawEmail, jsonResult } from "./api-helpers.js";
 
 // --- 스키마 ---
@@ -51,6 +52,7 @@ const gmailTrashSchema = z.object({
 
 export const gmailList = gwsTool({
   name: "gmail_list",
+  requiredScopes: [GmailScope.MODIFY],
   description:
     "List or search emails in Gmail. Supports full Gmail search syntax (e.g. 'is:unread', 'from:user@example.com', 'newer_than:1h is:important').",
   inputSchema: gmailListSchema,
@@ -92,6 +94,7 @@ export const gmailList = gwsTool({
 
 export const gmailGet = gwsTool({
   name: "gmail_get",
+  requiredScopes: [GmailScope.MODIFY],
   description: "Get a specific email message by ID with full content.",
   inputSchema: gmailGetSchema,
   createExecutor: (s) => async (input) => {
@@ -118,6 +121,7 @@ export const gmailGet = gwsTool({
 
 export const gmailCreateDraft = gwsTool({
   name: "gmail_create_draft",
+  requiredScopes: [GmailScope.MODIFY],
   description:
     "Create a draft email in Gmail. This does NOT send the email — it only saves a draft. After creating, inform the user that the draft has been saved and they must send it from Gmail.",
   concurrency: "write",
@@ -140,6 +144,7 @@ export const gmailCreateDraft = gwsTool({
 
 export const gmailSend = gwsTool({
   name: "gmail_send",
+  requiredScopes: [GmailScope.MODIFY],
   description:
     "Send an email. This action is irreversible — always confirm with the user before sending.",
   concurrency: "write",
@@ -164,6 +169,7 @@ export const gmailSend = gwsTool({
 
 export const gmailReply = gwsTool({
   name: "gmail_reply",
+  requiredScopes: [GmailScope.MODIFY],
   description:
     "Reply to an existing email thread. This action is irreversible — always confirm with the user before replying.",
   concurrency: "write",
@@ -204,6 +210,7 @@ export const gmailReply = gwsTool({
 
 export const gmailModifyLabels = gwsTool({
   name: "gmail_modify_labels",
+  requiredScopes: [GmailScope.MODIFY],
   description:
     "Add or remove labels from an email. Use this for archiving (remove INBOX), marking as read (remove UNREAD), starring, etc.",
   concurrency: "write",
@@ -224,6 +231,7 @@ export const gmailModifyLabels = gwsTool({
 
 export const gmailTrash = gwsTool({
   name: "gmail_trash",
+  requiredScopes: [GmailScope.MODIFY],
   description: "Move an email to the trash.",
   concurrency: "write",
   inputSchema: gmailTrashSchema,

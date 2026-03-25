@@ -112,6 +112,7 @@ describe("createZodValidationFilter", () => {
     name: "test_tool",
     description: "Test",
     inputSchema: z.object({ query: z.string() }),
+    requiredScopes: [],
     createExecutor: () => async () => "ok",
   });
 
@@ -166,6 +167,7 @@ describe("createZodValidationFilter", () => {
       name: "strict_tool",
       description: "Strict test",
       inputSchema: z.object({ id: z.string() }),
+      requiredScopes: [],
       createExecutor: () => async () => "ok",
     });
     // gwsTool은 strict를 설정하지 않으므로 수동으로 설정
@@ -190,6 +192,7 @@ describe("createZodValidationFilter", () => {
       name: "validated_tool",
       description: "Validated",
       inputSchema: z.object({ amount: z.number() }),
+      requiredScopes: [],
       createExecutor: () => async () => "ok",
       validateInput: (input) =>
         input.amount > 0
@@ -277,6 +280,7 @@ describe("4필터 체인 통합", () => {
       name: "gmail_list",
       description: "List emails",
       inputSchema: z.object({}),
+      requiredScopes: [],
       createExecutor: () => async () => "ok",
     });
 
@@ -306,6 +310,7 @@ describe("4필터 체인 통합", () => {
       name: "test_tool",
       description: "Test",
       inputSchema: z.object({ required_field: z.string() }),
+      requiredScopes: [],
       createExecutor: () => async () => "ok",
     });
 

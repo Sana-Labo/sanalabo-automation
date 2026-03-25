@@ -59,13 +59,35 @@ describe("configureClient", () => {
 
     configureClient(client, tokens, callback);
 
-    // access_token만 갱신 (refresh_token 없음)
+    // access_token만 갱신 (refresh_token 없음) → 디스크 저장 불필요
     client.emit("tokens", {
       access_token: "ya29.refreshed",
       expiry_date: 9999999999999,
     });
 
     expect(callback).not.toHaveBeenCalled();
+  });
+
+  test("refresh_token 회전 시 scope 보존", () => {
+    const client = createOAuth2Client(testConfig);
+    const tokens: GoogleTokens = {
+      refresh_token: "1//old-refresh",
+      scope: "openid email profile https://www.googleapis.com/auth/gmail.modify",
+    };
+    const callback = mock((_updated: GoogleTokens) => {});
+
+    configureClient(client, tokens, callback);
+
+    client.emit("tokens", {
+      refresh_token: "1//new-refresh",
+      access_token: "ya29.new",
+      expiry_date: 9999999999999,
+    });
+
+    expect(callback).toHaveBeenCalledTimes(1);
+    const updated = callback.mock.calls[0]![0];
+    expect(updated.refresh_token).toBe("1//new-refresh");
+    expect(updated.scope).toBe("openid email profile https://www.googleapis.com/auth/gmail.modify");
   });
 });
 

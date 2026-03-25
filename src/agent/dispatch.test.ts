@@ -87,6 +87,7 @@ describe("buildToolList", () => {
     name: "gmail_list",
     description: "List emails",
     inputSchema: z.object({}),
+    requiredScopes: [],
     createExecutor: () => async () => "ok",
   });
 
@@ -302,6 +303,7 @@ describe("dispatchSkill", () => {
         name: "gmail_list",
         description: "List",
         inputSchema: z.object({}),
+        requiredScopes: [],
         createExecutor: () => async () => "ok",
       })],
     ]);
@@ -337,6 +339,7 @@ describe("dispatchSkill", () => {
         name: "gmail_list",
         description: "List",
         inputSchema: z.object({}),
+        requiredScopes: [],
         createExecutor: () => async () => "ok",
       })],
     ]);
@@ -360,6 +363,7 @@ describe("dispatchSkill", () => {
         name: "gmail_send",
         description: "Send email",
         inputSchema: z.object({}),
+        requiredScopes: [],
         concurrency: "write",
         createExecutor: () => async () => "ok",
       })],
@@ -413,6 +417,7 @@ describe("classifyToolCalls", () => {
       name: "gmail_list",
       description: "List",
       inputSchema: z.object({}),
+      requiredScopes: [],
       createExecutor: () => async () => "ok",
     });
 

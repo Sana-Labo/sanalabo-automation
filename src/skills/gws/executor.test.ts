@@ -19,6 +19,7 @@ const testAuthConfig: GoogleAuthConfig = {
 const sampleTokens: GoogleTokens = {
   refresh_token: "1//test-refresh-token",
   access_token: "ya29.test-access",
+  scope: "https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/drive openid email profile",
 };
 
 describe("createGwsExecutorFactory", () => {
@@ -114,5 +115,55 @@ describe("createGwsExecutorFactory", () => {
     expect(still).toBe(from2);
 
     factory2.invalidate();
+  });
+
+  // --- scope 기반 필터링 (A-3) ---
+
+  test("scope undefined → executor 0개 (scope 없으면 도구 차단)", async () => {
+    await tokenStore.save("ws-no-scope", { ...sampleTokens, scope: undefined });
+    factory.invalidate("ws-no-scope");
+    const result = await factory.getExecutors("ws-no-scope");
+    expect(result!.size).toBe(0);
+  });
+
+  test("전체 scope 부여 → 16개 executor", async () => {
+    const fullScopeTokens: GoogleTokens = {
+      ...sampleTokens,
+      scope: "https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/drive openid email profile",
+    };
+    await tokenStore.save("ws-scope", fullScopeTokens);
+    factory.invalidate("ws-scope");
+    const result = await factory.getExecutors("ws-scope");
+    expect(result!.size).toBe(16);
+  });
+
+  test("Gmail scope만 부여 → Gmail(7) + Account(1) = 8개", async () => {
+    const gmailOnlyTokens: GoogleTokens = {
+      ...sampleTokens,
+      scope: "https://www.googleapis.com/auth/gmail.modify openid email profile",
+    };
+    await tokenStore.save("ws-gmail", gmailOnlyTokens);
+    factory.invalidate("ws-gmail");
+    const result = await factory.getExecutors("ws-gmail");
+    expect(result!.size).toBe(8);
+    expect(result!.has("gmail_list")).toBe(true);
+    expect(result!.has("gmail_send")).toBe(true);
+    expect(result!.has("get_gws_account")).toBe(true);
+    expect(result!.has("calendar_list")).toBe(false);
+    expect(result!.has("drive_search")).toBe(false);
+  });
+
+  test("identity scope만 부여 → GWS 서비스 도구 없음, account 도구만 존재", async () => {
+    const identityOnlyTokens: GoogleTokens = {
+      ...sampleTokens,
+      scope: "openid email profile",
+    };
+    await tokenStore.save("ws-identity", identityOnlyTokens);
+    factory.invalidate("ws-identity");
+    const result = await factory.getExecutors("ws-identity");
+    expect(result!.has("get_gws_account")).toBe(true);
+    expect(result!.has("gmail_list")).toBe(false);
+    expect(result!.has("calendar_list")).toBe(false);
+    expect(result!.has("drive_search")).toBe(false);
   });
 });

@@ -6,6 +6,7 @@
 import { z } from "zod";
 import type { calendar_v3 } from "@googleapis/calendar";
 import { gwsTool, type GwsToolDefinition } from "../../agent/tool-definition.js";
+import { CalendarScope } from "../../domain/google-scopes.js";
 import { jsonResult } from "./api-helpers.js";
 
 // --- 스키마 ---
@@ -38,6 +39,7 @@ const calendarDeleteSchema = z.object({
 
 export const calendarList = gwsTool({
   name: "calendar_list",
+  requiredScopes: [CalendarScope.FULL],
   description: "List calendar events within a time range. Defaults to today if not specified.",
   inputSchema: calendarListSchema,
   createExecutor: (s) => async (input) => {
@@ -65,6 +67,7 @@ export const calendarList = gwsTool({
 
 export const calendarCreate = gwsTool({
   name: "calendar_create",
+  requiredScopes: [CalendarScope.FULL],
   description:
     "Create a new calendar event. Always confirm with user via LINE before executing.",
   concurrency: "write",
@@ -92,6 +95,7 @@ export const calendarCreate = gwsTool({
 
 export const calendarUpdate = gwsTool({
   name: "calendar_update",
+  requiredScopes: [CalendarScope.FULL],
   description: "Update an existing calendar event. Only specified fields will be changed.",
   concurrency: "write",
   inputSchema: calendarUpdateSchema,
@@ -119,6 +123,7 @@ export const calendarUpdate = gwsTool({
 
 export const calendarDelete = gwsTool({
   name: "calendar_delete",
+  requiredScopes: [CalendarScope.FULL],
   description:
     "Delete a calendar event. This action is irreversible — always confirm with the user before deleting.",
   concurrency: "write",

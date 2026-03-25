@@ -1,6 +1,5 @@
 import { describe, test, expect } from "bun:test";
 import {
-  GOOGLE_SCOPES,
   buildConsentUrl,
   parseCallbackQuery,
   isAuthExpired,
@@ -9,10 +8,16 @@ import {
 
 describe("google-oauth domain", () => {
   describe("buildConsentUrl", () => {
+    const testScopes = [
+      "https://www.googleapis.com/auth/gmail.modify",
+      "openid",
+      "email",
+    ];
     const baseParams = {
       clientId: "test-client-id",
       redirectUri: "https://example.com/auth/google/callback",
       state: "random-state-123",
+      scopes: testScopes,
     };
 
     test("올바른 Google OAuth URL + 필수 파라미터 생성", () => {
@@ -28,11 +33,16 @@ describe("google-oauth domain", () => {
       expect(url.searchParams.get("access_type")).toBe("offline");
       expect(url.searchParams.get("prompt")).toBe("consent");
       expect(url.searchParams.get("state")).toBe("random-state-123");
-      // 기본 스코프 포함 확인
+      // 지정한 스코프 포함 확인
       const scope = url.searchParams.get("scope")!;
-      for (const s of GOOGLE_SCOPES) {
+      for (const s of testScopes) {
         expect(scope).toContain(s);
       }
+    });
+
+    test("include_granted_scopes=true 설정됨 (증분 인증)", () => {
+      const url = new URL(buildConsentUrl(baseParams));
+      expect(url.searchParams.get("include_granted_scopes")).toBe("true");
     });
 
     test("커스텀 스코프 지정 가능", () => {
