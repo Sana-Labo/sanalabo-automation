@@ -1196,14 +1196,15 @@ describe("systemToolDefinitions (Zod)", () => {
     "create_workspace", "list_workspaces", "get_workspace_info",
     "enter_workspace", "leave_workspace", "invite_member",
     "approve_action", "reject_action", "authenticate_gws",
+    "request_gws_scopes",
   ];
 
-  test("9개 도구 모두 포함", () => {
+  test("10개 도구 모두 포함", () => {
     const names = systemToolDefinitions.map((d) => d.name);
     for (const name of expectedNames) {
       expect(names).toContain(name);
     }
-    expect(systemToolDefinitions.length).toBe(9);
+    expect(systemToolDefinitions.length).toBe(10);
   });
 
   test("모든 도구에 strict: true 설정", () => {
