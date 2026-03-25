@@ -9,6 +9,8 @@ import {
   dispatchSystem,
   dispatchSkill,
   mergeGwsExecutors,
+  deriveGwsServiceStatus,
+  setupContext,
   type LoopState,
   type AgentLoopOptions,
 } from "./dispatch.js";
@@ -443,7 +445,7 @@ describe("classifyToolCalls", () => {
     expect(plan.skill[0]?.name).toBe("gmail_list");
   });
 
-  test("미등록 도구는 skill로 분류", () => {
+  test("미등록 도구는 skill로 분류 (classifyToolCalls)", () => {
     const plan = classifyToolCalls(
       [makeToolUseBlock("unknown_tool", {})],
       new Map(),
@@ -452,5 +454,82 @@ describe("classifyToolCalls", () => {
     expect(plan.infra).toHaveLength(0);
     expect(plan.system).toHaveLength(0);
     expect(plan.skill).toHaveLength(1);
+  });
+});
+
+// --- deriveGwsServiceStatus ---
+
+describe("deriveGwsServiceStatus", () => {
+  test("Gmail + Calendar executor → Gmail/Calendar available, Drive unavailable", () => {
+    const executors = new Map<string, ToolExecutor>([
+      ["gmail_list", async () => "ok"],
+      ["gmail_send", async () => "ok"],
+      ["calendar_list", async () => "ok"],
+    ]);
+    const status = deriveGwsServiceStatus(executors);
+    expect(status).toBeDefined();
+    expect(status!.available).toEqual(["Gmail", "Calendar"]);
+    expect(status!.unavailable).toEqual(["Drive"]);
+  });
+
+  test("GWS executor 없으면 undefined (미인증 상태)", () => {
+    const executors = new Map<string, ToolExecutor>([
+      ["push_text_message", async () => "ok"],
+    ]);
+    expect(deriveGwsServiceStatus(executors)).toBeUndefined();
+  });
+
+  test("전체 서비스 executor → 모두 available", () => {
+    const executors = new Map<string, ToolExecutor>([
+      ["gmail_list", async () => "ok"],
+      ["calendar_list", async () => "ok"],
+      ["drive_search", async () => "ok"],
+    ]);
+    const status = deriveGwsServiceStatus(executors);
+    expect(status!.available).toEqual(["Gmail", "Calendar", "Drive"]);
+    expect(status!.unavailable).toEqual([]);
+  });
+});
+
+// --- setupContext ---
+
+describe("setupContext", () => {
+  const context: ToolContext = { userId: "U001", workspaceId: "ws-1", role: "owner" };
+  const ws = {
+    id: "ws-1",
+    name: "TestWS",
+    ownerId: "U001",
+    gwsAuthenticated: true,
+    createdAt: "2024-01-01",
+    members: { U001: { role: "owner" as const, joinedAt: "2024-01-01", invitedBy: "system" } },
+  };
+
+  test("systemPrompt와 allTools를 반환", () => {
+    const executors = new Map<string, ToolExecutor>();
+    const allDefMap = new Map<string, ToolDefinition<any>>();
+    const result = setupContext(context, executors, allDefMap, {}, ws);
+    expect(typeof result.systemPrompt).toBe("string");
+    expect(Array.isArray(result.allTools)).toBe(true);
+  });
+
+  test("GWS executor 부분 승인 → 프롬프트에 scope status 포함", () => {
+    const executors = new Map<string, ToolExecutor>([
+      ["gmail_list", async () => "ok"],
+    ]);
+    const allDefMap = new Map<string, ToolDefinition<any>>();
+    const result = setupContext(context, executors, allDefMap, {}, ws);
+    expect(result.systemPrompt).toContain("GWS Scope Status");
+    expect(result.systemPrompt).toContain("Gmail");
+    expect(result.systemPrompt).toContain("Calendar");
+  });
+
+  test("워크스페이스 없으면 scope status 미포함", () => {
+    const executors = new Map<string, ToolExecutor>();
+    const allDefMap = new Map<string, ToolDefinition<any>>();
+    const result = setupContext(
+      { userId: "U001", role: "member" },
+      executors, allDefMap, {},
+    );
+    expect(result.systemPrompt).not.toContain("GWS Scope Status");
   });
 });
