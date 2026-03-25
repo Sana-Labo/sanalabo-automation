@@ -1,3 +1,4 @@
+import type { GwsServiceStatus } from "../domain/google-scopes.js";
 import type { WorkspaceRecord } from "../domain/workspace.js";
 import type { ToolContext } from "../types.js";
 
@@ -31,6 +32,7 @@ export function buildSystemPrompt(
   context: ToolContext,
   workspace: WorkspaceRecord | undefined,
   userWorkspaces: readonly WorkspaceRecord[] = [],
+  gwsServiceStatus?: GwsServiceStatus,
 ): string {
   const now = new Date().toLocaleString("en-US", {
     timeZone: "Asia/Tokyo",
@@ -130,6 +132,17 @@ GWS tools are unavailable until authentication is completed.
 Use the authenticate_gws tool to send an authentication link to the owner.`
     : "";
 
+  // 부분 승인: 인증 완료 + unavailable 서비스 존재 시에만 표시
+  const gwsScopeNotice =
+    workspace?.gwsAuthenticated === true
+    && gwsServiceStatus
+    && gwsServiceStatus.unavailable.length > 0
+      ? `\n\n## GWS Scope Status
+Available: ${gwsServiceStatus.available.join(", ") || "None"}
+Unavailable (additional auth needed): ${gwsServiceStatus.unavailable.join(", ")}
+For unavailable services, offer request_gws_scopes to send an additional auth link.`
+      : "";
+
   return `You are a Google Workspace automation assistant. You communicate with users via LINE.
 
 ## Current Date & Time
@@ -138,7 +151,7 @@ ${now} (JST)
 ## Workspace
 Name: ${workspaceName}
 Your role: ${context.role}
-${roleDescription}${gwsAuthNotice}
+${roleDescription}${gwsAuthNotice}${gwsScopeNotice}
 
 ## Responsibilities
 - Check and manage Gmail and Google Calendar, and search Google Drive

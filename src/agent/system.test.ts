@@ -122,6 +122,51 @@ describe("buildSystemPrompt", () => {
     });
   });
 
+  describe("GWS scope status (부분 승인)", () => {
+    test("unavailable 서비스 있으면 scope status 섹션 표시", () => {
+      const prompt = buildSystemPrompt(
+        makeContext(),
+        makeWorkspace({ gwsAuthenticated: true }),
+        [],
+        { available: ["Gmail"], unavailable: ["Calendar", "Drive"] },
+      );
+      expect(prompt).toContain("GWS Scope Status");
+      expect(prompt).toContain("Gmail");
+      expect(prompt).toContain("Calendar");
+      expect(prompt).toContain("Drive");
+      expect(prompt).toContain("request_gws_scopes");
+    });
+
+    test("모든 서비스 available → scope status 섹션 미표시", () => {
+      const prompt = buildSystemPrompt(
+        makeContext(),
+        makeWorkspace({ gwsAuthenticated: true }),
+        [],
+        { available: ["Gmail", "Calendar", "Drive"], unavailable: [] },
+      );
+      expect(prompt).not.toContain("GWS Scope Status");
+    });
+
+    test("gwsServiceStatus undefined → scope status 섹션 미표시", () => {
+      const prompt = buildSystemPrompt(
+        makeContext(),
+        makeWorkspace({ gwsAuthenticated: true }),
+      );
+      expect(prompt).not.toContain("GWS Scope Status");
+    });
+
+    test("gwsAuthenticated false → scope status 대신 인증 안내 표시", () => {
+      const prompt = buildSystemPrompt(
+        makeContext(),
+        makeWorkspace({ gwsAuthenticated: false }),
+        [],
+        { available: [], unavailable: ["Gmail", "Calendar", "Drive"] },
+      );
+      expect(prompt).not.toContain("GWS Scope Status");
+      expect(prompt).toContain("authentication");
+    });
+  });
+
   describe("admin role (no workspace)", () => {
     test("admin prompt does not contain GWS-related content", () => {
       const prompt = buildSystemPrompt(
