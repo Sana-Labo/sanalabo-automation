@@ -9,7 +9,6 @@ import {
   computeRequiredScopes,
   hasSufficientScopes,
   computeServiceStatus,
-  computeMissingScopes,
   type GwsServiceStatus,
 } from "./google-scopes.js";
 
@@ -152,29 +151,3 @@ describe("computeServiceStatus", () => {
   });
 });
 
-describe("computeMissingScopes", () => {
-  const FULL_SCOPE = `${GmailScope.MODIFY} ${CalendarScope.FULL} ${DriveScope.FULL} openid email profile`;
-
-  test("전체 scope 부여 → 빈 배열", () => {
-    expect(computeMissingScopes(FULL_SCOPE)).toEqual([]);
-  });
-
-  test("Gmail만 부여 → Calendar + Drive scope 반환", () => {
-    const missing = computeMissingScopes(`${GmailScope.MODIFY} openid email profile`);
-    expect(missing).toContain(CalendarScope.FULL);
-    expect(missing).toContain(DriveScope.FULL);
-    expect(missing).not.toContain(GmailScope.MODIFY);
-  });
-
-  test("undefined → 전체 GWS scope 반환", () => {
-    const missing = computeMissingScopes(undefined);
-    expect(missing).toContain(GmailScope.MODIFY);
-    expect(missing).toContain(CalendarScope.FULL);
-    expect(missing).toContain(DriveScope.FULL);
-  });
-
-  test("identity scope만 → 전체 GWS scope 반환", () => {
-    const missing = computeMissingScopes("openid email profile");
-    expect(missing).toHaveLength(3);
-  });
-});

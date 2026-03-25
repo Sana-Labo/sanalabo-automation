@@ -96,7 +96,10 @@ const GWS_SERVICE_PREFIXES: readonly [string, string][] = [
 ];
 
 /**
- * executor map에서 GWS 서비스 가용 상태 도출
+ * executor map에서 GWS 서비스 가용 상태 도출 (executor 기반)
+ *
+ * 에이전트 루프에서 사용. OAuth 콜백에서는 scope 문자열 기반
+ * `computeServiceStatus` (google-scopes.ts)를 사용.
  *
  * @param executors - 현재 활성 executor 맵
  * @returns 서비스 가용 상태. GWS executor가 없으면 undefined
@@ -104,8 +107,9 @@ const GWS_SERVICE_PREFIXES: readonly [string, string][] = [
 export function deriveGwsServiceStatus(
   executors: Map<string, ToolExecutor>,
 ): GwsServiceStatus | undefined {
+  const keys = [...executors.keys()];
   const hasAnyGws = GWS_SERVICE_PREFIXES.some(([, prefix]) =>
-    [...executors.keys()].some((k) => k.startsWith(prefix)),
+    keys.some((k) => k.startsWith(prefix)),
   );
   // GWS executor가 하나도 없으면 미인증 상태 — scope 상태 표시 불필요
   if (!hasAnyGws) return undefined;
@@ -113,7 +117,7 @@ export function deriveGwsServiceStatus(
   const available: string[] = [];
   const unavailable: string[] = [];
   for (const [name, prefix] of GWS_SERVICE_PREFIXES) {
-    if ([...executors.keys()].some((k) => k.startsWith(prefix))) {
+    if (keys.some((k) => k.startsWith(prefix))) {
       available.push(name);
     } else {
       unavailable.push(name);
