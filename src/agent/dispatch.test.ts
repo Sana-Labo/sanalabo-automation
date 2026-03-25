@@ -78,6 +78,7 @@ function makeDeps(overrides: Partial<AgentDependencies> = {}): AgentDependencies
     } as any,
     userStore: {} as any,
     getGwsExecutors: async () => null,
+    getGrantedScopes: async () => undefined,
     ...overrides,
   };
 }

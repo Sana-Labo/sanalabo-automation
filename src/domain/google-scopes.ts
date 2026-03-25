@@ -120,3 +120,26 @@ export function computeServiceStatus(
   return { available, unavailable };
 }
 
+/**
+ * 부여되지 않은 GWS scope 배열 반환 (consent URL용)
+ *
+ * scope 문자열 기반 직선 경로: 토큰 scope → 누락 scope.
+ * `request_gws_scopes` 도구에서 consent URL 생성에 사용.
+ *
+ * @param grantedScopeString - 토큰의 scope 문자열
+ * @returns 누락된 scope 배열 (이미 부여된 scope는 제외)
+ */
+export function computeMissingScopes(
+  grantedScopeString: string | undefined,
+): string[] {
+  const granted = grantedScopeString
+    ? new Set(grantedScopeString.split(" "))
+    : new Set<string>();
+  const missing: string[] = [];
+  for (const scopes of Object.values(GWS_SERVICE_SCOPES)) {
+    for (const scope of scopes) {
+      if (!granted.has(scope)) missing.push(scope);
+    }
+  }
+  return missing;
+}

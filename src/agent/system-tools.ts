@@ -22,9 +22,8 @@ import { canCreateWorkspace, getMaxOwnedWorkspaces, isWorkspaceNameTaken, valida
 import { notifyActionResult } from "../approvals/notify.js";
 import { config } from "../config.js";
 import { buildConsentUrl } from "../domain/google-oauth.js";
-import { computeRequiredScopes, GWS_SERVICE_SCOPES } from "../domain/google-scopes.js";
+import { computeRequiredScopes, computeServiceStatus, computeMissingScopes } from "../domain/google-scopes.js";
 import { gwsToolDefinitions } from "../skills/gws/tools.js";
-import { deriveGwsServiceStatus } from "./dispatch.js";
 
 /** consent URL에 포함할 scope — 도구 정의에서 1회 계산 */
 const consentScopes = computeRequiredScopes(gwsToolDefinitions);
@@ -778,14 +777,14 @@ const requestGwsScopesDef = systemTool({
       return { toolResult: "Error: Google OAuth is not configured on this server." };
     }
 
-    // executor map에서 현재 서비스 상태 확인
-    const executors = await deps.getGwsExecutors(wsId);
-    if (!executors) {
+    // scope 문자열 기반 직선 경로: 토큰 scope → 서비스 상태 + 누락 scope
+    const grantedScopes = await deps.getGrantedScopes(wsId);
+    if (grantedScopes === undefined) {
       return { toolResult: "Error: No authentication found. Use authenticate_gws first." };
     }
 
-    const serviceStatus = deriveGwsServiceStatus(executors);
-    if (!serviceStatus || serviceStatus.unavailable.length === 0) {
+    const serviceStatus = computeServiceStatus(grantedScopes);
+    if (serviceStatus.unavailable.length === 0) {
       return {
         toolResult: JSON.stringify({
           workspaceId: ws.id,
@@ -794,10 +793,7 @@ const requestGwsScopesDef = systemTool({
       };
     }
 
-    // unavailable 서비스 → 해당 scope 역산
-    const missingScopes = serviceStatus.unavailable.flatMap(
-      (name) => GWS_SERVICE_SCOPES[name] ?? [],
-    );
+    const missingScopes = computeMissingScopes(grantedScopes);
 
     const state = createPendingAuth(ws.ownerId, ws.id);
     const consentUrl = buildConsentUrl({

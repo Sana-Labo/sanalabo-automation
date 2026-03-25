@@ -54,6 +54,7 @@ function makeDeps(overrides?: {
   };
   getUser?: (userId: string) => unknown;
   registry?: { definitions: readonly unknown[]; executors: Map<string, unknown> };
+  getGrantedScopes?: (wsId: string) => Promise<string | undefined>;
 }): AgentDependencies {
   const setDefaultCalls = overrides?.setDefaultCalls ?? [];
   const clearLastWsCalls = overrides?.clearLastWsCalls ?? [];
@@ -67,6 +68,7 @@ function makeDeps(overrides?: {
       reject: overrides?.pendingAction?.reject ?? (async () => ({})),
     } as unknown as AgentDependencies["pendingActionStore"],
     getGwsExecutors: async () => new Map(),
+    getGrantedScopes: overrides?.getGrantedScopes ?? (async () => undefined),
     workspaceStore: {
       getByOwner: overrides?.getByOwner ?? (() => overrides?.ownedWorkspaces ?? []),
       create: overrides?.createWorkspace ?? (async () => createdWs),
