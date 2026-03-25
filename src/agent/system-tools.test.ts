@@ -54,6 +54,7 @@ function makeDeps(overrides?: {
   };
   getUser?: (userId: string) => unknown;
   registry?: { definitions: readonly unknown[]; executors: Map<string, unknown> };
+  getGrantedScopes?: (wsId: string) => Promise<string | undefined>;
 }): AgentDependencies {
   const setDefaultCalls = overrides?.setDefaultCalls ?? [];
   const clearLastWsCalls = overrides?.clearLastWsCalls ?? [];
@@ -67,6 +68,7 @@ function makeDeps(overrides?: {
       reject: overrides?.pendingAction?.reject ?? (async () => ({})),
     } as unknown as AgentDependencies["pendingActionStore"],
     getGwsExecutors: async () => new Map(),
+    getGrantedScopes: overrides?.getGrantedScopes ?? (async () => undefined),
     workspaceStore: {
       getByOwner: overrides?.getByOwner ?? (() => overrides?.ownedWorkspaces ?? []),
       create: overrides?.createWorkspace ?? (async () => createdWs),
@@ -1196,14 +1198,15 @@ describe("systemToolDefinitions (Zod)", () => {
     "create_workspace", "list_workspaces", "get_workspace_info",
     "enter_workspace", "leave_workspace", "invite_member",
     "approve_action", "reject_action", "authenticate_gws",
+    "request_gws_scopes",
   ];
 
-  test("9개 도구 모두 포함", () => {
+  test("10개 도구 모두 포함", () => {
     const names = systemToolDefinitions.map((d) => d.name);
     for (const name of expectedNames) {
       expect(names).toContain(name);
     }
-    expect(systemToolDefinitions.length).toBe(9);
+    expect(systemToolDefinitions.length).toBe(10);
   });
 
   test("모든 도구에 strict: true 설정", () => {

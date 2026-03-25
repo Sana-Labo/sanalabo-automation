@@ -19,11 +19,10 @@ import { createLogger } from "../utils/logger.js";
 import { createChannelTextSender, createLineExecutors } from "./line-tool-adapter.js";
 import { infraToolDefinitions } from "./infra-tools.js";
 import { systemToolDefinitions } from "./system-tools.js";
-import { buildSystemPrompt } from "./system.js";
 import { TranscriptRecorder } from "./transcript.js";
 import {
-  buildToolList,
   mergeGwsExecutors,
+  setupContext,
   dispatchAllTools,
   type LoopState,
   type AgentLoopOptions,
@@ -93,16 +92,18 @@ export async function runAgentLoop(
   initialContext: ToolContext,
   options: AgentLoopOptions = {},
 ): Promise<AgentResult> {
-  // --- 초기화: context, executor, ToolDefinition 맵, 트랜스크립트 ---
+  // --- Agent Context Setup ---
   const context = initialContext;
+
+  // [1] Context 해석
   const workspace = context.workspaceId
     ? deps.workspaceStore.get(context.workspaceId)
     : undefined;
   const userWorkspaces = context.workspaceId
     ? []
     : deps.workspaceStore.getByMember(context.userId);
-  const systemPrompt = buildSystemPrompt(context, workspace, userWorkspaces);
 
+  // [2] Capabilities 결정 (async — executor merge)
   const executors = new Map(deps.registry.executors);
   if (workspace) {
     await mergeGwsExecutors(executors, deps, workspace.id);
@@ -112,12 +113,15 @@ export async function runAgentLoop(
     executors.set(name, exec);
   }
 
+  // [3] Context setup (sync — capabilities → tools → prompt 순서 보장)
   const allDefMap = new Map<string, ToolDefinition<any>>();
   for (const def of infraToolDefinitions) allDefMap.set(def.name, def);
   for (const def of systemToolDefinitions) allDefMap.set(def.name, def);
   for (const def of deps.registry.definitions) allDefMap.set(def.name, def);
 
-  const allTools = buildToolList(allDefMap, executors, options);
+  const { systemPrompt, allTools } = setupContext(
+    context, executors, allDefMap, options, workspace, userWorkspaces,
+  );
 
   const transcript = new TranscriptRecorder(config.dataDir);
   transcript.startRun({

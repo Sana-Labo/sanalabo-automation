@@ -7,6 +7,7 @@
 
 import { Hono } from "hono";
 import { parseCallbackQuery } from "../domain/google-oauth.js";
+import { computeServiceStatus } from "../domain/google-scopes.js";
 import {
   createOAuth2Client,
   exchangeCode,
@@ -119,14 +120,19 @@ export function createGoogleOAuthRoute(deps: GoogleOAuthRouteDeps): Hono {
         workspaceId: auth.workspaceId,
       });
 
-      // 8. LINE push로 완료 통지
+      // 8. LINE push로 완료 통지 (부분 승인 감지 → 동적 메시지)
+      const serviceStatus = computeServiceStatus(tokens.scope);
+      const completionMessage = serviceStatus.unavailable.length === 0
+        ? "Google Workspace authentication completed! You can now use email, calendar, and drive features."
+        : `Google Workspace authentication completed!\nAvailable: ${serviceStatus.available.join(", ") || "None"}\nNot authorized: ${serviceStatus.unavailable.join(", ")}\nYou can request additional permissions anytime.`;
+
       const textExecutor = deps.registry.executors.get(LINE_PUSH_TEXT_TOOL);
       if (textExecutor) {
         textExecutor({
           userId: auth.userId,
           message: {
             type: "text",
-            text: "Google Workspace authentication completed! You can now use email, calendar, and drive features.",
+            text: completionMessage,
           },
         }).catch((e) => {
           log.error("Failed to send completion notification", {

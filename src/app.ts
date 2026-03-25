@@ -77,6 +77,9 @@ async function main() {
     ? createGwsExecutorFactory(tokenStore, authConfig)
     : undefined;
   const getGwsExecutors = gwsFactory?.getExecutors ?? (async () => null);
+  const getGrantedScopes = tokenStore
+    ? async (wsId: string) => (await tokenStore.load(wsId))?.scope
+    : async () => undefined;
 
   // 6. 에이전트 의존성 (webhook + scheduler 공유)
   const deps: AgentDependencies = {
@@ -85,6 +88,7 @@ async function main() {
     workspaceStore,
     userStore,
     getGwsExecutors,
+    getGrantedScopes,
   };
 
   // 7. Hono 앱 생성

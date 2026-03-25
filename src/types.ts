@@ -152,6 +152,8 @@ export interface AgentDependencies {
   userStore: UserStore;
   /** 워크스페이스별 GWS 도구 executor 조회 (DI). 토큰 미설정 시 null */
   getGwsExecutors: (workspaceId: string) => Promise<Map<string, ToolExecutor> | null>;
+  /** 워크스페이스의 현재 승인된 OAuth scope 조회 (DI). 토큰 미설정 시 undefined */
+  getGrantedScopes: (workspaceId: string) => Promise<string | undefined>;
 }
 
 // --- Store 인터페이스 ---

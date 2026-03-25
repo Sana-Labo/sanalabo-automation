@@ -63,6 +63,7 @@ function createMockDeps(overrides?: {
       access_token: "test-access",
       refresh_token: "test-refresh",
       expiry_date: Date.now() + 3600_000,
+      scope: "https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/drive openid email profile",
     })),
     _fetchUserInfo: overrides?.fetchUserInfo ?? (async () => ({
       email: "test@example.com",
@@ -173,5 +174,37 @@ describe("GET /auth/google/callback", () => {
     expect(savedTokens).toHaveLength(1);
     // 프로필은 저장 안 됨
     expect(savedAccounts).toHaveLength(0);
+  });
+
+  test("부분 승인: gmail scope만 부여 → unavailable 서비스 안내", async () => {
+    app = createGoogleOAuthRoute(createMockDeps({
+      exchangeCode: async () => ({
+        access_token: "test-access",
+        refresh_token: "test-refresh",
+        expiry_date: Date.now() + 3600_000,
+        scope: "https://www.googleapis.com/auth/gmail.modify openid email profile",
+      }),
+    }));
+    const state = createPendingAuth("U001", "ws-1");
+
+    await app.request(`/auth/google/callback?code=auth-code&state=${state}`);
+
+    expect(pushMessages).toHaveLength(1);
+    const msg = (pushMessages[0]!.message as { text: string }).text;
+    expect(msg).toContain("Gmail");
+    expect(msg).toContain("Not authorized");
+    expect(msg).toContain("Calendar");
+    expect(msg).toContain("Drive");
+  });
+
+  test("전체 승인: 기존 메시지 유지", async () => {
+    const state = createPendingAuth("U001", "ws-1");
+
+    await app.request(`/auth/google/callback?code=auth-code&state=${state}`);
+
+    expect(pushMessages).toHaveLength(1);
+    const msg = (pushMessages[0]!.message as { text: string }).text;
+    expect(msg).toContain("email, calendar, and drive features");
+    expect(msg).not.toContain("Not authorized");
   });
 });

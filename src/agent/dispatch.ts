@@ -17,6 +17,7 @@ import {
   type ToolDefinition,
 } from "./tool-definition.js";
 import { createLogger } from "../utils/logger.js";
+import type { GwsServiceStatus } from "../domain/google-scopes.js";
 import type { WorkspaceRecord } from "../domain/workspace.js";
 import { gwsToolDefinitions } from "../skills/gws/tools.js";
 import { buildSystemPrompt } from "./system.js";
@@ -79,20 +80,87 @@ export function buildToolList(
   return tools;
 }
 
-// --- 상태 재구성 헬퍼 ---
+// --- Agent Context Setup ---
 
-/** 도구 목록 재생성 (executor 변경 후 호출) */
-export function rebuildTools(state: LoopState, options: AgentLoopOptions): void {
-  state.allTools = buildToolList(state.allDefMap, state.executors, options);
+/** setupContext 반환 타입 — capabilities → tools → prompt 순서로 생성된 결과 */
+export interface ContextSetupResult {
+  systemPrompt: string;
+  allTools: Anthropic.Tool[];
 }
 
-/** 시스템 프롬프트 재생성 (컨텍스트 변경 후 호출) */
-export function rebuildPrompt(
-  state: LoopState,
+/** GWS 서비스 접두사 → 서비스명 매핑 */
+const GWS_SERVICE_PREFIXES: readonly [string, string][] = [
+  ["Gmail", "gmail_"],
+  ["Calendar", "calendar_"],
+  ["Drive", "drive_"],
+];
+
+/**
+ * executor map에서 GWS 서비스 가용 상태 도출 (executor 기반)
+ *
+ * 에이전트 루프에서 사용. OAuth 콜백에서는 scope 문자열 기반
+ * `computeServiceStatus` (google-scopes.ts)를 사용.
+ *
+ * @param executors - 현재 활성 executor 맵
+ * @returns 서비스 가용 상태. GWS executor가 없으면 undefined
+ */
+export function deriveGwsServiceStatus(
+  executors: Map<string, ToolExecutor>,
+): GwsServiceStatus | undefined {
+  const keys = [...executors.keys()];
+  const hasAnyGws = GWS_SERVICE_PREFIXES.some(([, prefix]) =>
+    keys.some((k) => k.startsWith(prefix)),
+  );
+  // GWS executor가 하나도 없으면 미인증 상태 — scope 상태 표시 불필요
+  if (!hasAnyGws) return undefined;
+
+  const available: string[] = [];
+  const unavailable: string[] = [];
+  for (const [name, prefix] of GWS_SERVICE_PREFIXES) {
+    if (keys.some((k) => k.startsWith(prefix))) {
+      available.push(name);
+    } else {
+      unavailable.push(name);
+    }
+  }
+  return { available, unavailable };
+}
+
+/**
+ * Agent Context Setup — capabilities → tools → prompt 순서로 컨텍스트 구성
+ *
+ * 초기 setup과 mid-loop rebuild(워크스페이스 진입/퇴장) 모두에서 사용.
+ * 향후 매 턴 호출 가능한 순수+멱등 구조.
+ *
+ * @param context - 사용자 컨텍스트
+ * @param executors - 현재 활성 executor 맵 (capabilities)
+ * @param allDefMap - 전체 ToolDefinition 맵
+ * @param options - 루프 옵션
+ * @param workspace - 현재 워크스페이스 (on-stage 시)
+ * @param userWorkspaces - 사용자 소속 워크스페이스 목록 (out-stage 시)
+ */
+export function setupContext(
+  context: ToolContext,
+  executors: Map<string, ToolExecutor>,
+  allDefMap: Map<string, ToolDefinition<any>>,
+  options: AgentLoopOptions,
   workspace?: WorkspaceRecord,
   userWorkspaces?: readonly WorkspaceRecord[],
-): void {
-  state.systemPrompt = buildSystemPrompt(state.context, workspace, userWorkspaces);
+): ContextSetupResult {
+  // [1] Capabilities에서 서비스 상태 도출
+  const gwsServiceStatus = workspace
+    ? deriveGwsServiceStatus(executors)
+    : undefined;
+
+  // [2] Tool set 구성
+  const allTools = buildToolList(allDefMap, executors, options);
+
+  // [3] Prompt 조립 (capabilities 반영)
+  const systemPrompt = buildSystemPrompt(
+    context, workspace, userWorkspaces, gwsServiceStatus,
+  );
+
+  return { systemPrompt, allTools };
 }
 
 // --- GWS executor 병합 ---
@@ -334,19 +402,20 @@ export async function dispatchSystem(
       content: signal.toolResult,
     });
 
-    // enter_workspace 후 executor + tools 동적 재구성
+    // enter_workspace 후 executor + context 재구성
     if (signal.enteredWorkspaceId) {
       const enteredWs = deps.workspaceStore.get(signal.enteredWorkspaceId);
       if (enteredWs) {
         await mergeGwsExecutors(state.executors, deps, enteredWs.id);
-        rebuildTools(state, options);
         state.context = {
           ...state.context,
           workspaceId: enteredWs.id,
           role: deps.workspaceStore.getUserRole(enteredWs.id, state.context.userId) ?? state.context.role,
         };
-        rebuildPrompt(state, enteredWs);
-        log.info("Executor rebuilt after workspace entry", { workspaceId: enteredWs.id, toolCount: state.allTools.length });
+        const result = setupContext(state.context, state.executors, state.allDefMap, options, enteredWs);
+        state.allTools = result.allTools;
+        state.systemPrompt = result.systemPrompt;
+        log.info("Context rebuilt after workspace entry", { workspaceId: enteredWs.id, toolCount: state.allTools.length });
       }
     }
 
@@ -355,11 +424,12 @@ export async function dispatchSystem(
       for (const gwsDef of gwsToolDefinitions) {
         state.executors.delete(gwsDef.name);
       }
-      rebuildTools(state, options);
       state.context = { userId: state.context.userId, role: state.context.role };
       const userWorkspaces = deps.workspaceStore.getByMember(state.context.userId);
-      rebuildPrompt(state, undefined, userWorkspaces);
-      log.info("Workspace left, prompt rebuilt", { userId: state.context.userId, toolCount: state.allTools.length });
+      const result = setupContext(state.context, state.executors, state.allDefMap, options, undefined, userWorkspaces);
+      state.allTools = result.allTools;
+      state.systemPrompt = result.systemPrompt;
+      log.info("Workspace left, context rebuilt", { userId: state.context.userId, toolCount: state.allTools.length });
     }
   }
 

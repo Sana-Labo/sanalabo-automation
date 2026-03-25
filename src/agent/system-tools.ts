@@ -22,7 +22,7 @@ import { canCreateWorkspace, getMaxOwnedWorkspaces, isWorkspaceNameTaken, valida
 import { notifyActionResult } from "../approvals/notify.js";
 import { config } from "../config.js";
 import { buildConsentUrl } from "../domain/google-oauth.js";
-import { computeRequiredScopes } from "../domain/google-scopes.js";
+import { computeRequiredScopes, computeServiceStatus, computeMissingScopes } from "../domain/google-scopes.js";
 import { gwsToolDefinitions } from "../skills/gws/tools.js";
 
 /** consent URL에 포함할 scope — 도구 정의에서 1회 계산 */
@@ -741,13 +741,92 @@ const authenticateGwsDef = systemTool({
   },
 });
 
+// --- request_gws_scopes ---
+
+const requestGwsScopesSchema = z.object({});
+
+/**
+ * 추가 GWS 권한 요청 — 누락 scope만 consent URL에 포함
+ *
+ * authenticate_gws와 역할 분리: authenticate_gws는 전체 (재)인증,
+ * request_gws_scopes는 부분 승인 후 누락 scope 추가 요청.
+ */
+const requestGwsScopesDef = systemTool({
+  name: "request_gws_scopes",
+  description:
+    "Request additional Google Workspace permissions for this workspace. Sends an authentication link for missing service scopes only.",
+  inputSchema: requestGwsScopesSchema,
+  async handler(_input, context, deps) {
+    const wsId = context.workspaceId;
+    if (!wsId) {
+      return { toolResult: "Error: No current workspace context. Enter a workspace first." };
+    }
+
+    const ws = deps.workspaceStore.get(wsId);
+    if (!ws) {
+      return { toolResult: `Error: Workspace not found: ${wsId}` };
+    }
+
+    // Owner 또는 admin만 실행 가능
+    const isAdmin = deps.userStore.isSystemAdmin(context.userId);
+    if (ws.ownerId !== context.userId && !isAdmin) {
+      return { toolResult: "Error: Only the workspace owner can request additional permissions." };
+    }
+
+    if (!config.googleClientId || !config.googleRedirectUri) {
+      return { toolResult: "Error: Google OAuth is not configured on this server." };
+    }
+
+    // scope 문자열 기반 직선 경로: 토큰 scope → 서비스 상태 + 누락 scope
+    const grantedScopes = await deps.getGrantedScopes(wsId);
+    if (grantedScopes === undefined) {
+      return { toolResult: "Error: No authentication found. Use authenticate_gws first." };
+    }
+
+    const serviceStatus = computeServiceStatus(grantedScopes);
+    if (serviceStatus.unavailable.length === 0) {
+      return {
+        toolResult: JSON.stringify({
+          workspaceId: ws.id,
+          message: "All GWS services are already authorized. No additional permissions needed.",
+        }),
+      };
+    }
+
+    const missingScopes = computeMissingScopes(grantedScopes);
+
+    const state = createPendingAuth(ws.ownerId, ws.id);
+    const consentUrl = buildConsentUrl({
+      clientId: config.googleClientId,
+      redirectUri: config.googleRedirectUri,
+      state,
+      scopes: missingScopes,
+    });
+
+    try {
+      await sendOAuthUrl(ws.ownerId, consentUrl, ws.name, deps.registry);
+    } catch (e) {
+      log.error("Failed to send scope request", { workspaceId: ws.id, error: toErrorMessage(e) });
+      return { toolResult: `Error: Failed to send authentication link: ${toErrorMessage(e)}` };
+    }
+
+    return {
+      toolResult: JSON.stringify({
+        workspaceId: ws.id,
+        unavailableServices: serviceStatus.unavailable,
+        message: `Additional authentication link sent for: ${serviceStatus.unavailable.join(", ")}. The owner should open the link to grant permissions.`,
+      }),
+    };
+  },
+});
+
 /** 모든 System 도구 정의 */
 // any 사용 필수: handler의 input이 반변(contravariant) 위치 — unknown은 할당 불가
 export const systemToolDefinitions: readonly SystemToolDefinition<any>[] = [
   createWorkspaceDef, listWorkspacesDef, getWorkspaceInfoDef,
   enterWorkspaceDef, leaveWorkspaceDef, inviteMemberDef,
   approveActionDef, rejectActionDef,
-  authenticateGwsDef,
+  authenticateGwsDef, requestGwsScopesDef,
 ];
 
 /** Postback 직접 호출용 핸들러 export */
