@@ -5,8 +5,12 @@ import {
   DriveScope,
   IdentityScope,
   BASE_SCOPES,
+  GWS_SERVICE_SCOPES,
   computeRequiredScopes,
   hasSufficientScopes,
+  computeServiceStatus,
+  computeMissingScopes,
+  type GwsServiceStatus,
 } from "./google-scopes.js";
 
 describe("scope 상수", () => {
@@ -97,5 +101,80 @@ describe("hasSufficientScopes", () => {
 
   test("빈 granted 문자열 + required 있음 → false", () => {
     expect(hasSufficientScopes("", [GmailScope.MODIFY])).toBe(false);
+  });
+});
+
+// --- Phase 1: 서비스 상태 함수 ---
+
+describe("GWS_SERVICE_SCOPES", () => {
+  test("3개 서비스(Gmail, Calendar, Drive) 정의", () => {
+    expect(Object.keys(GWS_SERVICE_SCOPES)).toEqual(["Gmail", "Calendar", "Drive"]);
+  });
+
+  test("각 서비스가 올바른 scope 참조", () => {
+    expect(GWS_SERVICE_SCOPES.Gmail).toEqual([GmailScope.MODIFY]);
+    expect(GWS_SERVICE_SCOPES.Calendar).toEqual([CalendarScope.FULL]);
+    expect(GWS_SERVICE_SCOPES.Drive).toEqual([DriveScope.FULL]);
+  });
+});
+
+describe("computeServiceStatus", () => {
+  const FULL_SCOPE = `${GmailScope.MODIFY} ${CalendarScope.FULL} ${DriveScope.FULL} openid email profile`;
+
+  test("전체 scope 부여 → 3개 서비스 모두 available", () => {
+    const status = computeServiceStatus(FULL_SCOPE);
+    expect(status.available).toEqual(["Gmail", "Calendar", "Drive"]);
+    expect(status.unavailable).toEqual([]);
+  });
+
+  test("Gmail scope만 부여 → Gmail available, Calendar/Drive unavailable", () => {
+    const status = computeServiceStatus(`${GmailScope.MODIFY} openid email profile`);
+    expect(status.available).toEqual(["Gmail"]);
+    expect(status.unavailable).toEqual(["Calendar", "Drive"]);
+  });
+
+  test("identity scope만 부여 → 3개 서비스 모두 unavailable", () => {
+    const status = computeServiceStatus("openid email profile");
+    expect(status.available).toEqual([]);
+    expect(status.unavailable).toEqual(["Gmail", "Calendar", "Drive"]);
+  });
+
+  test("undefined → 3개 서비스 모두 unavailable", () => {
+    const status = computeServiceStatus(undefined);
+    expect(status.available).toEqual([]);
+    expect(status.unavailable).toEqual(["Gmail", "Calendar", "Drive"]);
+  });
+
+  test("Calendar + Drive만 부여 → Gmail unavailable", () => {
+    const status = computeServiceStatus(`${CalendarScope.FULL} ${DriveScope.FULL} openid email profile`);
+    expect(status.available).toEqual(["Calendar", "Drive"]);
+    expect(status.unavailable).toEqual(["Gmail"]);
+  });
+});
+
+describe("computeMissingScopes", () => {
+  const FULL_SCOPE = `${GmailScope.MODIFY} ${CalendarScope.FULL} ${DriveScope.FULL} openid email profile`;
+
+  test("전체 scope 부여 → 빈 배열", () => {
+    expect(computeMissingScopes(FULL_SCOPE)).toEqual([]);
+  });
+
+  test("Gmail만 부여 → Calendar + Drive scope 반환", () => {
+    const missing = computeMissingScopes(`${GmailScope.MODIFY} openid email profile`);
+    expect(missing).toContain(CalendarScope.FULL);
+    expect(missing).toContain(DriveScope.FULL);
+    expect(missing).not.toContain(GmailScope.MODIFY);
+  });
+
+  test("undefined → 전체 GWS scope 반환", () => {
+    const missing = computeMissingScopes(undefined);
+    expect(missing).toContain(GmailScope.MODIFY);
+    expect(missing).toContain(CalendarScope.FULL);
+    expect(missing).toContain(DriveScope.FULL);
+  });
+
+  test("identity scope만 → 전체 GWS scope 반환", () => {
+    const missing = computeMissingScopes("openid email profile");
+    expect(missing).toHaveLength(3);
   });
 });
