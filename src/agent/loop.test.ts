@@ -5,10 +5,12 @@
  * mock.module로 config + client 모킹.
  */
 import { describe, test, expect, mock, beforeEach } from "bun:test";
+import "../test-utils/setup-env.js";
 import type Anthropic from "@anthropic-ai/sdk";
 import type { AgentDependencies, PendingActionStore } from "../types.js";
 
 // --- Module mocks (Bun이 hoisting) ---
+// config.ts は mock しない — setup-env.ts + 実 config を使用 (mock.module はプロセス全体に影響するため)
 
 const mockCreate = mock<(...args: any[]) => Promise<Anthropic.Message>>();
 
@@ -31,28 +33,14 @@ mock.module("./api-client.js", () => ({
   },
 }));
 
-mock.module("../config.js", () => ({
-  config: {
-    agentModel: "claude-haiku-4-5-20251001",
-    agentMaxTokens: undefined,
-    agentMaxTurns: 15,
-    agentMaxTokenRetries: 3,
-    agentCompactModel: "claude-sonnet-4-6",
-    agentCompactMaxTokens: undefined,
-    anthropicApiKey: "test-key",
-    dataDir: process.env["TMPDIR"] ?? "/tmp",
-    googleClientId: "",
-    googleRedirectUri: "",
-  },
-}));
-
 // mock.module 적용 후 동적 import
 const { runAgentLoop } = await import("./loop.js");
 const { MAX_TOKENS_RESUME_PROMPT } = await import("./api-errors.js");
 
 // --- 테스트 헬퍼 ---
 
-function makeResponse(overrides: Partial<Anthropic.Message> = {}): Anthropic.Message {
+/** テスト用レスポンス生成 — SDK型の必須フィールドを as で緩和 */
+function makeResponse(overrides: Record<string, unknown> = {}): Anthropic.Message {
   return {
     id: `msg_${Math.random().toString(36).slice(2, 8)}`,
     type: "message",
@@ -63,7 +51,12 @@ function makeResponse(overrides: Partial<Anthropic.Message> = {}): Anthropic.Mes
     stop_sequence: null,
     usage: { input_tokens: 100, output_tokens: 50 },
     ...overrides,
-  } as Anthropic.Message;
+  } as unknown as Anthropic.Message;
+}
+
+/** テスト用 ContentBlock 生成 */
+function textBlock(text: string): Anthropic.ContentBlock {
+  return { type: "text", text } as unknown as Anthropic.ContentBlock;
 }
 
 const noopPendingStore: PendingActionStore = {
@@ -112,13 +105,13 @@ describe("runAgentLoop — max_tokens resume", () => {
       .mockResolvedValueOnce(
         makeResponse({
           stop_reason: "max_tokens",
-          content: [{ type: "text", text: "partial response" }],
+          content: [textBlock("partial response")],
         }),
       )
       .mockResolvedValueOnce(
         makeResponse({
           stop_reason: "end_turn",
-          content: [{ type: "text", text: '{"text":"complete response"}' }],
+          content: [textBlock('{"text":"complete response"}')],
         }),
       );
 
@@ -143,7 +136,7 @@ describe("runAgentLoop — max_tokens resume", () => {
       mockCreate.mockResolvedValueOnce(
         makeResponse({
           stop_reason: "max_tokens",
-          content: [{ type: "text", text: `chunk ${i}` }],
+          content: [textBlock(`chunk ${i}`)],
         }),
       );
     }
@@ -160,13 +153,13 @@ describe("runAgentLoop — max_tokens resume", () => {
       .mockResolvedValueOnce(
         makeResponse({
           stop_reason: "max_tokens",
-          content: [{ type: "text", text: "잘린 텍스트" }],
+          content: [textBlock("잘린 텍스트")],
         }),
       )
       .mockResolvedValueOnce(
         makeResponse({
           stop_reason: "end_turn",
-          content: [{ type: "text", text: '{"text":"최종 답변입니다"}' }],
+          content: [textBlock('{"text":"최종 답변입니다"}')],
         }),
       );
 
@@ -181,14 +174,14 @@ describe("runAgentLoop — max_tokens resume", () => {
       .mockResolvedValueOnce(
         makeResponse({
           stop_reason: "max_tokens",
-          content: [{ type: "text", text: "part1" }],
+          content: [textBlock("part1")],
           usage: { input_tokens: 100, output_tokens: 50 },
         }),
       )
       .mockResolvedValueOnce(
         makeResponse({
           stop_reason: "end_turn",
-          content: [{ type: "text", text: '{"text":"done"}' }],
+          content: [textBlock('{"text":"done"}')],
           usage: { input_tokens: 200, output_tokens: 100 },
         }),
       );
@@ -201,9 +194,7 @@ describe("runAgentLoop — max_tokens resume", () => {
   });
 
   test("max_tokens resume 후 assistant 응답이 대화 히스토리에 보존됨", async () => {
-    const partialContent: Anthropic.ContentBlock[] = [
-      { type: "text", text: "이메일 목록: 1. 회의 안건..." },
-    ];
+    const partialContent = [textBlock("이메일 목록: 1. 회의 안건...")];
 
     mockCreate
       .mockResolvedValueOnce(
@@ -215,7 +206,7 @@ describe("runAgentLoop — max_tokens resume", () => {
       .mockResolvedValueOnce(
         makeResponse({
           stop_reason: "end_turn",
-          content: [{ type: "text", text: '{"text":"2. 프로젝트 현황..."}' }],
+          content: [textBlock('{"text":"2. 프로젝트 현황..."}')],
         }),
       );
 
