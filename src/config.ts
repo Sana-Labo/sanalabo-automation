@@ -6,19 +6,10 @@ function required(name: string): string {
   return value;
 }
 
-/** 선택적 양의 정수 환경변수. 미설정 시 undefined 반환 */
-function optionalPositiveInt(name: string): number | undefined {
-  const raw = process.env[name];
-  if (!raw) return undefined;
-  const n = Number(raw);
-  if (!Number.isInteger(n) || n < 1) {
-    throw new Error(`${name} must be a positive integer`);
-  }
-  return n;
-}
-
-/** 필수 양의 정수 환경변수 (기본값 있음) */
-function requiredPositiveInt(name: string, defaultValue: number): number {
+/** 양의 정수 환경변수 파싱. 기본값 있으면 number, 없으면 number | undefined */
+function positiveInt(name: string): number | undefined;
+function positiveInt(name: string, defaultValue: number): number;
+function positiveInt(name: string, defaultValue?: number): number | undefined {
   const raw = process.env[name];
   if (!raw) return defaultValue;
   const n = Number(raw);
@@ -54,15 +45,15 @@ export const config = {
   workspaceStorePath: process.env["WORKSPACE_STORE_PATH"] ?? "data/workspaces.json",
   pendingActionStorePath: process.env["PENDING_ACTION_STORE_PATH"] ?? "data/pending-actions.json",
   workspaceDataDir: process.env["WORKSPACE_DATA_DIR"] ?? "data/workspaces",
-  mcpPoolSize: requiredPositiveInt("MCP_POOL_SIZE", 3),
+  mcpPoolSize: positiveInt("MCP_POOL_SIZE", 3),
   port: process.env["PORT"] ? Number(process.env["PORT"]) : 3000,
 
   // Agent
   agentModel: process.env["AGENT_MODEL"] ?? "claude-haiku-4-5-20251001",
-  agentMaxTokens: optionalPositiveInt("AGENT_MAX_TOKENS"),
-  agentMaxTurns: requiredPositiveInt("AGENT_MAX_TURNS", 15),
+  agentMaxTokens: positiveInt("AGENT_MAX_TOKENS"),
+  agentMaxTurns: positiveInt("AGENT_MAX_TURNS", 15),
   agentCompactModel: process.env["AGENT_COMPACT_MODEL"] ?? "claude-sonnet-4-6",
-  agentCompactMaxTokens: optionalPositiveInt("AGENT_COMPACT_MAX_TOKENS"),
+  agentCompactMaxTokens: positiveInt("AGENT_COMPACT_MAX_TOKENS"),
 
   // Google OAuth (API 전환 시 필수)
   googleClientId: process.env["GOOGLE_CLIENT_ID"] ?? "",
