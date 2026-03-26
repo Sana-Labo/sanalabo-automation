@@ -1,1 +1,8 @@
-{"permissions":{"allow":["Bash(bun test:*)","Bash(bun run typecheck:*)"]}}
+{
+  "permissions": {
+    "allow": [
+      "Bash(bun test:*)",
+      "Bash(bun run typecheck:*)"
+    ]
+  }
+}
