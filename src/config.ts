@@ -52,6 +52,7 @@ export const config = {
   agentModel: process.env["AGENT_MODEL"] ?? "claude-haiku-4-5-20251001",
   agentMaxTokens: positiveInt("AGENT_MAX_TOKENS"),
   agentMaxTurns: positiveInt("AGENT_MAX_TURNS", 15),
+  agentMaxTokenRetries: positiveInt("AGENT_MAX_TOKEN_RETRIES", 3),
   agentCompactModel: process.env["AGENT_COMPACT_MODEL"] ?? "claude-sonnet-4-6",
   agentCompactMaxTokens: positiveInt("AGENT_COMPACT_MAX_TOKENS"),
 
