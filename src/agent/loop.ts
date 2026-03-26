@@ -4,8 +4,10 @@
  * 오케스트레이터: LLM API 호출 + 메시지 관리 + 턴 제어.
  * 도구 디스패치는 dispatch.ts에 위임.
  */
-import Anthropic from "@anthropic-ai/sdk";
+import type Anthropic from "@anthropic-ai/sdk";
 import { config } from "../config.js";
+import { client } from "./api-client.js";
+import { resolveMaxTokens } from "./api-errors.js";
 import {
   type AgentDependencies,
   type AgentResult,
@@ -35,11 +37,6 @@ import {
 } from "./filter-chain.js";
 
 const log = createLogger("agent");
-
-const MAX_TURNS = 15;
-const MODEL = "claude-haiku-4-5-20251001";
-
-const client = new Anthropic({ apiKey: config.anthropicApiKey });
 
 /** end_turn 응답을 JSON Schema로 강제하는 설정 */
 const OUTPUT_CONFIG: Anthropic.Messages.OutputConfig = {
@@ -92,6 +89,11 @@ export async function runAgentLoop(
   initialContext: ToolContext,
   options: AgentLoopOptions = {},
 ): Promise<AgentResult> {
+  // --- Agent Config ---
+  const model = config.agentModel;
+  const maxTurns = config.agentMaxTurns;
+  const maxTokens = await resolveMaxTokens(client, model, config.agentMaxTokens);
+
   // --- Agent Context Setup ---
   const context = initialContext;
 
@@ -166,14 +168,14 @@ export async function runAgentLoop(
 
   log.debug("Agent loop started", () => ({ userId: state.context.userId, workspaceId: state.context.workspaceId, role: state.context.role }));
 
-  while (turns < MAX_TURNS) {
+  while (turns < maxTurns) {
     turns++;
-    log.debug("Turn started", () => ({ turn: turns, maxTurns: MAX_TURNS }));
+    log.debug("Turn started", () => ({ turn: turns, maxTurns }));
 
-    log.debug("Claude API request", () => ({ model: MODEL, messageCount: messages.length, toolCount: state.allTools.length }));
+    log.debug("Claude API request", () => ({ model, messageCount: messages.length, toolCount: state.allTools.length }));
     const response = await client.messages.create({
-      model: MODEL,
-      max_tokens: 4096,
+      model,
+      max_tokens: maxTokens,
       system: state.systemPrompt,
       tools: state.allTools,
       output_config: OUTPUT_CONFIG,
@@ -190,7 +192,7 @@ export async function runAgentLoop(
     if (response.stop_reason === "max_tokens") {
       const text = extractText(response.content) || "The response was too long and has been truncated.";
       state.transcript.recordTurn({
-        request: { model: MODEL, messageCount: messages.length, toolCount: state.allTools.length },
+        request: { model, messageCount: messages.length, toolCount: state.allTools.length },
         response: { stopReason: "max_tokens", content: response.content },
         toolResults: [],
       });
@@ -204,7 +206,7 @@ export async function runAgentLoop(
       const text = extractJsonText(response.content);
       log.debug("Agent loop completed", () => ({ turns, toolCalls }));
       state.transcript.recordTurn({
-        request: { model: MODEL, messageCount: messages.length, toolCount: state.allTools.length },
+        request: { model, messageCount: messages.length, toolCount: state.allTools.length },
         response: { stopReason: response.stop_reason ?? "end_turn", content: response.content },
         toolResults: [],
       });
@@ -224,7 +226,7 @@ export async function runAgentLoop(
       deps,
       options,
       {
-        model: MODEL,
+        model,
         messageCount: messages.length,
         toolCount: state.allTools.length,
         stopReason: "tool_use",
