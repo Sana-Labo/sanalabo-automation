@@ -604,7 +604,7 @@ const approveActionDef = systemTool({
       return { toolResult: `Error: Action ${input.action_id} has already been ${pendingAction.status}.` };
     }
 
-    // Owner 権限 검증 — System Admin이라도 불가 (오너의 Google 데이터)
+    // Owner 권한 검증 — System Admin이라도 불가 (오너의 Google 데이터)
     const role = deps.workspaceStore.getUserRole(pendingAction.workspaceId, context.userId);
     if (role !== "owner") {
       return { toolResult: "Error: Only the workspace owner can approve actions." };

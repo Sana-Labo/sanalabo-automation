@@ -1,14 +1,15 @@
 /**
  * api-errors 에러 분류 + Models API 조회 테스트
  *
- * api-errors.ts は Functional Core — config.ts 의존 없음.
+ * api-errors.ts는 Functional Core — config.ts 의존 없음.
  * 환경변수 설정이나 mock.module 없이 순수 함수를 직접 테스트.
  */
-import { describe, test, expect, mock } from "bun:test";
+import { describe, test, expect, mock, beforeEach } from "bun:test";
 import Anthropic from "@anthropic-ai/sdk";
 import {
   classifyApiError,
   resolveMaxTokens,
+  clearModelMaxTokensCache,
   type ApiErrorCategory,
   DEFAULT_MAX_TOKENS,
 } from "./api-errors.js";
@@ -88,6 +89,10 @@ describe("classifyApiError", () => {
 // --- resolveMaxTokens ---
 
 describe("resolveMaxTokens", () => {
+  beforeEach(() => {
+    clearModelMaxTokensCache();
+  });
+
   /** Models API를 모킹한 가짜 클라이언트 */
   function createMockClient(maxTokens: number | null) {
     return {
