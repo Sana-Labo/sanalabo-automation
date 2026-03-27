@@ -6,8 +6,7 @@
  */
 import type Anthropic from "@anthropic-ai/sdk";
 import { config } from "../config.js";
-import { client } from "./api-client.js";
-import { resolveMaxTokens, MAX_TOKENS_RESUME_PROMPT } from "./api-errors.js";
+import { client, resolveMaxTokens, MAX_TOKENS_RESUME_PROMPT } from "./api-client.js";
 import {
   type AgentDependencies,
   type AgentResult,
@@ -197,6 +196,7 @@ export async function runAgentLoop(
         toolResults: [],
       });
 
+      // agentMaxTokenRetries=3 → 초기 응답(1회) + resume 재시도(3회) = 최대 4회 API 호출
       if (maxTokenRetries >= config.agentMaxTokenRetries) {
         const text = extractText(response.content) || "The response was too long and has been truncated.";
         log.warning("max_tokens retries exhausted", { retries: maxTokenRetries, model });

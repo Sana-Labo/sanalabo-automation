@@ -10,9 +10,12 @@ import type Anthropic from "@anthropic-ai/sdk";
 import type { AgentDependencies, PendingActionStore } from "../types.js";
 
 // --- Module mocks (Bun이 hoisting) ---
-// config.ts は mock しない — setup-env.ts + 実 config を使用 (mock.module はプロセス全体に影響するため)
+// config.ts는 mock하지 않음 — setup-env.ts + 실 config 사용 (mock.module은 프로세스 전역에 영향)
 
 const mockCreate = mock<(...args: any[]) => Promise<Anthropic.Message>>();
+
+// api-errors.ts의 실제 export를 re-export에 포함 (loop.ts가 api-client.js에서 통합 import)
+const apiErrors = await import("./api-errors.js");
 
 mock.module("./api-client.js", () => ({
   client: {
@@ -31,15 +34,20 @@ mock.module("./api-client.js", () => ({
       ),
     },
   },
+  resolveMaxTokens: apiErrors.resolveMaxTokens,
+  clearModelMaxTokensCache: apiErrors.clearModelMaxTokensCache,
+  DEFAULT_MAX_TOKENS: apiErrors.DEFAULT_MAX_TOKENS,
+  MAX_TOKENS_RESUME_PROMPT: apiErrors.MAX_TOKENS_RESUME_PROMPT,
+  classifyApiError: apiErrors.classifyApiError,
 }));
 
 // mock.module 적용 후 동적 import
 const { runAgentLoop } = await import("./loop.js");
-const { MAX_TOKENS_RESUME_PROMPT } = await import("./api-errors.js");
+const { MAX_TOKENS_RESUME_PROMPT } = apiErrors;
 
 // --- 테스트 헬퍼 ---
 
-/** テスト用レスポンス生成 — SDK型の必須フィールドを as で緩和 */
+/** 테스트용 응답 생성 — SDK 타입의 필수 필드를 as로 완화 */
 function makeResponse(overrides: Record<string, unknown> = {}): Anthropic.Message {
   return {
     id: `msg_${Math.random().toString(36).slice(2, 8)}`,
@@ -54,7 +62,7 @@ function makeResponse(overrides: Record<string, unknown> = {}): Anthropic.Messag
   } as unknown as Anthropic.Message;
 }
 
-/** テスト用 ContentBlock 生成 */
+/** 테스트용 ContentBlock 생성 */
 function textBlock(text: string): Anthropic.ContentBlock {
   return { type: "text", text } as unknown as Anthropic.ContentBlock;
 }

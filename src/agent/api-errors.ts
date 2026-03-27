@@ -1,12 +1,10 @@
 /**
- * Anthropic API 에러 분류 + 모델 정보 조회 (Functional Core)
+ * Anthropic API 에러 분류 + 모델 정보 조회
  *
- * config.ts 의존 없음 — 순수 함수만 포함.
- * 필요한 값은 모두 파라미터로 주입 (DI).
+ * config.ts 의존 없음 — 필요한 값은 모두 파라미터로 주입 (DI).
  *
- * 책임:
- * - API 에러를 행동 가능한 카테고리로 분류
- * - Models API를 통한 모델별 max_tokens 런타임 조회 + 캐싱
+ * - classifyApiError: 순수 함수 (에러 분류)
+ * - resolveMaxTokens: 비동기 조회 (Models API + 인메모리 캐싱)
  */
 import Anthropic from "@anthropic-ai/sdk";
 import { createLogger } from "../utils/logger.js";
@@ -112,6 +110,11 @@ export const DEFAULT_MAX_TOKENS = 4096;
 /** 모델별 max_tokens 인메모리 캐시 */
 const modelMaxTokensCache = new Map<string, number>();
 
+/** 캐시 초기화 (테스트 격리용) */
+export function clearModelMaxTokensCache(): void {
+  modelMaxTokensCache.clear();
+}
+
 /**
  * 모델의 max_tokens를 해결
  *
@@ -138,6 +141,7 @@ export async function resolveMaxTokens(
     log.info("Model limits resolved", { modelId, maxTokens, maxInputTokens: model.max_input_tokens });
     return maxTokens;
   } catch (e) {
+    // 실패 시 캐시하지 않음 — 일시적 장애 복구 후 다음 호출에서 정상 조회 가능
     log.warning("Models API 조회 실패, 기본값 사용", {
       modelId,
       error: e instanceof Error ? e.message : String(e),
