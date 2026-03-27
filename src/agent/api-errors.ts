@@ -96,6 +96,14 @@ function isContextLengthError(message: string): boolean {
   return message.includes("too long") || message.includes("too many tokens");
 }
 
+// --- Resume Prompt ---
+
+/** max_tokens 도달 시 resume 프롬프트 (Claude Code 참조) */
+export const MAX_TOKENS_RESUME_PROMPT =
+  "Output token limit hit. Resume directly -- no apology, no recap of what you were doing. " +
+  "Pick up mid-thought if that is where the cut happened. " +
+  "Break remaining work into smaller pieces.";
+
 // --- Model Limits ---
 
 /** Models API 조회 실패 시 폴백 기본값 */

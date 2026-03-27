@@ -7,7 +7,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { config } from "../config.js";
 import { client } from "./api-client.js";
-import { resolveMaxTokens } from "./api-errors.js";
+import { resolveMaxTokens, MAX_TOKENS_RESUME_PROMPT } from "./api-errors.js";
 import {
   type AgentDependencies,
   type AgentResult,
@@ -141,6 +141,7 @@ export async function runAgentLoop(
   ];
 
   let turns = 0;
+  let maxTokenRetries = 0;
   let toolCalls = 0;
   let channelDelivered = false;
   let totalInputTokens = 0;
@@ -188,17 +189,27 @@ export async function runAgentLoop(
     totalInputTokens += response.usage.input_tokens;
     totalOutputTokens += response.usage.output_tokens;
 
-    // max_tokens — 도구 호출 없이 종료
+    // max_tokens — resume 프롬프트 주입으로 응답 이어가기
     if (response.stop_reason === "max_tokens") {
-      const text = extractText(response.content) || "The response was too long and has been truncated.";
       state.transcript.recordTurn({
         request: { model, messageCount: messages.length, toolCount: state.allTools.length },
         response: { stopReason: "max_tokens", content: response.content },
         toolResults: [],
       });
-      const result: AgentResult = { text, toolCalls, channelDelivered };
-      finalizeTranscript(result);
-      return result;
+
+      if (maxTokenRetries >= config.agentMaxTokenRetries) {
+        const text = extractText(response.content) || "The response was too long and has been truncated.";
+        log.warning("max_tokens retries exhausted", { retries: maxTokenRetries, model });
+        const result: AgentResult = { text, toolCalls, channelDelivered };
+        finalizeTranscript(result);
+        return result;
+      }
+
+      maxTokenRetries++;
+      log.info("max_tokens resume", { attempt: maxTokenRetries, limit: config.agentMaxTokenRetries, model });
+      messages.push({ role: "assistant", content: response.content });
+      messages.push({ role: "user", content: MAX_TOKENS_RESUME_PROMPT });
+      continue;
     }
 
     // end_turn — 도구 호출 없이 종료
