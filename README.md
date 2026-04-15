@@ -9,30 +9,24 @@
 
 ```mermaid
 flowchart TB
-    Admin([System Admin])
-    LINE[LINE Bot Channel]
-    WH[Webhook + Event Router]
+    LINE[LINE Bot]
+    ADMIN([System Admin])
+    WH[Webhook & Event Router]
 
-    subgraph WsA [Workspace A]
-        A1[Agent Loop\nrole: owner]
-        A2[Agent Loop\nrole: member]
-    end
-
-    subgraph WsB [Workspace B]
-        B1[Agent Loop\nrole: owner]
+    subgraph Workspaces [Workspaces — isolated per tenant]
+        AGENT[Agent Loop\nper user · per workspace\nrole: owner / member]
     end
 
     GWS[GWS Executor\nper-workspace OAuth]
-    MCP[MCP Pool / N=3\nLINE Push API]
-    GAPI[googleapis\nin-process]
+    MCP[MCP Pool N=3]
+    GAPI[Google APIs]
 
-    Admin -->|admin commands| WH
-    LINE <-->|messages / postback| WH
-    WH --> WsA & WsB
-    A1 & A2 & B1 --> GWS
-    A1 & A2 & B1 --> MCP
+    ADMIN & LINE -->|events| WH
+    WH -->|enqueue| Workspaces
+    AGENT -->|read / write| GWS
+    AGENT -->|push_message| MCP
     GWS --> GAPI
-    MCP -->|push_message| LINE
+    MCP -->|push| LINE
 ```
 
 ### Key Concepts
@@ -137,15 +131,13 @@ sequenceDiagram
 
 ### Setup Overview
 
-```mermaid
-flowchart LR
-    A[1. Clone & Install] --> B[2. ngrok Static Domain]
-    B --> C[3. LINE Bot Webhook]
-    C --> D[4. Google OAuth\noptional]
-    D --> E[5. .env Config]
-    E --> F[6. Start Server]
-    F --> G[7. Get LINE userId]
-```
+1. Clone & Install
+2. Set Up ngrok Static Domain
+3. Configure LINE Bot
+4. Configure Google OAuth *(optional)*
+5. Set Environment Variables
+6. Start the Server
+7. Get Your LINE User ID
 
 ---
 
