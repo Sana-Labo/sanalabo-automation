@@ -173,14 +173,16 @@ export async function runAgentLoop(
     log.debug("Turn started", () => ({ turn: turns, maxTurns }));
 
     log.debug("Claude API request", () => ({ model, messageCount: messages.length, toolCount: state.allTools.length }));
-    const response = await client.messages.create({
-      model,
-      max_tokens: maxTokens,
-      system: state.systemPrompt,
-      tools: state.allTools,
-      output_config: OUTPUT_CONFIG,
-      messages,
-    });
+    const response = await client.messages
+      .stream({
+        model,
+        max_tokens: maxTokens,
+        system: state.systemPrompt,
+        tools: state.allTools,
+        output_config: OUTPUT_CONFIG,
+        messages,
+      })
+      .finalMessage();
 
     log.debug("Claude API response", () => ({ stopReason: response.stop_reason, contentBlocks: response.content.length }));
 
