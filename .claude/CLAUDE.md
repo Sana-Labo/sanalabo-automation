@@ -98,11 +98,27 @@ docker compose up -d # Docker 프로덕션 배포
 - 코드 변경으로 지시파일 내용이 stale해지면 해당 작업 내에서 갱신
 - 확인 시점: 작업 시작 시 컨텍스트 수집 단계, 코드 변경 완료 후
 
-## Branch Strategy
+## Branch Strategy — Simplified Git-flow
 
-- `main` 보호: 직접 커밋/force push 금지 (GitHub Rulesets)
-- feature branch → PR 리뷰 → squash and merge (linear history)
-- 네이밍: `feature/*`, `fix/*`, `docs/*`, `chore/*`, `test/*`, `refactor/*`
+두 개의 상시 브랜치 (`main`, `develop`) + 작업 브랜치로 운영.
+
+```mermaid
+flowchart LR
+    F["feature/* / fix/* / docs/*"] -->|PR| DEV[develop]
+    DEV -->|PR| MAIN[main]
+    DEV -->|자동 배포| TEST[테스트 서버]
+    MAIN -->|자동 배포| PROD[프로덕션 서버]
+```
+
+| 브랜치 | 역할 | 보호 규칙 |
+|--------|------|----------|
+| `main` | 프로덕션 — 항상 배포 가능 | PR 필수, 리뷰 1명, source: develop만 허용, force push/삭제 차단 |
+| `develop` | 테스트 — 다음 릴리스 준비 | PR 필수, 리뷰 1명, force push/삭제 차단 |
+| `feature/*` 등 | 작업 브랜치 — develop에서 분기 | 제한 없음 |
+
+- 작업 브랜치 네이밍: `feature/*`, `fix/*`, `docs/*`, `chore/*`, `test/*`, `refactor/*`
+- 병합 방식: squash and merge (linear history)
+- `main` ← `develop` 경유 강제 (GitHub Actions `check-source-branch` 체크)
 - 글로벌 `rules/github-vc.md` 기본값 적용
 
 ## Commit Convention
@@ -115,6 +131,7 @@ docker compose up -d # Docker 프로덕션 배포
 
 ## Pull Request Rules
 
-- PR 생성 필수 — main에 직접 push 불가
+- PR 생성 필수 — main/develop에 직접 push 불가
 - 최소 1명의 리뷰 승인 후 병합
 - 병합 전 `bun run typecheck` + `bun test` 통과 필수
+- main으로의 PR은 develop 브랜치에서만 가능
