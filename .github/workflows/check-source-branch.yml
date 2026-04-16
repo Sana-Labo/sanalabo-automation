@@ -1,0 +1,15 @@
+name: Check source branch
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify source is develop
+        if: github.head_ref != 'develop'
+        run: |
+          echo "::error::main 브랜치에는 develop 브랜치만 merge할 수 있습니다. (현재: ${{ github.head_ref }})"
+          exit 1
