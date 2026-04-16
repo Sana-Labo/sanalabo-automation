@@ -19,7 +19,11 @@ const apiErrors = await import("./api-errors.js");
 
 mock.module("./api-client.js", () => ({
   client: {
-    messages: { create: mockCreate },
+    messages: {
+      stream: (...args: any[]) => ({
+        finalMessage: () => mockCreate(...args),
+      }),
+    },
     models: {
       retrieve: mock(() =>
         Promise.resolve({
