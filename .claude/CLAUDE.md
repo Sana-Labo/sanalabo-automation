@@ -102,12 +102,12 @@ docker compose up -d # Docker 프로덕션 배포
 
 두 개의 상시 브랜치 (`main`, `develop`) + 작업 브랜치로 운영.
 
-```
-feature/* ──PR──→ develop ──PR──→ main
-fix/*                │                │
-docs/*               ▼                ▼
-                  테스트 서버       프로덕션 서버
-                  (자동 배포)      (자동 배포)
+```mermaid
+flowchart LR
+    F["feature/* / fix/* / docs/*"] -->|PR| DEV[develop]
+    DEV -->|PR| MAIN[main]
+    DEV -->|자동 배포| TEST[테스트 서버]
+    MAIN -->|자동 배포| PROD[프로덕션 서버]
 ```
 
 | 브랜치 | 역할 | 보호 규칙 |
