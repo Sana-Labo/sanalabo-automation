@@ -21,3 +21,4 @@ data/
 # Claude Code — share project config, exclude personal state
 .claude/settings.local.json
 .claude/projects/
+.work-log
