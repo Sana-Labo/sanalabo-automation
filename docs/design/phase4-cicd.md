@@ -98,20 +98,23 @@ home:    /opt/actions-runner
 ```
 /opt/actions-runner/                 # runner binary + config, owned by gha-runner
 ~gha-runner/deploy/
+  _shared/
+    cloudflared/                     # single tunnel container, shared by all services + envs
+      docker-compose.yml
+      config.yml                     # ingress rules: hostname → service:port
   sanalabo-automation/
     dev/                             # separate clone, branch: develop
       .env                           # populated by workflow from GitHub Secrets
-      docker-compose.yml
-      ...
+      docker-compose.yml             # assistant only; joins shared cf_tunnel network
     prod/                            # separate clone, branch: main
       .env
-      ...
+      docker-compose.yml
   <next-service>/                    # future: same pattern
     dev/
     prod/
 ```
 
-The runner runs as `gha-runner`, but the deploy directories can either live under `gha-runner`'s home (cleaner) or stay at `~timothy01/deploy/` (current layout) with `gha-runner` given group write access. **Decision needed** — see §9 open questions.
+Deploy directories live exclusively under `gha-runner`'s home. The existing `~timothy01/deploy/` layout is migrated into `~gha-runner/deploy/` and removed during PR 2 so that ownership, permissions, and the manual-vs-automated deploy story stay consistent. The `_shared/` subtree holds infrastructure that cross-cuts services (currently only cloudflared — see §7.1).
 
 ### 5.3 Secret management
 
@@ -239,7 +242,76 @@ When a second service repo is added:
 
 No shared-state coupling between services; the runner is simply a job executor.
 
-**Shared infra (future):** if services start needing a shared cloudflared tunnel, a common docker network, or a shared log sink, extract those into a top-level `~gha-runner/deploy/_shared/` compose file and document the dependency.
+### 7.1 Shared cloudflared tunnel
+
+Every service and environment shares a **single cloudflared container** under `~gha-runner/deploy/_shared/cloudflared/`. Cloudflare Tunnel supports multi-hostname routing in `config.yml`, so adding services or environments does not add cloudflared instances. This avoids the `N services × 2 envs = 2N tunnels` fan-out that would otherwise be unavoidable with per-service tunnels.
+
+**Why this matters:**
+
+- New service = one line in `config.yml`, no new container
+- `docker compose up -d` on an app does **not** restart cloudflared → no LINE webhook gap during app deploys (addresses §9 decision 4)
+- LINE channels register stable, per-env hostnames (`prod-line.<domain>`, `dev-line.<domain>`) that never change across redeploys
+
+**Docker network:** a single external network `cf_tunnel` is created once; cloudflared and every service compose file attach to it.
+
+```bash
+docker network create cf_tunnel
+```
+
+**`_shared/cloudflared/config.yml`** (the routing table):
+
+```yaml
+tunnel: <tunnel-id>
+credentials-file: /etc/cloudflared/creds.json
+ingress:
+  - hostname: dev-line.<your-domain>
+    service: http://sanalabo-dev-assistant:3000
+  - hostname: prod-line.<your-domain>
+    service: http://sanalabo-prod-assistant:3000
+  # future services append here
+  - hostname: <next-dev>.<your-domain>
+    service: http://<container-name>:<port>
+  - service: http_status:404      # catch-all
+```
+
+**`_shared/cloudflared/docker-compose.yml`** (sketch):
+
+```yaml
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --config /etc/cloudflared/config.yml run
+    volumes:
+      - ./config.yml:/etc/cloudflared/config.yml:ro
+      - ./creds.json:/etc/cloudflared/creds.json:ro
+    networks: [cf_tunnel]
+networks:
+  cf_tunnel:
+    external: true
+```
+
+**Per-service compose (both dev and prod)** attaches the app to the shared network with a deterministic container name so the tunnel can address it:
+
+```yaml
+services:
+  assistant:
+    container_name: sanalabo-<env>-assistant    # referenced by config.yml ingress
+    networks: [cf_tunnel, default]
+    ...
+networks:
+  cf_tunnel:
+    external: true
+```
+
+**Adding a service:**
+
+1. Choose hostname, register DNS (Cloudflare dashboard or `cloudflared tunnel route dns`)
+2. Append an ingress entry to `_shared/cloudflared/config.yml`
+3. `docker compose up -d` inside `_shared/cloudflared/` to reload routing (no tunnel downtime for existing hostnames)
+4. Deploy the new service; its compose file joins `cf_tunnel`
+
+Implementation lands in PR 4, at the same time prod workflow is introduced.
 
 ## 8. Migration plan (implementation order)
 
@@ -256,18 +328,15 @@ Split into small PRs. Each ends in a verifiable state.
 
 Total estimated wall-time: **~1 working session per PR**, sequential because each depends on the previous.
 
-## 9. Open questions (decide before starting PR 2)
+## 9. Decisions
 
-1. **Deploy dir ownership**: move `~timothy01/deploy/` → `~gha-runner/deploy/` (cleaner), or chgrp the existing dirs to `gha-runner` with setgid (less disruption to current manual flow)?
-   - Recommended: migrate to `~gha-runner/deploy/`. Clean break, matches isolation story.
-2. **Runner token rotation cadence**: GitHub-generated runner tokens auto-renew. Do we enforce manual reset on a schedule (e.g., quarterly)?
-   - Recommended: quarterly, documented in a calendar reminder.
-3. **Dev approval gate**: prod has approval; should dev also require a one-click approve to prevent accidental breakages?
-   - Recommended: no — dev is meant to catch issues. Approval gate only on prod.
-4. **Cloudflared tunnel restart**: `docker compose up -d` on assistant triggers tunnel dependency restart too. Acceptable?
-   - Recommended: yes for dev. For prod, split tunnel into a separate never-recreated compose to keep LINE webhook reachable during app-container restarts. Revisit in PR 4.
-5. **Cleanup policy**: 7-day image retention — enough?
-   - Recommended: 7 days = ~6 deploys assuming daily pushes. Increase to 14 if retention disk cost is negligible.
+All questions raised during design review are resolved as follows. Implementation PRs (2–6) inherit these as fixed constraints.
+
+1. **Deploy directory ownership** — migrate to `~gha-runner/deploy/` and remove `~timothy01/deploy/`. Clean single-ownership story outweighs the transient disruption to manual-deploy habits. Migration is part of PR 2.
+2. **Runner token rotation** — quarterly. PR 2 adds a rotation runbook to `docs/deployment/runner.md` and a calendar reminder convention. Cost is ~5 min per quarter; benefit is muscle memory for the "token suspected compromised" path.
+3. **Dev approval gate** — none. `develop` merge auto-deploys to dev immediately. Branch ruleset + PR review already gate *what* reaches develop; adding a second click would blunt dev's purpose as the "catch issues fast" environment. Prod keeps the required-reviewer gate (see §11.1 for the removal criteria once the project matures).
+4. **Cloudflared topology** — shared tunnel architecture (§7.1). One cloudflared container under `_shared/` serves every service and environment via multi-hostname ingress. This both dissolves the "tunnel restarts when app restarts" problem and prevents `N × 2` fan-out as more services are added. Lands in PR 4.
+5. **Image retention** — 7 days. `docker image prune --force --filter "until=168h"` at the end of each successful deploy. Rolling back beyond 7 days means `git checkout <sha> && docker build`, which is acceptable for the rare case.
 
 ---
 
@@ -281,7 +350,32 @@ Total estimated wall-time: **~1 working session per PR**, sequential because eac
 | Self-hosted runner reachable from developer shells | Anyone with home-server login could read runner state | Runner home is mode 750, owned by `gha-runner`. `timothy01` is not in `gha-runner` group |
 | Power outage during deploy | Partial state | `docker compose up -d` is idempotent. Next successful run converges |
 
-## 11. References
+## 11. Future evolution
+
+Decisions that are deliberately deferred. The current design chooses the safer default while documenting the path to the lighter alternative once supporting infrastructure catches up. These are not TODOs for Phase 4 — they are signposts for later phases.
+
+### 11.1 Removing the prod approval gate (Continuous Delivery → Continuous Deployment)
+
+Prod currently requires a reviewer click per deploy (§5.4). This trades friction for an explicit "deploy now" moment. Industry-elite organizations (per DORA's *State of DevOps Report*) run Continuous Deployment — `main` merge ships to prod with no human in the loop — but only because their safety net is dense enough to absorb the risk.
+
+Remove the gate once **all** of the following are in place:
+
+- [ ] Integration smoke tests in CI that exercise the live LINE webhook path end-to-end, not only `/health`
+- [ ] Metrics + alerting pipeline (request latency, deploy success rate, error rate) with a notification path for failures
+- [ ] Time-window policy — block deploys outside working hours or auto-defer them, so an early-morning merge does not ship unattended
+- [ ] Change-failure rate below 15% measured over ≥30 deploys (DORA "High performers" threshold)
+
+At that point the PR itself becomes the single approval; a second click adds no signal.
+
+### 11.2 Canary / blue-green rollouts
+
+Single-instance topology precludes true canary. Revisit alongside the K3s migration on the homelab roadmap — Kubernetes `Deployment` + `Service` abstractions make percentage rollouts straightforward and remove the single-container restart window entirely.
+
+### 11.3 Feature flags
+
+Decoupling code deploy from feature enablement is the standard practice for high-velocity teams (LaunchDarkly, Unleash, in-house systems at Facebook / GitHub). Not scoped for Phase 4 — revisit once the service has distinct user segments, A/B needs, or tenant-specific rollouts.
+
+## 12. References
 
 - [GitHub Actions — self-hosted runners](https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners/about-self-hosted-runners)
 - [GitHub Actions — using environments](https://docs.github.com/en/actions/deployment/targeting-different-environments/using-environments-for-deployment)
