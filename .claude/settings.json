@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(bun test:*)",
-      "Bash(bun run typecheck:*)"
+      "Bash(bun run typecheck:*)",
+      "mcp__github-timothy__pull_request_read",
+      "mcp__github-timothy__issue_read",
+      "mcp__claude_ai_Asana__search_objects"
     ]
   }
 }
