@@ -30,8 +30,19 @@ jobs:
           fi
 
       - name: Fetch target SHA
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Runner 호스트의 system/global gitconfig를 무시하여 url.*.insteadOf 등의 rewrite
+          # (예: https://github.com/ → git@github.com:) 에 의존하지 않도록 격리한다.
+          GIT_CONFIG_GLOBAL: /dev/null
+          GIT_CONFIG_SYSTEM: /dev/null
         run: |
-          git -C "$DEPLOY_DIR" fetch --depth=1 origin "$GITHUB_SHA"
+          # remote "origin" 경유가 아니라 REPO_URL을 인자로 직접 전달하여
+          # .git/config에 저장된 URL의 영향을 완전히 배제한다. http.extraheader로
+          # job-scope GITHUB_TOKEN을 이용해 authenticated HTTPS fetch를 수행한다.
+          git -C "$DEPLOY_DIR" \
+            -c "http.https://github.com/.extraheader=AUTHORIZATION: bearer $GH_TOKEN" \
+            fetch --depth=1 "$REPO_URL" "$GITHUB_SHA"
           git -C "$DEPLOY_DIR" reset --hard "$GITHUB_SHA"
           echo "Deployed tree: $(git -C "$DEPLOY_DIR" log -1 --oneline)"
 
