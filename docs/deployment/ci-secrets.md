@@ -31,68 +31,90 @@ The workflow opts in via `environment: dev` on the job.
 4. **Protection rules**: leave unset — dev deploys without approval. `prod` will add a required reviewer in PR 4.
 5. Save.
 
-### 2.2 Prepare the `DEV_ENV_FILE` value
+### 2.2 Register individual environment secrets
 
-The secret holds the **full contents** of the server's `.env` file for the dev environment. Start from `.env.example` and fill in dev-specific values:
+Each sensitive variable is stored as its **own** environment secret, not as one monolithic blob. This is the standard GitHub Actions pattern: secrets are rotated, audited, and log-masked independently.
+
+The `dev` environment requires these secrets (all required — workflow fails fast if any is missing):
+
+| Secret name | Source | Notes |
+|-------------|--------|-------|
+| `ANTHROPIC_API_KEY` | <https://console.anthropic.com/> → API Keys | Use a **dev-specific** key (separate billing from prod) |
+| `LINE_CHANNEL_ACCESS_TOKEN` | LINE Developers Console → dev channel → Messaging API | Dev channel only — not the production bot |
+| `LINE_CHANNEL_SECRET` | LINE Developers Console → dev channel → Basic settings | Same dev channel |
+| `SYSTEM_ADMIN_IDS` | Your LINE userId(s) for testing | Comma-separated (e.g., `Uabc123,Udef456`). Whitespace-free |
+| `GOOGLE_CLIENT_ID` | Google Cloud Console → APIs & Services → Credentials → dev OAuth client | Full value ending in `.apps.googleusercontent.com` |
+| `GOOGLE_CLIENT_SECRET` | Same OAuth client | |
+| `GOOGLE_REDIRECT_URI` | `https://<dev 공개 도메인>/auth/google/callback` | Must match the OAuth client's Authorized redirect URI exactly |
+| `TOKEN_ENCRYPTION_KEY` | Generate locally — see below | **32-byte random** value; never reuse prod's |
+
+`TOKEN_ENCRYPTION_KEY` generation (run locally, paste output into the secret):
 
 ```bash
-# On your workstation (not the server)
-cp .env.example /tmp/dev.env
-# Edit /tmp/dev.env with dev credentials:
-#   - ANTHROPIC_API_KEY (dev project key)
-#   - LINE_CHANNEL_ACCESS_TOKEN / LINE_CHANNEL_SECRET (dev LINE channel)
-#   - SYSTEM_ADMIN_IDS (dev test user IDs)
-#   - GOOGLE_* (dev OAuth client)
-#   - TOKEN_ENCRYPTION_KEY (new value; never reuse prod's)
-#   - CF_TUNNEL_TOKEN (leave empty for PR 3 — tunnel bundling moves to PR 4's shared cloudflared)
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
-Key constraints:
+Constraints that apply to all secrets:
 
-- Separate `ANTHROPIC_API_KEY` from prod to keep usage/billing distinct.
-- Separate `LINE_CHANNEL_*` — dev uses a different LINE channel so test messages do not hit real users.
-- `TOKEN_ENCRYPTION_KEY` is a fresh 32-byte random value; leaking dev's key must not expose prod tokens.
-- Trailing newline at EOF is fine; `printf '%s'` in the workflow preserves the file verbatim.
-- **No BOM, no CRLF.** Use LF line endings — `docker compose` env parsing is LF-only.
+- **No surrounding whitespace or quotes** — paste the raw value (GitHub does not strip for you).
+- **LF only, no BOM** — applies even to single-line values some editors accidentally append CRLF.
+- Rotating dev's `TOKEN_ENCRYPTION_KEY` invalidates all encrypted OAuth tokens under `data/workspaces/` (dev users must re-authorize).
 
-### 2.3 Upload as an environment secret
+`CF_TUNNEL_TOKEN` is intentionally absent — Phase 4 PR 4 moves the Cloudflare tunnel to a shared `_shared/cloudflared/` compose file, so the dev app container no longer runs its own tunnel.
+
+### 2.3 Upload each secret
+
+For each row in §2.2:
 
 1. <https://github.com/Sana-Labo/sanalabo-automation/settings/environments/dev/edit>
 2. **Environment secrets → Add secret**
-3. Name: **`DEV_ENV_FILE`** (exact)
-4. Value: paste the full contents of `/tmp/dev.env`
+3. Paste the **exact name** from the table (case-sensitive)
+4. Paste the value
 5. **Add secret**
 
-Verify: the secrets list now shows `DEV_ENV_FILE` with a timestamp. Delete the local copy:
+Alternatively via `gh` (requires `repo` PAT; Claude's sandbox blocks `gh`, so you run this):
 
 ```bash
-rm /tmp/dev.env
+gh secret set ANTHROPIC_API_KEY --env dev --body "$VALUE"
+# ... repeat for each secret
 ```
 
-> **Why not repository-level secret?** A repo secret would leak into any branch's workflow. Environment secrets only appear when a job declares `environment: dev`, and branch rules further restrict which branches can claim that environment.
+Verify: the environment's secrets list shows all eight entries with timestamps.
+
+> **Why environment-level, not repo-level?** A repo secret is reachable from any branch's workflow. Environment secrets only resolve when a job declares `environment: dev`, and the environment's deployment-branches rule further restricts which branches can claim that environment. `prod` will reuse the same split (PR 4) with its own reviewer gate.
 
 ---
 
-## 3. How the workflow consumes the secret
+## 3. How the workflow consumes the secrets
 
-`.github/workflows/deploy-dev.yml` renders the secret onto disk in a single protected step:
+`.github/workflows/deploy-dev.yml` exposes each secret as its own env var, then assembles `.env` on disk via `printf`. This keeps each secret an independent value — GitHub's log masker can match and redact each one in isolation.
 
 ```yaml
-- name: Render .env from DEV_ENV_FILE
+- name: Render .env from individual secrets
   env:
-    DEV_ENV_FILE: ${{ secrets.DEV_ENV_FILE }}
+    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+    # ... (full list in the workflow)
+    TOKEN_ENCRYPTION_KEY: ${{ secrets.TOKEN_ENCRYPTION_KEY }}
   run: |
     umask 077
-    printf '%s' "$DEV_ENV_FILE" > "$DEPLOY_DIR/.env"
+    : "${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY secret is missing or empty}"
+    # ... fail-fast for every required secret
+    {
+      printf 'ANTHROPIC_API_KEY=%s\n' "$ANTHROPIC_API_KEY"
+      # ... one printf per variable
+      printf 'PORT=3000\n'
+    } > "$DEPLOY_DIR/.env"
     chmod 600 "$DEPLOY_DIR/.env"
 ```
 
 Security properties:
 
 - `umask 077` guarantees the file is created `0600` even if `chmod` is skipped.
-- GitHub Actions auto-masks secret values in logs — a stray `echo` would render as `***`. Still, we avoid `echo`ing the contents intentionally.
-- `printf '%s'` (not `echo`) preserves the value verbatim; `echo` would interpret backslash escapes on some shells.
-- The env-var indirection (`env: DEV_ENV_FILE: ${{ ... }}`) avoids putting the secret value into the shell command string, where a malformed `.env` line could theoretically cause parsing surprises.
+- Each secret is log-masked **individually** by GitHub Actions. A single multiline blob would be matched as one token and may silently fail to mask when split across lines — the per-variable approach avoids that failure mode.
+- `printf '%s\n'` (not `echo`) preserves each value verbatim, independent of the shell's backslash-escape behavior.
+- `: "${VAR:?...}"` fails the job with a specific message naming the missing key — no "empty .env" guessing games.
+- Non-sensitive constants (`PORT=3000`) live in the workflow itself; no need to store them as secrets or variables.
 
 The resulting `.env` stays under `gha-runner`'s home with `0600` permissions. Only `gha-runner` and `root` can read it.
 
@@ -125,15 +147,14 @@ On failure, the `Report container status` step (which runs `if: always()`) print
 
 ### Routine rotation
 
-Secrets are rotated by updating the value in the GitHub UI — **no server login needed**:
+Rotating a single credential touches **one** secret — this is the direct win over the old monolithic pattern:
 
-1. Generate new credentials (e.g., new ANTHROPIC API key)
-2. Edit `/tmp/dev.env` with the new value (reuse §2.2 procedure)
-3. Update `DEV_ENV_FILE` at <https://github.com/Sana-Labo/sanalabo-automation/settings/environments/dev/edit>
-4. Trigger a deploy (push a no-op commit, or rerun the latest successful workflow)
-5. Confirm via `Report container status` that the container started with the new env
+1. Generate the new credential (e.g., new ANTHROPIC API key at the provider console)
+2. Update the corresponding secret at <https://github.com/Sana-Labo/sanalabo-automation/settings/environments/dev/edit>
+3. Trigger a deploy (push a no-op commit to `develop`, or rerun the latest successful workflow)
+4. Confirm via `Report container status` that the container started with the new env
 
-Because the workflow writes `.env` on every run, step 4 is what actually applies the rotation. Skipping it means the server keeps the old `.env`.
+Because the workflow writes `.env` on every run, step 3 is what actually applies the rotation. Skipping it means the server keeps the old `.env`.
 
 ### Emergency rotation (suspected leak)
 
@@ -148,12 +169,27 @@ Add these steps to the routine flow:
 
 ## 6. Secret inventory (forward reference)
 
-| Secret | Scope | Added in | Used by |
-|--------|-------|----------|---------|
-| `DEV_ENV_FILE` | environment: `dev` | **PR 3 (this PR)** | `deploy-dev.yml` |
-| `PROD_ENV_FILE` | environment: `prod` | PR 4 | `deploy-prod.yml` |
-| `LINE_NOTIFY_CHANNEL_TOKEN` | repository | PR 5 | both deploy workflows (operator notifications) |
-| `OPERATOR_LINE_USER_ID` | repository | PR 5 | both deploy workflows |
+**Environment `dev`** (registered in this PR):
+
+| Secret | Used by |
+|--------|---------|
+| `ANTHROPIC_API_KEY` | agent loop |
+| `LINE_CHANNEL_ACCESS_TOKEN` | LINE MCP send |
+| `LINE_CHANNEL_SECRET` | LINE webhook signature verify |
+| `SYSTEM_ADMIN_IDS` | admin allowlist |
+| `GOOGLE_CLIENT_ID` | GWS OAuth |
+| `GOOGLE_CLIENT_SECRET` | GWS OAuth |
+| `GOOGLE_REDIRECT_URI` | GWS OAuth callback URL |
+| `TOKEN_ENCRYPTION_KEY` | encrypted token store (AES-256-GCM master key) |
+
+**Environment `prod`** (PR 4): same eight names, separate values. Reviewer gate required for deploys.
+
+**Repository scope** (PR 5):
+
+| Secret | Used by |
+|--------|---------|
+| `LINE_NOTIFY_CHANNEL_TOKEN` | operator notifications from both workflows |
+| `OPERATOR_LINE_USER_ID` | notification target userId |
 
 `LINE_NOTIFY_CHANNEL_TOKEN` is repo-level (not environment-level) because it carries operator-notification-only rights — it does not grant access to app user data. Splitting it per environment would add bookkeeping with no real isolation gain.
 
@@ -165,13 +201,13 @@ Add these steps to the routine flow:
 
 The environment's **Deployment branches** rule does not match the branch that pushed. Verify §2.1 step 3 includes `develop`. Symptoms: the run pauses at the job level with "Waiting for a reviewer" despite no reviewer configured — GitHub rejects the branch before the job queues.
 
-### `Render .env` step prints `DEV_ENV_FILE secret is empty or unset`
+### `Render .env` step prints `<KEY> secret is missing or empty`
 
-The secret exists under the wrong scope (repo-level instead of `dev` environment) or the workflow is missing `environment: dev` on the job. Environment secrets only resolve when the job has declared that environment.
+The named secret is not registered under the `dev` environment (or exists at repo-level instead), or the workflow is missing `environment: dev` on the job. Environment secrets only resolve when the job declares that environment. Register the secret at <https://github.com/Sana-Labo/sanalabo-automation/settings/environments/dev/edit> and rerun.
 
 ### Container fails healthcheck on first deploy
 
-Inspect the printed `docker compose logs` from the `Report container status` step. Most common: a required env var is missing from `DEV_ENV_FILE` (e.g., forgot `ANTHROPIC_API_KEY`). The agent startup will crash with a clear message. Add the missing value via §5 Routine rotation and redeploy.
+Inspect the printed `docker compose logs` from the `Report container status` step. Most common: a required env var holds an invalid value (e.g., wrong `ANTHROPIC_API_KEY` format). The agent startup will crash with a clear message. Update the corresponding secret via §5 Routine rotation and redeploy.
 
 ### `Fetch target SHA` fails with `Host key verification failed` / `Could not read from remote repository`
 

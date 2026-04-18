@@ -49,18 +49,40 @@ jobs:
           git -C "$DEPLOY_DIR" reset --hard "$GITHUB_SHA"
           echo "Deployed tree: $(git -C "$DEPLOY_DIR" log -1 --oneline)"
 
-      - name: Render .env from DEV_ENV_FILE
+      - name: Render .env from individual secrets
         env:
-          DEV_ENV_FILE: ${{ secrets.DEV_ENV_FILE }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          LINE_CHANNEL_SECRET: ${{ secrets.LINE_CHANNEL_SECRET }}
+          SYSTEM_ADMIN_IDS: ${{ secrets.SYSTEM_ADMIN_IDS }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_REDIRECT_URI: ${{ secrets.GOOGLE_REDIRECT_URI }}
+          TOKEN_ENCRYPTION_KEY: ${{ secrets.TOKEN_ENCRYPTION_KEY }}
         run: |
           umask 077
-          printf '%s' "$DEV_ENV_FILE" > "$DEPLOY_DIR/.env"
+          # 필수 secret 누락 시 즉시 실패 (어느 키가 비어있는지 에러로 식별)
+          : "${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY secret is missing or empty}"
+          : "${LINE_CHANNEL_ACCESS_TOKEN:?LINE_CHANNEL_ACCESS_TOKEN secret is missing or empty}"
+          : "${LINE_CHANNEL_SECRET:?LINE_CHANNEL_SECRET secret is missing or empty}"
+          : "${SYSTEM_ADMIN_IDS:?SYSTEM_ADMIN_IDS secret is missing or empty}"
+          : "${GOOGLE_CLIENT_ID:?GOOGLE_CLIENT_ID secret is missing or empty}"
+          : "${GOOGLE_CLIENT_SECRET:?GOOGLE_CLIENT_SECRET secret is missing or empty}"
+          : "${GOOGLE_REDIRECT_URI:?GOOGLE_REDIRECT_URI secret is missing or empty}"
+          : "${TOKEN_ENCRYPTION_KEY:?TOKEN_ENCRYPTION_KEY secret is missing or empty}"
+          # printf로 조립 — 각 secret은 GitHub Actions가 로그에서 개별 마스킹
+          {
+            printf 'ANTHROPIC_API_KEY=%s\n' "$ANTHROPIC_API_KEY"
+            printf 'LINE_CHANNEL_ACCESS_TOKEN=%s\n' "$LINE_CHANNEL_ACCESS_TOKEN"
+            printf 'LINE_CHANNEL_SECRET=%s\n' "$LINE_CHANNEL_SECRET"
+            printf 'SYSTEM_ADMIN_IDS=%s\n' "$SYSTEM_ADMIN_IDS"
+            printf 'GOOGLE_CLIENT_ID=%s\n' "$GOOGLE_CLIENT_ID"
+            printf 'GOOGLE_CLIENT_SECRET=%s\n' "$GOOGLE_CLIENT_SECRET"
+            printf 'GOOGLE_REDIRECT_URI=%s\n' "$GOOGLE_REDIRECT_URI"
+            printf 'TOKEN_ENCRYPTION_KEY=%s\n' "$TOKEN_ENCRYPTION_KEY"
+            printf 'PORT=3000\n'
+          } > "$DEPLOY_DIR/.env"
           chmod 600 "$DEPLOY_DIR/.env"
-          # Sanity check: non-empty and not obviously corrupted
-          if [ ! -s "$DEPLOY_DIR/.env" ]; then
-            echo "::error::DEV_ENV_FILE secret is empty or unset"
-            exit 1
-          fi
           echo ".env rendered: $(wc -l < "$DEPLOY_DIR/.env") lines, $(stat -c '%a' "$DEPLOY_DIR/.env") perms"
 
       - name: Build image

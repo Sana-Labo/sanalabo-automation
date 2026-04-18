@@ -118,18 +118,34 @@ Deploy directories live exclusively under `gha-runner`'s home. The existing `~ti
 
 ### 5.3 Secret management
 
-**GitHub Secrets** (per-environment):
+**GitHub Environment Secrets — one per sensitive variable** (standard GitHub Actions pattern):
 
-| Secret | Scope | Used for |
-|--------|-------|----------|
-| `DEV_ENV_FILE` | environment: `dev` | Full `.env` contents for dev |
-| `PROD_ENV_FILE` | environment: `prod` | Full `.env` contents for prod |
-| `LINE_NOTIFY_CHANNEL_TOKEN` | repository | Operator notifications |
-| `OPERATOR_LINE_USER_ID` | repository | Notification target |
+Environment `dev` (same names registered under `prod` in PR 4 with separate values):
 
-Workflow writes `DEV_ENV_FILE` contents to `~/deploy/sanalabo-automation/dev/.env` with `chmod 600` immediately before `docker compose up`. The file is never echoed to logs (`::add-mask::` on each line during render, or write via stdin redirection).
+| Secret | Used for |
+|--------|----------|
+| `ANTHROPIC_API_KEY` | Agent loop |
+| `LINE_CHANNEL_ACCESS_TOKEN` | LINE MCP send |
+| `LINE_CHANNEL_SECRET` | LINE webhook signature verify |
+| `SYSTEM_ADMIN_IDS` | Admin allowlist |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_REDIRECT_URI` | GWS OAuth |
+| `TOKEN_ENCRYPTION_KEY` | AES-256-GCM master key |
 
-**Rotation:** updating the secret in GitHub and re-running the latest successful workflow re-populates `.env`. No server login needed for credential rotation — important UX win.
+Repository-scope (PR 5):
+
+| Secret | Used for |
+|--------|----------|
+| `LINE_NOTIFY_CHANNEL_TOKEN` | Operator notifications |
+| `OPERATOR_LINE_USER_ID` | Notification target |
+
+The workflow exposes each secret as its own env var, then assembles `.env` via `printf` with one line per variable (see §5.4). Two properties fall out of this choice:
+
+1. **Per-variable log masking** — GitHub Actions masks each secret token independently. A monolithic multiline blob would be matched as one token and can silently fail to mask when line boundaries don't match, which is a known failure mode.
+2. **Targeted rotation** — rotating one credential touches one secret, not the whole bundle.
+
+Non-sensitive constants (`PORT=3000` today) are hard-coded in the workflow rather than stored as secrets or variables — they're not confidential and adding them as inputs only adds drift surface.
+
+**Rotation:** updating the affected secret in GitHub and re-running the latest successful workflow re-populates `.env`. No server login needed for credential rotation.
 
 ### 5.4 Workflow files
 
@@ -162,9 +178,20 @@ jobs:
           git fetch origin develop
           git reset --hard origin/develop
       - name: Render .env
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # ... (one line per secret — see deploy-dev.yml for the full list)
+          TOKEN_ENCRYPTION_KEY: ${{ secrets.TOKEN_ENCRYPTION_KEY }}
         run: |
           umask 077
-          printf '%s' '${{ secrets.DEV_ENV_FILE }}' > ~/deploy/sanalabo-automation/dev/.env
+          : "${ANTHROPIC_API_KEY:?missing}"
+          # ... fail-fast per secret
+          {
+            printf 'ANTHROPIC_API_KEY=%s\n' "$ANTHROPIC_API_KEY"
+            # ... one printf per variable
+            printf 'PORT=3000\n'
+          } > ~/deploy/sanalabo-automation/dev/.env
+          chmod 600 ~/deploy/sanalabo-automation/dev/.env
       - name: Record previous image digest (for rollback)
         id: prev
         run: |
@@ -322,8 +349,8 @@ Split into small PRs. Each ends in a verifiable state.
 |----|---------|--------------|
 | 1 | **This design doc** | Review + approve |
 | 2 | Register runner on server (manual steps) + add `runner.md` install guide under `docs/deployment/` | `gh api /repos/.../actions/runners` shows online |
-| 3 | `deploy-dev.yml` (no notifications yet) + secrets `DEV_ENV_FILE` | push to develop triggers deploy; dev container restarts with new SHA |
-| 4 | `deploy-prod.yml` + `prod` environment approval gate + `PROD_ENV_FILE` | merge to main requires approval; prod deploys after approve |
+| 3 | `deploy-dev.yml` (no notifications yet) + per-variable dev environment secrets (§5.3) | push to develop triggers deploy; dev container restarts with new SHA |
+| 4 | `deploy-prod.yml` + `prod` environment approval gate + per-variable prod environment secrets | merge to main requires approval; prod deploys after approve |
 | 5 | `scripts/notify-deploy.ts` + wire into both workflows | LINE message arrives on next deploy |
 | 6 | `workflow_dispatch` manual rollback input + document the procedure | manual rollback to a prior SHA succeeds |
 
