@@ -185,8 +185,9 @@ env:
   GIT_CONFIG_GLOBAL: /dev/null
   GIT_CONFIG_SYSTEM: /dev/null
 run: |
+  AUTH_HEADER="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
   git -C "$DEPLOY_DIR" \
-    -c "http.https://github.com/.extraheader=AUTHORIZATION: bearer $GH_TOKEN" \
+    -c "http.extraheader=$AUTH_HEADER" \
     fetch --depth=1 "$REPO_URL" "$GITHUB_SHA"
 ```
 
@@ -194,7 +195,7 @@ run: |
 |---------|---------|
 | `GIT_CONFIG_GLOBAL=/dev/null` + `GIT_CONFIG_SYSTEM=/dev/null` | Git ignores both `/etc/gitconfig` and `$HOME/.gitconfig`, neutralizing any `url.*.insteadOf`, `core.sshCommand`, or credential helper in those files |
 | Fetch passes `"$REPO_URL"` directly (not `origin`) | Bypasses whatever URL is stored in `$DEPLOY_DIR/.git/config`'s `remote.origin.url` |
-| `http.extraheader` with the job's `GITHUB_TOKEN` | Authenticated HTTPS fetch; does not depend on host-level credential helpers. Scoped to this command via `-c` |
+| `http.extraheader` (unscoped) with basic `x-access-token:$GITHUB_TOKEN` | Authenticated HTTPS fetch matching actions/checkout's proven pattern. URL-scoped keys (e.g. `http.https://github.com/.extraheader`) are **not** used because `git -c` receives the entire `key=value` as one shell argument, and git's config parser cannot reliably split section/subsection boundaries when the URL contains `.` and `/`; the header silently fails to apply and git falls back to interactive credential prompting (`fatal: could not read Username ...`). Since this fetch only targets github.com, unscoped `http.extraheader` is safe |
 
 The settings cover all four transport-override paths (system, global, local, env) in one pass. If you must debug the underlying cause separately, check `sudo cat /etc/gitconfig`, `git config --system --get-regexp '^url\.'` as `gha-runner`, and `cat $DEPLOY_DIR/.git/config`.
 
