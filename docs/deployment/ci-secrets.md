@@ -173,6 +173,31 @@ The secret exists under the wrong scope (repo-level instead of `dev` environment
 
 Inspect the printed `docker compose logs` from the `Report container status` step. Most common: a required env var is missing from `DEV_ENV_FILE` (e.g., forgot `ANTHROPIC_API_KEY`). The agent startup will crash with a clear message. Add the missing value via §5 Routine rotation and redeploy.
 
+### `Fetch target SHA` fails with `Host key verification failed` / `Could not read from remote repository`
+
+The fetch is resolving the repository URL via SSH even though the workflow declares `REPO_URL` as HTTPS. This happens when a `url.<ssh>.insteadOf = <https>` rewrite exists in the runner's **system** (`/etc/gitconfig`) or **global** (`~/.gitconfig`) config, or when a stale `.git/config` under `$DEPLOY_DIR` has an SSH remote — any of which causes git to switch transports before honoring the workflow's HTTPS URL. SSH then fails because `gha-runner`'s `~/.ssh/known_hosts` does not include `github.com`.
+
+The `Fetch target SHA` step is isolated against all of these with three measures (do **not** remove them, even if the underlying runner config looks clean today):
+
+```yaml
+env:
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  GIT_CONFIG_GLOBAL: /dev/null
+  GIT_CONFIG_SYSTEM: /dev/null
+run: |
+  git -C "$DEPLOY_DIR" \
+    -c "http.https://github.com/.extraheader=AUTHORIZATION: bearer $GH_TOKEN" \
+    fetch --depth=1 "$REPO_URL" "$GITHUB_SHA"
+```
+
+| Measure | Purpose |
+|---------|---------|
+| `GIT_CONFIG_GLOBAL=/dev/null` + `GIT_CONFIG_SYSTEM=/dev/null` | Git ignores both `/etc/gitconfig` and `$HOME/.gitconfig`, neutralizing any `url.*.insteadOf`, `core.sshCommand`, or credential helper in those files |
+| Fetch passes `"$REPO_URL"` directly (not `origin`) | Bypasses whatever URL is stored in `$DEPLOY_DIR/.git/config`'s `remote.origin.url` |
+| `http.extraheader` with the job's `GITHUB_TOKEN` | Authenticated HTTPS fetch; does not depend on host-level credential helpers. Scoped to this command via `-c` |
+
+The settings cover all four transport-override paths (system, global, local, env) in one pass. If you must debug the underlying cause separately, check `sudo cat /etc/gitconfig`, `git config --system --get-regexp '^url\.'` as `gha-runner`, and `cat $DEPLOY_DIR/.git/config`.
+
 ### Old `.env` kept after secret rotation
 
 You rotated the secret but skipped a redeploy. The workflow only rewrites `.env` when it runs. Push an empty commit or rerun the last successful workflow:
