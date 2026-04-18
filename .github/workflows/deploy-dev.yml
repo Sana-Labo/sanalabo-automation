@@ -1,0 +1,69 @@
+name: Deploy to dev
+
+on:
+  push:
+    branches: [develop]
+
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, home-server]
+    environment: dev
+    timeout-minutes: 15
+    env:
+      DEPLOY_DIR: /home/gha-runner/deploy/sanalabo-automation/dev
+      REPO_URL: https://github.com/Sana-Labo/sanalabo-automation.git
+      SERVICE: assistant
+    steps:
+      - name: Bootstrap deploy dir (idempotent)
+        run: |
+          if [ ! -d "$DEPLOY_DIR/.git" ]; then
+            mkdir -p "$DEPLOY_DIR"
+            git init "$DEPLOY_DIR"
+            git -C "$DEPLOY_DIR" remote add origin "$REPO_URL"
+          fi
+
+      - name: Fetch target SHA
+        run: |
+          git -C "$DEPLOY_DIR" fetch --depth=1 origin "$GITHUB_SHA"
+          git -C "$DEPLOY_DIR" reset --hard "$GITHUB_SHA"
+          echo "Deployed tree: $(git -C "$DEPLOY_DIR" log -1 --oneline)"
+
+      - name: Render .env from DEV_ENV_FILE
+        env:
+          DEV_ENV_FILE: ${{ secrets.DEV_ENV_FILE }}
+        run: |
+          umask 077
+          printf '%s' "$DEV_ENV_FILE" > "$DEPLOY_DIR/.env"
+          chmod 600 "$DEPLOY_DIR/.env"
+          # Sanity check: non-empty and not obviously corrupted
+          if [ ! -s "$DEPLOY_DIR/.env" ]; then
+            echo "::error::DEV_ENV_FILE secret is empty or unset"
+            exit 1
+          fi
+          echo ".env rendered: $(wc -l < "$DEPLOY_DIR/.env") lines, $(stat -c '%a' "$DEPLOY_DIR/.env") perms"
+
+      - name: Build image
+        working-directory: ${{ env.DEPLOY_DIR }}
+        run: docker compose build --pull "$SERVICE"
+
+      - name: Start service with healthcheck wait
+        working-directory: ${{ env.DEPLOY_DIR }}
+        run: docker compose up -d --wait "$SERVICE"
+
+      - name: Report container status
+        if: always()
+        working-directory: ${{ env.DEPLOY_DIR }}
+        run: |
+          docker compose ps "$SERVICE"
+          docker compose logs --tail=50 --no-color "$SERVICE" || true
+
+      - name: Prune images older than 7 days
+        if: success()
+        run: docker image prune --force --filter "until=168h"

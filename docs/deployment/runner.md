@@ -477,3 +477,4 @@ To also remove the registration from GitHub, run `config.sh remove` (see §9 ste
 - [GitHub Docs — Configuring the runner application as a service](https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners/configuring-the-self-hosted-runner-application-as-a-service)
 - [Runner releases](https://github.com/actions/runner/releases)
 - Design proposal: [docs/design/phase4-cicd.md](../design/phase4-cicd.md)
+- Secrets & environments: [ci-secrets.md](./ci-secrets.md)
