@@ -53,7 +53,7 @@ On your macOS workstation:
 
 Run sections 3.1 through 3.10 exactly once when bringing Vault up for the first time.
 
-### 3.1 Copy config to the home server
+### 3.1 Copy config to the on-prem server
 
 From the repo working copy on your workstation:
 
@@ -104,19 +104,19 @@ ROOT_TOKEN=$(jq -r '.root_token' /tmp/vault-init.json)
 
 security add-generic-password \
   -a vault-admin \
-  -s home-vault-unseal-key \
+  -s onprem-vault-unseal-key \
   -w "$UNSEAL_KEY" \
   -U
 
 security add-generic-password \
   -a vault-admin \
-  -s home-vault-root-token \
+  -s onprem-vault-root-token \
   -w "$ROOT_TOKEN" \
   -U
 
 # Confirm retrieval before destroying the file
-security find-generic-password -a vault-admin -s home-vault-unseal-key -w >/dev/null && echo "unseal key stored"
-security find-generic-password -a vault-admin -s home-vault-root-token -w >/dev/null && echo "root token stored"
+security find-generic-password -a vault-admin -s onprem-vault-unseal-key -w >/dev/null && echo "unseal key stored"
+security find-generic-password -a vault-admin -s onprem-vault-root-token -w >/dev/null && echo "root token stored"
 
 # Destroy the plaintext file
 shred -u /tmp/vault-init.json 2>/dev/null || rm -P /tmp/vault-init.json
@@ -124,14 +124,14 @@ unset UNSEAL_KEY ROOT_TOKEN
 ```
 
 Option flags:
-- `-a` account, `-s` service: the tuple `(vault-admin, home-vault-unseal-key)` is how the item is located. Keep these names exactly — scripts and the §4 procedures depend on them.
+- `-a` account, `-s` service: the tuple `(vault-admin, onprem-vault-unseal-key)` is how the item is located. Keep these names exactly — scripts and the §4 procedures depend on them.
 - `-w` writes the password value. Subsequent reads use `-w` without a value to print it.
 - `-U` updates the item if it already exists (idempotent).
 
 ### 3.5 First unseal
 
 ```bash
-UNSEAL_KEY=$(security find-generic-password -a vault-admin -s home-vault-unseal-key -w)
+UNSEAL_KEY=$(security find-generic-password -a vault-admin -s onprem-vault-unseal-key -w)
 ssh timothy-dev-ts "docker exec vault vault operator unseal $UNSEAL_KEY"
 unset UNSEAL_KEY
 
@@ -145,7 +145,7 @@ ssh timothy-dev-ts "docker exec vault vault status" | grep -E 'Sealed|Initialize
 All subsequent admin commands need the root token. Fetch it once and export to the remote shell:
 
 ```bash
-ROOT_TOKEN=$(security find-generic-password -a vault-admin -s home-vault-root-token -w)
+ROOT_TOKEN=$(security find-generic-password -a vault-admin -s onprem-vault-root-token -w)
 ```
 
 Enable the method:
@@ -169,7 +169,7 @@ ssh timothy-dev-ts "docker exec -e VAULT_TOKEN=$ROOT_TOKEN vault \
     user_claim=sub \
     bound_claims_type=glob \
     bound_claims='{\"repository\":\"Sana-Labo/sanalabo-automation\",\"environment\":\"dev\"}' \
-    bound_audiences=https://vault.home.local \
+    bound_audiences=https://vault.onprem.local \
     token_policies=read-dev \
     token_ttl=15m \
     token_max_ttl=15m"
@@ -250,7 +250,7 @@ If you skip this step the root token is valid forever and sits in Keychain, whic
 Vault seals itself whenever the container restarts (after host reboot, `docker compose restart`, or OOM kill). The deploy workflow will fail until you unseal:
 
 ```bash
-UNSEAL_KEY=$(security find-generic-password -a vault-admin -s home-vault-unseal-key -w)
+UNSEAL_KEY=$(security find-generic-password -a vault-admin -s onprem-vault-unseal-key -w)
 ssh timothy-dev-ts "docker exec vault vault operator unseal $UNSEAL_KEY"
 unset UNSEAL_KEY
 ```
@@ -327,7 +327,7 @@ Verify sync status: `System Settings → Apple ID → iCloud → Passwords & Key
 
 ### 5.3 Backup to an additional vault (optional)
 
-If iCloud sync feels like too narrow a recovery base, export the unseal key to a second password manager (1Password family account, etc.) at your own discretion. **Do not** export to a file on the home server, to Google Drive, or to any unencrypted channel. The threat model explicitly puts the key outside the home-server blast radius.
+If iCloud sync feels like too narrow a recovery base, export the unseal key to a second password manager (1Password family account, etc.) at your own discretion. **Do not** export to a file on the on-prem server, to Google Drive, or to any unencrypted channel. The threat model explicitly puts the key outside the on-prem-server blast radius.
 
 ---
 
@@ -378,7 +378,7 @@ Common causes:
 Root was revoked in §3.10. To regain admin access (e.g. to create a scoped admin token or rotate a secret), use the unseal key to generate a one-shot root:
 
 ```bash
-UNSEAL_KEY=$(security find-generic-password -a vault-admin -s home-vault-unseal-key -w)
+UNSEAL_KEY=$(security find-generic-password -a vault-admin -s onprem-vault-unseal-key -w)
 
 # Start root generation; outputs a nonce and OTP
 OTP=$(ssh timothy-dev-ts "docker exec vault vault operator generate-root -init -format=json" | jq -r '.otp')

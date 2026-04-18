@@ -2,7 +2,7 @@
 # Design: docs/design/phase4-vault.md
 # Ops runbook: docs/deployment/vault.md
 #
-# Deployment path on the home server: ~gha-runner/deploy/_shared/vault/
+# Deployment path on the on-prem server: ~gha-runner/deploy/_shared/vault/
 # Runs under the gha-runner user (uid/gid owned by docker group membership).
 # Listener is bound to 127.0.0.1 only — no external exposure.
 

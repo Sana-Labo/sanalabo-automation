@@ -5,7 +5,7 @@
 
 storage "raft" {
   path    = "/vault/data"
-  node_id = "vault-home-01"
+  node_id = "vault-onprem-01"
 }
 
 listener "tcp" {
