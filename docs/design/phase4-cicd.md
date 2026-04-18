@@ -228,6 +228,7 @@ Production extras: include PR number and title for traceability.
 | Secret leak in logs | `::add-mask::` on `.env` contents; `secrets.*` never `echo`ed |
 | Compromised GitHub token | PAT not used — runner uses OAuth app token per GitHub runner protocol. Rotate runner token if suspected |
 | Public fork PR triggering workflow | `pull_request` triggers are **not** used for deploy workflows. Only `push` to protected branches + manual `workflow_dispatch` |
+| Public repo × self-hosted runner (fork PR abuse of runner group) | Four-layer defense: (1) deploy workflows use `on: push` only, (2) `main`/`develop` branch protection gates push, (3) org runner group `Allow public repositories` is an explicit opt-in we acknowledge, (4) repo `Require approval for all external contributors` re-checks org membership per run. See [runner.md §6.2](../deployment/runner.md#62-allow-self-hosted-runners-on-public-repositories) and §6.4 |
 | Runner machine compromised → cross-service blast radius | Accepted for single-server homelab. Mitigated when K3s migration provides namespace isolation |
 | `.env` readable by other users on box | `chmod 600`, placed only in runner-user home |
 
