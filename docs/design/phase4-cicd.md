@@ -118,7 +118,9 @@ Deploy directories live exclusively under `gha-runner`'s home. The existing `~ti
 
 ### 5.3 Secret management
 
-**GitHub Secrets** (per-environment):
+> **Status note (2026-04):** This section describes the **intermediate** GitHub-native approach used during PR 3. The long-term design moves to self-hosted HashiCorp Vault — see [phase4-vault.md](./phase4-vault.md) for the architecture, migration plan, and rationale. The section below is preserved for history and for the "emergency fallback to GitHub Secrets" path documented in `phase4-vault.md` §9.
+
+**GitHub Secrets** (per-environment), intermediate design:
 
 | Secret | Scope | Used for |
 |--------|-------|----------|
@@ -130,6 +132,8 @@ Deploy directories live exclusively under `gha-runner`'s home. The existing `~ti
 Workflow writes `DEV_ENV_FILE` contents to `~/deploy/sanalabo-automation/dev/.env` with `chmod 600` immediately before `docker compose up`. The file is never echoed to logs (`::add-mask::` on each line during render, or write via stdin redirection).
 
 **Rotation:** updating the secret in GitHub and re-running the latest successful workflow re-populates `.env`. No server login needed for credential rotation — important UX win.
+
+**Why replaced:** three limitations motivated the Vault transition: (1) management is confined to the GitHub Web UI — no Git history, no diff, no automation; (2) a monolithic `*_ENV_FILE` blob means single-variable rotation requires re-entering the full file; (3) adding services/envs scales the UI workload linearly. See `phase4-vault.md` §3.
 
 ### 5.4 Workflow files
 
@@ -329,6 +333,8 @@ Split into small PRs. Each ends in a verifiable state.
 
 Total estimated wall-time: **~1 working session per PR**, sequential because each depends on the previous.
 
+**Vault migration track** (parallel to above, starts after PR 3 reaches dev-deploy stability): the PR sequence documented in [phase4-vault.md §9](./phase4-vault.md#9-migration-plan) replaces the `*_ENV_FILE` secrets with Vault-backed per-variable fetches via `hashicorp/vault-action`. PRs 4–6 of this doc land on top of that foundation (i.e., `deploy-prod.yml` is written against Vault, not against `PROD_ENV_FILE`).
+
 ## 9. Decisions
 
 All questions raised during design review are resolved as follows. Implementation PRs (2–6) inherit these as fixed constraints.
@@ -338,6 +344,7 @@ All questions raised during design review are resolved as follows. Implementatio
 3. **Dev approval gate** — none. `develop` merge auto-deploys to dev immediately. Branch ruleset + PR review already gate *what* reaches develop; adding a second click would blunt dev's purpose as the "catch issues fast" environment. Prod keeps the required-reviewer gate (see §11.1 for the removal criteria once the project matures).
 4. **Cloudflared topology** — shared tunnel architecture (§7.1). One cloudflared container under `_shared/` serves every service and environment via multi-hostname ingress. This both dissolves the "tunnel restarts when app restarts" problem and prevents `N × 2` fan-out as more services are added. Lands in PR 4.
 5. **Image retention** — 7 days. `docker image prune --force --filter "until=168h"` at the end of each successful deploy. Rolling back beyond 7 days means `git checkout <sha> && docker build`, which is acceptable for the rare case.
+6. **Secret management target state** — self-hosted HashiCorp Vault, not GitHub Environment Secrets. The intermediate `*_ENV_FILE` approach (§5.3) exists only because PR 3 needed a working dev deploy before Vault infrastructure could be stood up; the Vault track in `phase4-vault.md` supersedes it. Rationale: management as code (HCL policies in Git), per-variable secrets with version history (KV v2), and linear scaling to multi-service/multi-env (same JWT role pattern).
 
 ---
 
