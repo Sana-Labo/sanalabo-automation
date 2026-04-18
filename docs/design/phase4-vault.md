@@ -13,12 +13,12 @@
 3. **GitHub 외부 공격면 최소화**: GitHub 계정이나 Actions token이 유출되어도 long-lived secret이 직접 노출되지 않음(OIDC 단기 토큰 기반 인증)
 4. **다중 서비스 확장**: 서비스 추가 시 KV 경로만 늘리고 동일한 JWT auth/policy 패턴 재사용
 5. **운영 부담 상한**: 홈서버 단일 인스턴스로 동작, manual unseal 허용. auto-unseal은 나중으로
+6. **앱 암호화 키 중앙화**: 앱이 쓰는 `TOKEN_ENCRYPTION_KEY`(OAuth refresh_token AES-256-GCM 암호화용 static key)를 Vault Transit engine으로 대체. 키 머티리얼 자체를 `.env`로 배포하는 경로 제거
 
 ## 2. Non-goals
 
 - Vault HA 클러스터 (raft storage는 사용하되 단일 노드 운영. 멀티 노드는 K3s 마이그레이션 시 재검토)
 - Dynamic secrets (DB 자격증명 등을 Vault가 on-demand로 발급하는 기능). 현재 앱은 long-lived API key만 사용하므로 불필요
-- Transit secret engine 기반 암호화 서비스 (앱의 `TOKEN_ENCRYPTION_KEY` 대체). Phase 4 범위 아님
 - Vault Enterprise 기능 (Namespaces, DR replication, Control Groups 등)
 
 ## 3. 왜 Vault인가 — 현 방식의 한계
@@ -217,7 +217,45 @@ vault kv put secret/dev/TOKEN_ENCRYPTION_KEY value="..."
 
 KV v2를 선택한 이유: 버전 관리 내장(회전 시 이전 버전 보존 → 사고 시 즉시 롤백 가능). 추가 운영 비용은 사실상 없다.
 
-### 6.5 Workflow 통합
+### 6.5 Transit engine — 앱 암호화 서비스
+
+앱 런타임의 OAuth refresh token 암호화(현재 `TOKEN_ENCRYPTION_KEY` 기반 AES-256-GCM, `src/skills/gws/encryption.ts` 참조)를 Vault Transit engine의 encrypt/decrypt API로 대체한다. 키 머티리얼이 Vault 외부로 나오지 않는다 — 앱은 평문과 ciphertext만 주고받는다.
+
+**활성화**:
+
+```bash
+vault secrets enable transit
+
+vault write -f transit/keys/tokens \
+  type=aes256-gcm96 \
+  exportable=false \
+  deletion_allowed=false
+```
+
+- `exportable=false`: 생성된 키 머티리얼은 Vault 밖으로 export 불가(유출 경로 봉쇄)
+- `deletion_allowed=false`: 실수로 keys를 삭제해 기존 ciphertext를 영구 복호 불가로 만드는 사고 방지
+
+**봉투 암호화(envelope encryption)**: Vault Transit은 내부적으로 2-tier 키 계층을 관리 — master keyring이 각 operation마다 생성되는 DEK(data encryption key)를 감싸고, ciphertext에는 DEK가 wrap된 형태로 포함된다. 앱 레벨에서는 이 계층을 의식할 필요 없음. 공개 API는 `encrypt`/`decrypt` 두 개만 노출된다.
+
+**앱 전용 정책** (`policies/app-transit.hcl`):
+
+```hcl
+path "transit/encrypt/tokens" {
+  capabilities = ["update"]
+}
+
+path "transit/decrypt/tokens" {
+  capabilities = ["update"]
+}
+```
+
+Transit의 encrypt/decrypt는 `update` capability로 호출한다(Vault convention — "write + response 포함"). `read`는 키 메타데이터 조회용이므로 앱에 부여하지 않는다.
+
+**앱 ↔ Vault 인증**: 앱 컨테이너가 런타임에 Vault와 인증해야 한다. 구체적 방식(AppRole, vault-agent sidecar, 또는 다른 수단)은 PR 4-a 착수 시 결정. 본 PR 2는 Transit engine 활성화와 `tokens` key 생성, policy HCL 체크인까지만 다룬다.
+
+**회전**: `vault write -f transit/keys/tokens/rotate`. 기존 ciphertext는 이전 key version으로 자동 복호(Vault가 version 번호를 ciphertext 메타데이터에 박아 둠). 회전 후 재암호화는 선택 — `vault write transit/rewrap/tokens ciphertext=...`로 새 버전으로 rewrap 가능하나, 이전 version이 아카이브에 남아 있는 한 정합성은 유지된다.
+
+### 6.6 Workflow 통합
 
 `hashicorp/vault-action@v3`는 JWT auth + KV v2 fetch를 한 스텝으로 처리한다. workflow 예시(`deploy-dev.yml`):
 
@@ -276,19 +314,25 @@ jobs:
           chmod 600 "$DEPLOY_DIR/.env"
 ```
 
+> **주의(전환 경로)**: 위 workflow는 PR 3 기준. PR 4-a 이후 앱이 Vault Transit을 런타임에 직접 호출하므로 `TOKEN_ENCRYPTION_KEY` 라인(fetch + render 양쪽)은 제거된다. `.env`에는 static 설정값만 남는다.
+
 **보안 속성**:
 - vault-action이 fetch한 값은 GitHub Actions가 자동으로 log mask
 - Vault token은 job 범위 15분짜리 → 워크플로 끝나면 의미 없음(재사용 불가)
 - `.env`는 `umask 077`로 즉시 0600 생성
 - OIDC 토큰은 GitHub가 job별로 새로 발급 → 값의 재사용 가능성 없음
 
-### 6.6 Unseal 전략
+### 6.7 Unseal 전략
 
-**초기(Phase 4)**: Manual unseal. 호스트 재부팅/Vault 컨테이너 재기동 시 다음 명령을 운영자가 1회 실행.
+**초기(Phase 4)**: Manual unseal. Vault 컨테이너 기동 시 운영자 macOS 워크스테이션의 Apple Keychain에서 unseal key를 꺼내 홈서버로 전달해 1회 실행.
 
 ```bash
-docker exec -it vault vault operator unseal <unseal-key>
+# 운영자 macOS에서
+UNSEAL_KEY=$(security find-generic-password -a vault-admin -s home-vault-unseal-key -w)
+ssh timothy-dev-ts "docker exec vault vault operator unseal $UNSEAL_KEY"
 ```
+
+키 보관: `security add-generic-password -a vault-admin -s home-vault-unseal-key -w <key> -U` (상세 절차는 [docs/deployment/vault.md](../deployment/vault.md)). 유실 내성은 동일 Apple ID에 로그인된 다른 Apple 디바이스 iCloud Keychain 동기화로 확보.
 
 동반 효과: 재부팅 후 배포가 즉시 실패하므로 "배포 실패 → SSH → unseal → 재배포"라는 명시적 복구 절차가 강제된다. 자동화보다 학습에 유리.
 
@@ -296,7 +340,7 @@ docker exec -it vault vault operator unseal <unseal-key>
 1. **Transit seal** — 별도의 Vault 인스턴스를 Transit engine 전용으로 돌리고 메인 Vault가 이를 통해 auto-unseal. 단일 홈서버에서는 이중화 의미 약함
 2. **Cloud KMS** (AWS KMS / GCP KMS) — 클라우드 의존 발생, 홈랩 철학과 트레이드오프
 
-### 6.7 백업
+### 6.8 백업
 
 **메커니즘**: Vault raft storage의 `snapshot` 명령.
 
@@ -332,7 +376,7 @@ GitHub Actions의 모든 secret read는 `vault.log`에 JSON으로 기록된다. 
 
 | 우려 | 완화 |
 |------|------|
-| Vault unseal key 유출 | 홈서버 외부 비밀번호 관리자에 저장. 레포·runner 홈에 파일로 두지 않음 |
+| Vault unseal key 유출 | 운영자 macOS의 Apple Keychain에만 보관. 홈서버(runner 홈 포함) 파일시스템에는 평문/암호화 어떤 형태로도 두지 않음. Keychain 접근은 macOS 로그인 세션으로 게이트 |
 | Vault root token 상시 사용 | 초기 구성 후 root token revoke. 이후 조작은 admin policy의 별도 token으로 |
 | OIDC subject claim 스푸핑 | `bound_claims.repository` + `bound_claims.environment`로 정확히 우리 레포의 특정 환경 job만 허용 |
 | vault-action fetch 로그 노출 | GitHub Actions mask + `exportEnv: false` (step outputs 범위로 한정) |
@@ -348,6 +392,8 @@ GitHub Actions의 모든 secret read는 `vault.log`에 JSON으로 기록된다. 
 | 2 | `~gha-runner/deploy/_shared/vault/` compose + config + policies 디렉터리 추가 + 운영 runbook(`docs/deployment/vault.md`) | 홈서버에서 `vault status`가 unsealed 응답 |
 | 3 | Vault에 dev secret 8개 적재 + jwt role `gha-dev` 구성 + `deploy-dev.yml` 재작성(vault-action 기반) | develop push → 배포 성공, `.env`가 Vault 값으로 렌더됨 |
 | 4 | prod secret 적재 + `gha-prod` role + `deploy-prod.yml` 재작성 + approval gate | main merge → 승인 후 prod 배포 성공 |
+| 4-a | 앱 코드에 `VaultTransitEncryption` 구현(기존 `AesGcmEncryption`과 동일 `EncryptionService` 인터페이스) + 앱 ↔ Vault 인증 구성(AppRole 또는 vault-agent) + `.env`에서 `TOKEN_ENCRYPTION_KEY` 제거 | 새로 발급되는 refresh token이 Transit으로 암호화되어 저장됨. 기존 AES-encrypted 토큰은 이 PR 범위에서 그대로 유지(다음 PR에서 마이그레이션) |
+| 4-b | 기존 `data/workspaces/*/tokens.enc`를 AES 복호 → Transit 재암호화하는 one-off 스크립트 실행 후 AES 경로 제거 | 모든 저장 토큰이 Transit 포맷으로 일원화, `TOKEN_ENCRYPTION_KEY` 의존 소거 |
 | 5 | Audit device 활성화 + snapshot cron + 복원 리허설 보고서 | 백업 파일 존재 + 복원 성공 로그 |
 
 **PR #53(개별 secret 리팩터) 처리**: draft 유지 → PR 3 머지 시점에 close. 해당 PR의 workflow 변경은 PR 3의 vault-action 기반 재작성에 포함되므로 독립 머지 가치 없음.
@@ -361,18 +407,18 @@ GitHub Actions의 모든 secret read는 `vault.log`에 JSON으로 기록된다. 
 | 재부팅 후 unseal 누락 → 배포 블록 | dev/prod 모두 정지 | systemd override로 `docker compose up` 자동 시작. Unseal은 사용자가 SSH로 1회. 운영자 알림은 배포 실패 LINE 통지가 담당(phase4-cicd.md §5.6) |
 | Vault 버그로 데이터 손상 | 모든 secret 상실 | 일 1회 snapshot + 외부 백업 저장 |
 | GitHub OIDC 발행자/형식 변경 | 모든 워크플로 인증 실패 | vault-action이 공식적으로 추종. `oidc_discovery_url` 기반이므로 Vault 측 재구성으로 대응 |
-| 운영자(나) 1인 체계에서 unseal key 유실 | 영구 복구 불가 | `-key-shares=3 -key-threshold=2`로 초기화하여 키 3개 중 2개 필요. 배포 위치 3곳 분산(1Password, 물리적 USB, 별도 장소 종이) |
+| 운영자(나) 1인 체계에서 unseal key 유실 | 영구 복구 불가 | `-key-shares=1 -key-threshold=1`로 초기화(분산 보관소 확보 비현실). 유실 내성은 Apple Keychain iCloud 동기화로 다중 Apple 디바이스 간 복제로 확보. 최악(Apple ID 완전 상실) 시 API key 전량 재발급 + Vault 재초기화(예상 30분~1시간) |
 | Vault 인스턴스 과한 운영 부담 | 학습 시간 소모 | 단일 노드 + raft로 최소 구성. auto-unseal/HA는 의도적으로 후순위 |
 
 ## 11. Decisions needed
 
 설계 리뷰에서 확정할 항목.
 
-1. **Unseal key shares** — `-key-shares=1 -key-threshold=1`(운영 단순) vs `-key-shares=3 -key-threshold=2`(키 유실 내성). 1인 운영 + 키 3곳 분산 보관 가능 여부로 결정
+1. **Unseal key shares** (결정 완료) — `-key-shares=1 -key-threshold=1`. 3 shares 분산 보관소 확보 불가(1인 운영, 물리 보관소 3곳 비현실적). 단일 키 유실 내성은 Apple Keychain iCloud 동기화로 다중 디바이스 복원 경로 확보
 2. **Vault Web UI 접근 경로** — listener를 `127.0.0.1`에만 두면 UI 접근은 (a) SSH 포트 포워딩, (b) Tailscale 전용 추가 listener 중 하나. 운영 동선에 따라 선택
 3. **Snapshot 저장 위치** — 홈서버 로컬만(장애 시 함께 소실) vs Cloudflare R2 등 외부 동기화. 백업 철학 결정
 4. **Audit log 보존 기간** — 30일/90일/무제한. 디스크 사용량과 사고 조사 요구를 저울질
-5. **`TOKEN_ENCRYPTION_KEY`의 Vault 관리** — 앱 런타임에서 Vault가 읽히지 않으므로 여전히 배포 시 `.env`에 렌더. 이 키를 앞으로도 static하게 둘지, 아니면 Vault Transit으로 이관할지(§2 Non-goals 재고 시점 판단)
+5. **`TOKEN_ENCRYPTION_KEY`의 Vault 관리** (결정 완료) — Vault Transit engine으로 이관(§1 Goal #6, §6.5). `.env` 렌더 경로 제거. 전환 PR은 §9 Migration plan의 PR 4-a(앱 코드 전환), PR 4-b(기존 ciphertext 재암호화 마이그레이션)로 분할
 
 ## 12. References
 
