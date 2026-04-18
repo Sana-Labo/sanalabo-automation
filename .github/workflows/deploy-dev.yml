@@ -38,10 +38,13 @@ jobs:
           GIT_CONFIG_SYSTEM: /dev/null
         run: |
           # remote "origin" 경유가 아니라 REPO_URL을 인자로 직접 전달하여
-          # .git/config에 저장된 URL의 영향을 완전히 배제한다. http.extraheader로
-          # job-scope GITHUB_TOKEN을 이용해 authenticated HTTPS fetch를 수행한다.
+          # .git/config에 저장된 URL의 영향을 완전히 배제한다. actions/checkout과
+          # 동일하게 http.extraheader + basic x-access-token 패턴으로 authenticated
+          # HTTPS fetch를 수행한다. (URL-scoped 키는 쉘 -c 한 줄 전달 시 파서가
+          # subsection 경계를 오인하여 헤더가 적용되지 않는 문제가 있어 unscoped 사용)
+          AUTH_HEADER="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
           git -C "$DEPLOY_DIR" \
-            -c "http.https://github.com/.extraheader=AUTHORIZATION: bearer $GH_TOKEN" \
+            -c "http.extraheader=$AUTH_HEADER" \
             fetch --depth=1 "$REPO_URL" "$GITHUB_SHA"
           git -C "$DEPLOY_DIR" reset --hard "$GITHUB_SHA"
           echo "Deployed tree: $(git -C "$DEPLOY_DIR" log -1 --oneline)"
