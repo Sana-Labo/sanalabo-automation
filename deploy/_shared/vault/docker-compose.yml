@@ -1,0 +1,55 @@
+# Vault — Phase 4 secret management backplane.
+# Design: docs/design/phase4-vault.md
+# Ops runbook: docs/deployment/vault.md
+#
+# Deployment path on the home server: ~gha-runner/deploy/_shared/vault/
+# Runs under the gha-runner user (uid/gid owned by docker group membership).
+# Listener is bound to 127.0.0.1 only — no external exposure.
+
+services:
+  vault:
+    image: hashicorp/vault:1.18
+    container_name: vault
+    restart: unless-stopped
+
+    # IPC_LOCK lets Vault mlock() its memory so sensitive material (unseal
+    # key shards, decrypted KV values, Transit DEKs) is not swapped to disk.
+    # Without this, `vault server` logs a warning and memory may be paged
+    # out under pressure.
+    cap_add:
+      - IPC_LOCK
+
+    # 127.0.0.1 only — the runner and the app both reach Vault over the loopback
+    # interface. Any external access (admin UI, Tailscale) needs an explicit
+    # additional listener; do not widen this bind.
+    ports:
+      - "127.0.0.1:8200:8200"
+
+    volumes:
+      # Config is immutable from the container's perspective.
+      - ./config/vault.hcl:/vault/config/vault.hcl:ro
+      # Raft storage — durable data lives here. Back up via `vault operator
+      # raft snapshot save` (scheduled in PR 5), not via raw file copy.
+      - ./data:/vault/data
+      # File audit device writes here once enabled (PR 5).
+      - ./audit:/vault/audit
+
+    command: vault server -config=/vault/config/vault.hcl
+
+    healthcheck:
+      # /v1/sys/health status codes — see
+      # https://developer.hashicorp.com/vault/api-docs/system/health
+      #   200 = initialized + unsealed + active
+      #   429 = unsealed standby (n/a for single node)
+      #   472 = DR replication secondary
+      #   473 = performance standby
+      #   501 = uninitialized
+      #   503 = sealed
+      # We use /v1/sys/health?standbyok=true to accept standby as healthy if
+      # we ever add HA. For the current single-node setup, 200 is expected
+      # once the operator has unsealed.
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8200/v1/sys/health?standbyok=true"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

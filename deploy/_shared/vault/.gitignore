@@ -1,0 +1,5 @@
+# Runtime state that must not enter the repo.
+# `data/` is Vault raft storage (contains encrypted secret state and unseal-
+# key-wrapped master keys). `audit/` is the file audit device output.
+data/
+audit/
