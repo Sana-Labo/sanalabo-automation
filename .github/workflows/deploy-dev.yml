@@ -26,6 +26,14 @@ jobs:
       # 사용하여 `dev-assistant-1`이 되며, prod와 시각적으로 구분되지 않는다. PR 4에서
       # prod 도입 시 동일 패턴으로 `-prod` suffix를 사용한다.
       COMPOSE_PROJECT_NAME: sanalabo-automation-dev
+      # Image registry-qualified 이름과 커밋 SHA 태그. compose 파일의
+      # ${IMAGE_TAG:-local}과 짝을 이루어 빌드 출력이
+      # sanalabo-automation/assistant:<full-sha>로 태그되도록 한다. 이 이름으로
+      # 어떤 커밋이 실행 중인지 `docker images`에서 즉시 식별 가능하다.
+      # IMAGE_KEEP은 prune 이후 호스트에 유지할 SHA 태그 이미지 수.
+      IMAGE_REPO: sanalabo-automation/assistant
+      IMAGE_TAG: ${{ github.sha }}
+      IMAGE_KEEP: "5"
       # GitHub Actions는 2026-06-02부터 Node.js 20 기반 JavaScript action을 Node.js 24
       # 런타임으로 강제 승격하고, 2026-09-16에 Node 20 런타임을 제거한다. 현재 사용 중인
       # hashicorp/vault-action@v3(v3.4.0)는 action.yml의 runs.using이 여전히 node20이지만,
@@ -140,6 +148,23 @@ jobs:
           [ -s "$DEPLOY_DIR/vault-secrets/role-id" ]   || { echo "::error::role-id is empty";   exit 1; }
           [ -s "$DEPLOY_DIR/vault-secrets/secret-id" ] || { echo "::error::secret-id is empty"; exit 1; }
 
+      - name: Capture previous image for rollback
+        id: prev
+        working-directory: ${{ env.DEPLOY_DIR }}
+        run: |
+          # 현재 실행 중 컨테이너의 image digest(sha256). 초기 배포라 컨테이너가
+          # 없으면 빈 문자열. `compose ps -q`는 project+service 레이블로
+          # 컨테이너를 찾으므로 IMAGE_TAG가 이미 새 SHA로 바뀌어 있어도 동작한다.
+          # 이 단계에서 식별된 digest가 후속 rollback 단계의 복구 기준이 된다.
+          cid=$(docker compose ps -q "$SERVICE" 2>/dev/null | head -n1 || true)
+          if [ -n "$cid" ]; then
+            prev=$(docker inspect -f '{{.Image}}' "$cid" 2>/dev/null || true)
+          else
+            prev=""
+          fi
+          echo "prev=$prev" >> "$GITHUB_OUTPUT"
+          echo "previous image: ${prev:-<none, initial deploy>}"
+
       - name: Build image
         working-directory: ${{ env.DEPLOY_DIR }}
         run: docker compose build --pull "$SERVICE"
@@ -155,6 +180,36 @@ jobs:
           docker compose ps "$SERVICE"
           docker compose logs --tail=50 --no-color "$SERVICE" || true
 
-      - name: Prune images older than 7 days
+      - name: Rollback to previous image on healthcheck failure
+        if: failure() && steps.prev.outputs.prev != ''
+        working-directory: ${{ env.DEPLOY_DIR }}
+        env:
+          # job-level IMAGE_TAG(신규 SHA)을 이 step에서만 `rollback`으로 덮어써
+          # compose가 image 필드를 sanalabo-automation/assistant:rollback으로
+          # 해석하게 한다. job-level 변수 자체는 매 run마다 github.sha에서 다시
+          # 주입되므로 이후 배포에 영향 없음.
+          IMAGE_TAG: rollback
+        run: |
+          PREV='${{ steps.prev.outputs.prev }}'
+          # 이전 image의 content-addressed ID에 :rollback 태그를 부여한다.
+          # PR 4-c 이전 배포의 `latest` 태그 이미지도 digest 기반이라 동일하게
+          # 동작한다. compose up --wait은 실패 중인 컨테이너를 제거하고
+          # :rollback 태그 이미지로 재생성하여 healthcheck를 기다린다.
+          docker tag "$PREV" "${IMAGE_REPO}:rollback"
+          docker compose up -d --wait "$SERVICE"
+          echo "::warning::New deploy failed healthcheck; rolled back to previous image ($PREV)"
+
+      - name: Prune old SHA-tagged images
         if: success()
-        run: docker image prune --force --filter "until=168h"
+        run: |
+          # 호스트에 유지할 SHA 태그 이미지는 최신 IMAGE_KEEP개만. GitHub SHA는
+          # 40자 16진이므로 awk 필터로 `local`/`rollback` 같은 보호 태그와 구분
+          # 한다. `docker images`는 기본 최신순이므로 tail -n +KEEP+1은 오래된
+          # 대상만 선별한다. 마지막 prune은 재빌드로 남은 dangling layer 정리.
+          docker images "$IMAGE_REPO" --format '{{.Tag}}' \
+            | awk '/^[0-9a-f]{40}$/' \
+            | tail -n +$((IMAGE_KEEP + 1)) \
+            | while IFS= read -r tag; do
+                docker rmi "${IMAGE_REPO}:${tag}" 2>/dev/null || true
+              done
+          docker image prune -f
