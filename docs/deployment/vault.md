@@ -246,18 +246,20 @@ App ↔ Vault authentication (so the app can call `transit/encrypt/tokens` at ru
 
 ### 3.10 Revoke the root token
 
-Day-to-day admin work should use a scoped token, not root:
+Day-to-day admin work should use a scoped token, not root. Revoke the current root **and** purge the Keychain entry together — leaving the Keychain entry behind after revocation creates a stale credential that future sessions mistake for "admin token present." A successful `security find-generic-password` readback (e.g. `length=28`) does not prove server-side validity; the token may already be revoked and every API call will return `403 permission denied / invalid token`.
 
 ```bash
 ssh timothy-dev-ts "docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=$ROOT_TOKEN vault \
   vault token revoke $ROOT_TOKEN"
 
-# Remove from Keychain once you are confident the rotation worked
-# (keep the Keychain entry until you have created and tested a replacement admin token — covered in the "Create admin token" follow-up, outside this PR)
+# Purge the now-revoked token from Keychain in the same step.
+security delete-generic-password -a vault-admin -s onprem-vault-root-token
 unset ROOT_TOKEN
 ```
 
-If you skip this step the root token is valid forever and sits in Keychain, which enlarges blast radius if the workstation is compromised. For this PR, revoking root without a replacement admin token is acceptable — subsequent admin tasks can use a short-lived recovery procedure (regenerate root via unseal key, see §7.3).
+For subsequent admin work, regenerate a fresh root via the unseal key (§7.3), use it, then revoke and `security delete-generic-password` again in the same session. The unseal key entry (`onprem-vault-unseal-key`) must **remain** in Keychain — it is the only input for both reboot unseal (§4.1) and root regeneration (§7.3), and deleting it forces a full re-init (§7.1) with total data loss.
+
+If you skip this revocation the root token is valid forever and sits in Keychain, which enlarges blast radius if the workstation is compromised.
 
 ### 3.11 Provision AppRole for the app runtime (PR 4-a)
 
@@ -265,13 +267,16 @@ Starting with PR 4-a the app no longer ships `TOKEN_ENCRYPTION_KEY`. Instead a v
 
 Prerequisite: a valid root token. If §3.10 has already revoked root, regenerate via §7.3 first, then revoke again at the end of this section.
 
+> **SSH env forwarding pitfall.** Every `docker exec` below passes `VAULT_ADDR` / `VAULT_TOKEN` **inline** (`-e VAR=value`). A local `export VAULT_ADDR=...` / `export VAULT_TOKEN=...` is **not** forwarded across `ssh timothy-dev-ts "..."` — the remote shell never sees it, so a form like `docker exec -e VAULT_ADDR -e VAULT_TOKEN vault ...` resolves to empty values inside the container and the call fails with `403 permission denied / missing client token`. Keep values inline. `$NEW_ROOT` is expanded by the local shell before the ssh string is sent, so the remote host receives a literal token; `$env` inside the for-loop is likewise local.
+
 ```bash
-# Regenerate root (see §7.3) if needed, then:
-export VAULT_ADDR=http://127.0.0.1:8200
-export VAULT_TOKEN=<NEW_ROOT>   # paste from §7.3 output
+# NEW_ROOT is the fresh root token produced by §7.3. The local shell expands
+# `$NEW_ROOT` into each ssh command line before transport, so the remote host
+# never needs the variable itself.
+NEW_ROOT=<paste from §7.3 output>
 
 # 1) Enable AppRole auth (idempotent — ok if already enabled).
-ssh timothy-dev-ts "docker exec -e VAULT_ADDR -e VAULT_TOKEN vault \
+ssh timothy-dev-ts "docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=$NEW_ROOT vault \
   vault auth enable approle" || true
 
 # 2) Create dev + prod roles bound to the app-transit policy (loaded in §3.7).
@@ -279,7 +284,7 @@ ssh timothy-dev-ts "docker exec -e VAULT_ADDR -e VAULT_TOKEN vault \
 #    secret_id_ttl=0 / num_uses=0 → no expiry and unlimited uses per secret-id,
 #    rotation is explicit (repeat step 4 whenever you want a fresh credential).
 for env in dev prod; do
-  ssh timothy-dev-ts "docker exec -e VAULT_ADDR -e VAULT_TOKEN vault \
+  ssh timothy-dev-ts "docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=$NEW_ROOT vault \
     vault write auth/approle/role/sanalabo-automation-$env \
       token_policies=app-transit \
       token_ttl=1h \
@@ -290,43 +295,48 @@ done
 
 # 3) Fetch role-id for each env. role-id is stable; on its own it is not
 #    sufficient to authenticate.
-DEV_ROLE_ID=$(ssh timothy-dev-ts "docker exec -e VAULT_ADDR -e VAULT_TOKEN vault \
+DEV_ROLE_ID=$(ssh timothy-dev-ts "docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=$NEW_ROOT vault \
   vault read -field=role_id auth/approle/role/sanalabo-automation-dev/role-id")
-PROD_ROLE_ID=$(ssh timothy-dev-ts "docker exec -e VAULT_ADDR -e VAULT_TOKEN vault \
+PROD_ROLE_ID=$(ssh timothy-dev-ts "docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=$NEW_ROOT vault \
   vault read -field=role_id auth/approle/role/sanalabo-automation-prod/role-id")
 
 # 4) Issue a secret-id for each env. This is the sensitive half.
-DEV_SECRET_ID=$(ssh timothy-dev-ts "docker exec -e VAULT_ADDR -e VAULT_TOKEN vault \
+DEV_SECRET_ID=$(ssh timothy-dev-ts "docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=$NEW_ROOT vault \
   vault write -f -field=secret_id auth/approle/role/sanalabo-automation-dev/secret-id")
-PROD_SECRET_ID=$(ssh timothy-dev-ts "docker exec -e VAULT_ADDR -e VAULT_TOKEN vault \
+PROD_SECRET_ID=$(ssh timothy-dev-ts "docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=$NEW_ROOT vault \
   vault write -f -field=secret_id auth/approle/role/sanalabo-automation-prod/secret-id")
 
 # 5) Persist to KV so hashicorp/vault-action in the deploy workflow can fetch them.
-ssh timothy-dev-ts "docker exec -e VAULT_ADDR -e VAULT_TOKEN vault \
-  vault kv put secret/dev/VAULT_ROLE_ID   value='$DEV_ROLE_ID'"
-ssh timothy-dev-ts "docker exec -e VAULT_ADDR -e VAULT_TOKEN vault \
-  vault kv put secret/dev/VAULT_SECRET_ID value='$DEV_SECRET_ID'"
-ssh timothy-dev-ts "docker exec -e VAULT_ADDR -e VAULT_TOKEN vault \
-  vault kv put secret/prod/VAULT_ROLE_ID   value='$PROD_ROLE_ID'"
-ssh timothy-dev-ts "docker exec -e VAULT_ADDR -e VAULT_TOKEN vault \
-  vault kv put secret/prod/VAULT_SECRET_ID value='$PROD_SECRET_ID'"
+#    UUIDs contain no shell metacharacters, so `value=$DEV_ROLE_ID` is safe —
+#    the local shell expands the variable before ssh quoting, and the remote
+#    `docker exec` argv receives a clean `value=<uuid>` token.
+ssh timothy-dev-ts "docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=$NEW_ROOT vault \
+  vault kv put secret/dev/VAULT_ROLE_ID   value=$DEV_ROLE_ID"
+ssh timothy-dev-ts "docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=$NEW_ROOT vault \
+  vault kv put secret/dev/VAULT_SECRET_ID value=$DEV_SECRET_ID"
+ssh timothy-dev-ts "docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=$NEW_ROOT vault \
+  vault kv put secret/prod/VAULT_ROLE_ID   value=$PROD_ROLE_ID"
+ssh timothy-dev-ts "docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=$NEW_ROOT vault \
+  vault kv put secret/prod/VAULT_SECRET_ID value=$PROD_SECRET_ID"
 
 # 6) Remove the obsolete AES master key. `kv metadata delete` tombstones all
 #    versions — once the workflows stop referencing it the old value is
 #    unrecoverable from Vault.
-ssh timothy-dev-ts "docker exec -e VAULT_ADDR -e VAULT_TOKEN vault \
+ssh timothy-dev-ts "docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=$NEW_ROOT vault \
   vault kv metadata delete secret/dev/TOKEN_ENCRYPTION_KEY"
-ssh timothy-dev-ts "docker exec -e VAULT_ADDR -e VAULT_TOKEN vault \
+ssh timothy-dev-ts "docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=$NEW_ROOT vault \
   vault kv metadata delete secret/prod/TOKEN_ENCRYPTION_KEY"
 
-# 7) Scrub the secret-id values from the current shell and revoke NEW_ROOT per §3.10.
-unset DEV_SECRET_ID PROD_SECRET_ID DEV_ROLE_ID PROD_ROLE_ID
+# 7) Revoke NEW_ROOT per §3.10 (substitute NEW_ROOT for ROOT_TOKEN in that
+#    section's commands, and purge Keychain in the same step), then scrub all
+#    locally held credentials.
+unset DEV_SECRET_ID PROD_SECRET_ID DEV_ROLE_ID PROD_ROLE_ID NEW_ROOT
 ```
 
-**Rotation.** Repeat step 4 + the `VAULT_SECRET_ID` writes in step 5. The next deploy renders the new secret-id into `$DEPLOY_DIR/vault-secrets/secret-id`; vault-agent re-reads it on next auth. Because `secret_id_ttl=0`, old secret-ids do not self-expire — if a compromise is suspected, also revoke explicitly:
+**Rotation.** Repeat step 4 + the `VAULT_SECRET_ID` writes in step 5. The next deploy renders the new secret-id into `$DEPLOY_DIR/vault-secrets/secret-id`; vault-agent re-reads it on next auth. Because `secret_id_ttl=0`, old secret-ids do not self-expire — if a compromise is suspected, also revoke explicitly (regenerate `$NEW_ROOT` via §7.3 first):
 
 ```bash
-ssh timothy-dev-ts "docker exec -e VAULT_ADDR -e VAULT_TOKEN vault \
+ssh timothy-dev-ts "docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=$NEW_ROOT vault \
   vault write auth/approle/role/sanalabo-automation-<env>/secret-id-accessor/destroy \
   secret_id_accessor=<accessor-from-audit-log>"
 ```
