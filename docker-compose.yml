@@ -1,6 +1,12 @@
 services:
   assistant:
     build: .
+    # Deterministic image name + tag. The deploy workflow sets IMAGE_TAG to
+    # the deployed commit SHA so every running container is traceable via
+    # `docker images`. Local runs without IMAGE_TAG fall back to `:local`.
+    # Combining `build` + `image` causes compose to tag the build output
+    # with this reference instead of the default `<project>-<service>:latest`.
+    image: sanalabo-automation/assistant:${IMAGE_TAG:-local}
     env_file: .env
     # VAULT_AGENT_URL is set here (not in .env) so that a developer who copies
     # .env.example for local runs without vault-agent can still boot; the app

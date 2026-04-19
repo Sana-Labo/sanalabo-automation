@@ -137,6 +137,8 @@ Workflow writes `DEV_ENV_FILE` contents to `~/deploy/sanalabo-automation/dev/.en
 
 ### 5.4 Workflow files
 
+> **Status note (2026-04):** The skeleton below preserves the original PR 3 design for history. The actual `deploy-dev.yml` / `deploy-prod.yml` have since adopted Vault-based secret fetch (PR #57), Vault Agent AppRole rendering (PR #66 / #67), and SHA-tagged images with automatic rollback plus keep-last-N image retention (PR 4-c). Consult the workflow files and [§5.5](#55-rollback-strategy) for current behavior.
+
 Three files under `.github/workflows/`:
 
 | File | Trigger | Env |
@@ -205,12 +207,16 @@ jobs:
 
 ### 5.5 Rollback strategy
 
-Two layers:
+The deploy workflows tag every image with the deployed commit SHA (`sanalabo-automation/assistant:${GITHUB_SHA}`) via the compose `image:` field (see `docker-compose.yml`), so `docker images` answers "what is running" directly instead of requiring a container inspect.
 
-1. **Automatic (in-workflow):** recorded "previous image digest" before build. On healthcheck failure, retag and `compose up` reverts. Time to recovery: ~15 s.
-2. **Manual (operator-initiated):** `workflow_dispatch` with input `revision: <sha>`. Re-runs the same deploy workflow but checks out that SHA. Useful when a deployed bug is discovered later.
+Two recovery layers:
 
-Image retention: `docker image prune --force --filter "until=168h"` (keep 7 days) runs at the end of each successful deploy. Tagged rollback images are protected by tag.
+1. **Automatic (in-workflow).** Before build, the `Capture previous image for rollback` step reads the currently running container's image digest via `docker inspect`. If `docker compose up -d --wait` fails healthcheck, the `Rollback to previous image on healthcheck failure` step runs only when a digest was captured, aliases it as `sanalabo-automation/assistant:rollback`, and overrides `IMAGE_TAG=rollback` for a recreate. The job still exits non-zero so notifications and the GitHub run status reflect the failure, but service availability is restored. Time to recovery on the self-hosted runner: ~15 s.
+2. **Manual (operator-initiated).** `workflow_dispatch` with input `revision: <sha>` re-runs the workflow against an arbitrary historical commit. Useful when a bug surfaces after a successful deploy.
+
+Image retention is **keep-last-N SHA-tagged images** (default `IMAGE_KEEP=5`), not time-based. A post-success step filters `docker images sanalabo-automation/assistant` for 40-char hex tags (SHAs) and removes all but the newest `IMAGE_KEEP` entries. Protected tags — `local`, `rollback`, and any future human-readable tag — are skipped by the hex filter. A final `docker image prune -f` sweeps dangling layers from rebuilds.
+
+**Why not `ghcr.io` / registry push?** The self-hosted runner and the deploy host are the same machine, so pushing to a remote registry just to pull the same bytes back is pure network waste. Registry adoption (ghcr.io, Harbor, etc.) is deferred until the K3s migration splits build and runtime across nodes — see [homelab roadmap](../../README.md#future).
 
 ### 5.6 Notifications
 
