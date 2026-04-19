@@ -10,6 +10,7 @@ concurrency:
 
 permissions:
   contents: read
+  id-token: write  # required to request the GitHub OIDC token for Vault JWT auth
 
 jobs:
   deploy:
@@ -49,16 +50,53 @@ jobs:
           git -C "$DEPLOY_DIR" reset --hard "$GITHUB_SHA"
           echo "Deployed tree: $(git -C "$DEPLOY_DIR" log -1 --oneline)"
 
-      - name: Render .env from DEV_ENV_FILE
+      - name: Fetch secrets from Vault
+        id: vault
+        uses: hashicorp/vault-action@v3
+        with:
+          url: http://127.0.0.1:8200
+          method: jwt
+          role: gha-dev
+          jwtGithubAudience: https://vault.onprem.local
+          # Confine values to step outputs; do not spread to the job-level process env.
+          exportEnv: false
+          secrets: |
+            secret/data/dev/ANTHROPIC_API_KEY value | ANTHROPIC_API_KEY ;
+            secret/data/dev/LINE_CHANNEL_ACCESS_TOKEN value | LINE_CHANNEL_ACCESS_TOKEN ;
+            secret/data/dev/LINE_CHANNEL_SECRET value | LINE_CHANNEL_SECRET ;
+            secret/data/dev/SYSTEM_ADMIN_IDS value | SYSTEM_ADMIN_IDS ;
+            secret/data/dev/GOOGLE_CLIENT_ID value | GOOGLE_CLIENT_ID ;
+            secret/data/dev/GOOGLE_CLIENT_SECRET value | GOOGLE_CLIENT_SECRET ;
+            secret/data/dev/GOOGLE_REDIRECT_URI value | GOOGLE_REDIRECT_URI ;
+            secret/data/dev/TOKEN_ENCRYPTION_KEY value | TOKEN_ENCRYPTION_KEY ;
+
+      - name: Render .env from Vault values
         env:
-          DEV_ENV_FILE: ${{ secrets.DEV_ENV_FILE }}
+          ANTHROPIC_API_KEY: ${{ steps.vault.outputs.ANTHROPIC_API_KEY }}
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ steps.vault.outputs.LINE_CHANNEL_ACCESS_TOKEN }}
+          LINE_CHANNEL_SECRET: ${{ steps.vault.outputs.LINE_CHANNEL_SECRET }}
+          SYSTEM_ADMIN_IDS: ${{ steps.vault.outputs.SYSTEM_ADMIN_IDS }}
+          GOOGLE_CLIENT_ID: ${{ steps.vault.outputs.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ steps.vault.outputs.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_REDIRECT_URI: ${{ steps.vault.outputs.GOOGLE_REDIRECT_URI }}
+          TOKEN_ENCRYPTION_KEY: ${{ steps.vault.outputs.TOKEN_ENCRYPTION_KEY }}
         run: |
           umask 077
-          printf '%s' "$DEV_ENV_FILE" > "$DEPLOY_DIR/.env"
+          {
+            printf 'ANTHROPIC_API_KEY=%s\n' "$ANTHROPIC_API_KEY"
+            printf 'LINE_CHANNEL_ACCESS_TOKEN=%s\n' "$LINE_CHANNEL_ACCESS_TOKEN"
+            printf 'LINE_CHANNEL_SECRET=%s\n' "$LINE_CHANNEL_SECRET"
+            printf 'SYSTEM_ADMIN_IDS=%s\n' "$SYSTEM_ADMIN_IDS"
+            printf 'GOOGLE_CLIENT_ID=%s\n' "$GOOGLE_CLIENT_ID"
+            printf 'GOOGLE_CLIENT_SECRET=%s\n' "$GOOGLE_CLIENT_SECRET"
+            printf 'GOOGLE_REDIRECT_URI=%s\n' "$GOOGLE_REDIRECT_URI"
+            printf 'TOKEN_ENCRYPTION_KEY=%s\n' "$TOKEN_ENCRYPTION_KEY"
+            printf 'PORT=3000\n'
+          } > "$DEPLOY_DIR/.env"
           chmod 600 "$DEPLOY_DIR/.env"
-          # Sanity check: non-empty and not obviously corrupted
+          # Sanity check: non-empty and not obviously corrupted.
           if [ ! -s "$DEPLOY_DIR/.env" ]; then
-            echo "::error::DEV_ENV_FILE secret is empty or unset"
+            echo "::error::.env is empty after render (Vault fetch may have returned empty values)"
             exit 1
           fi
           echo ".env rendered: $(wc -l < "$DEPLOY_DIR/.env") lines, $(stat -c '%a' "$DEPLOY_DIR/.env") perms"

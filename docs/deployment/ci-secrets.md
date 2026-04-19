@@ -1,8 +1,12 @@
 # CI/CD Secrets & Environments
 
-How GitHub Actions obtains the credentials it needs to deploy to the home server. Covers the `dev` environment (PR 3) and forward-references `prod` (PR 4) and shared secrets (PR 5).
+> **Status — superseded for `dev`.** As of Phase 4 PR 3, `deploy-dev.yml` fetches secrets from the on-prem Vault instance via GitHub OIDC + JWT auth (see [docs/design/phase4-vault.md](../design/phase4-vault.md) and [docs/deployment/vault.md](./vault.md)). The `DEV_ENV_FILE` environment secret described below is no longer consumed by the workflow and can be deleted from GitHub (`Settings → Environments → dev → DEV_ENV_FILE`).
+>
+> The `prod` environment still uses the GitHub Environment Secrets model documented here until PR 4 migrates it. Operator-notification secrets (`LINE_NOTIFY_CHANNEL_TOKEN`, `OPERATOR_LINE_USER_ID`) remain repo-level and are unaffected by the Vault migration.
 
-**Design reference:** [docs/design/phase4-cicd.md §5.3](../design/phase4-cicd.md#53-secret-management)
+How GitHub Actions obtains the credentials it needs to deploy to the home server. Covers the GitHub Environment Secrets pattern — retained as the historical intermediate stage for `dev` (superseded by Vault in PR 3) and still active for `prod` (until PR 4).
+
+**Design reference:** [docs/design/phase4-cicd.md §5.3](../design/phase4-cicd.md#53-secret-management) · [docs/design/phase4-vault.md](../design/phase4-vault.md) (current dev pattern)
 **Runner setup:** [docs/deployment/runner.md](./runner.md)
 
 ---
