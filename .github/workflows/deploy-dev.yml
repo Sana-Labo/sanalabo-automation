@@ -21,6 +21,11 @@ jobs:
       DEPLOY_DIR: /home/gha-runner/deploy/sanalabo-automation/dev
       REPO_URL: https://github.com/Sana-Labo/sanalabo-automation.git
       SERVICE: assistant
+      # Compose project name을 명시하여 컨테이너가 `sanalabo-automation-dev-<service>-N`으로
+      # 명명되도록 한다. 미지정 시 Compose는 DEPLOY_DIR의 말단 디렉터리(`dev`)를 기본값으로
+      # 사용하여 `dev-assistant-1`이 되며, prod와 시각적으로 구분되지 않는다. PR 4에서
+      # prod 도입 시 동일 패턴으로 `-prod` suffix를 사용한다.
+      COMPOSE_PROJECT_NAME: sanalabo-automation-dev
     steps:
       - name: Bootstrap deploy dir (idempotent)
         run: |
