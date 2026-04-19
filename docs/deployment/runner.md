@@ -410,7 +410,7 @@ sudo systemctl status "$SERVICE" --no-pager
 Skip the calendar — execute the procedure immediately. After step 5, also:
 
 - Audit recent workflow runs for unexpected jobs
-- Rotate any GitHub Secrets the runner accessed (`DEV_ENV_FILE`, `PROD_ENV_FILE`, `LINE_NOTIFY_CHANNEL_TOKEN`)
+- Rotate credentials the runner had access to: Vault secrets under `secret/<env>/*` (see [vault.md](./vault.md) rotation runbook) plus repository-level GitHub Secrets used by deploy workflows (`LINE_NOTIFY_CHANNEL_TOKEN` when §5 adds operator notifications)
 - Review `journalctl -u <service> --since "30 days ago"` for anomalies
 
 ---
