@@ -38,6 +38,7 @@ On the target server (`ssh timothy-dev-ts`):
 
 - [ ] Self-hosted runner already set up per [runner.md](./runner.md)
 - [ ] `gha-runner` user owns `~gha-runner/deploy/` and is in the `docker` group
+- [ ] The operator account that runs the commands below is in the `docker` group. If not, run `sudo usermod -aG docker <your-user>` once and log back in — every `docker exec ...` in this runbook assumes no `sudo` is required. (Running with `sudo docker exec ...` works too, but then `sudo -v` must be kept fresh so password prompts do not collide with Vault's own prompts in §3.5.)
 - [ ] Docker Compose v2 available (`docker compose version`)
 - [ ] Outbound HTTPS to `token.actions.githubusercontent.com` permitted (for JWT discovery)
 
@@ -69,7 +70,14 @@ ssh timothy-dev-ts "sudo rsync -av /tmp/vault-stage/ ~gha-runner/deploy/_shared/
   && rm -rf /tmp/vault-stage/"
 ```
 
-The `.gitignore`'d `data/` and `audit/` directories are created by Docker on first boot; they must not be overwritten by the rsync.
+The `.gitignore`'d `data/` and `audit/` directories are excluded from the rsync so they are not overwritten. However, if you let Docker create them on first boot they will be owned by `root:root`, and the `hashicorp/vault:1.18` image runs its entrypoint as `uid=100, gid=1000` (the image's internal `vault` user/group) and cannot write to root-owned directories — the container will crash-loop with `failed to open bolt file: /vault/data/vault.db: permission denied`. Pre-create them with the correct ownership before starting the container:
+
+```bash
+ssh timothy-dev-ts "sudo mkdir -p ~gha-runner/deploy/_shared/vault/data ~gha-runner/deploy/_shared/vault/audit \
+  && sudo chown -R 100:1000 ~gha-runner/deploy/_shared/vault/data ~gha-runner/deploy/_shared/vault/audit"
+```
+
+`100:1000` is the numeric uid/gid baked into the official `hashicorp/vault` image (there is no matching entry in the host's `/etc/passwd`, which is why the chown uses raw numbers rather than a name).
 
 ### 3.2 Start Vault
 
@@ -84,7 +92,7 @@ ssh timothy-dev-ts "docker ps --filter name=vault"
 ### 3.3 Initialize
 
 ```bash
-ssh timothy-dev-ts "docker exec vault vault operator init \
+ssh timothy-dev-ts "docker exec -e VAULT_ADDR=http://127.0.0.1:8200 vault vault operator init \
   -key-shares=1 \
   -key-threshold=1 \
   -format=json" > /tmp/vault-init.json
@@ -132,11 +140,11 @@ Option flags:
 
 ```bash
 UNSEAL_KEY=$(security find-generic-password -a vault-admin -s onprem-vault-unseal-key -w)
-ssh timothy-dev-ts "docker exec vault vault operator unseal $UNSEAL_KEY"
+ssh timothy-dev-ts "docker exec -e VAULT_ADDR=http://127.0.0.1:8200 vault vault operator unseal $UNSEAL_KEY"
 unset UNSEAL_KEY
 
 # Confirm
-ssh timothy-dev-ts "docker exec vault vault status" | grep -E 'Sealed|Initialized'
+ssh timothy-dev-ts "docker exec -e VAULT_ADDR=http://127.0.0.1:8200 vault vault status" | grep -E 'Sealed|Initialized'
 # Expected: Sealed: false, Initialized: true
 ```
 
@@ -148,31 +156,34 @@ All subsequent admin commands need the root token. Fetch it once and export to t
 ROOT_TOKEN=$(security find-generic-password -a vault-admin -s onprem-vault-root-token -w)
 ```
 
-Enable the method:
+Enable the method. The `-e VAULT_ADDR=http://127.0.0.1:8200` is required on every `docker exec` against the vault container: the `hashicorp/vault` CLI defaults to `https://127.0.0.1:8200`, which conflicts with our `tls_disable=1` server config and fails with a TLS handshake error otherwise.
 
 ```bash
-ssh timothy-dev-ts "docker exec -e VAULT_TOKEN=$ROOT_TOKEN vault \
+ssh timothy-dev-ts "docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=$ROOT_TOKEN vault \
   vault auth enable jwt"
 
-ssh timothy-dev-ts "docker exec -e VAULT_TOKEN=$ROOT_TOKEN vault \
+ssh timothy-dev-ts "docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=$ROOT_TOKEN vault \
   vault write auth/jwt/config \
     bound_issuer='https://token.actions.githubusercontent.com' \
     oidc_discovery_url='https://token.actions.githubusercontent.com'"
 ```
 
-Create the `gha-dev` role (prod role is added in PR 4):
+Create the `gha-dev` role (prod role is added in PR 4). `bound_claims` is a map and `bound_audiences` / `token_policies` are lists — Vault 1.18 rejects these types from the `vault write key=value` argv form (`error converting input ... for field "bound_claims": expected a map, got 'string'`). Pipe the full role body as JSON into `vault write ... -`:
 
 ```bash
-ssh timothy-dev-ts "docker exec -e VAULT_TOKEN=$ROOT_TOKEN vault \
-  vault write auth/jwt/role/gha-dev \
-    role_type=jwt \
-    user_claim=sub \
-    bound_claims_type=glob \
-    bound_claims='{\"repository\":\"Sana-Labo/sanalabo-automation\",\"environment\":\"dev\"}' \
-    bound_audiences=https://vault.onprem.local \
-    token_policies=read-dev \
-    token_ttl=15m \
-    token_max_ttl=15m"
+ssh timothy-dev-ts "docker exec -i -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=$ROOT_TOKEN vault \
+  vault write auth/jwt/role/gha-dev -" <<'JSON'
+{
+  "role_type": "jwt",
+  "user_claim": "sub",
+  "bound_claims_type": "glob",
+  "bound_claims": {"repository": "Sana-Labo/sanalabo-automation", "environment": "dev"},
+  "bound_audiences": ["https://vault.onprem.local"],
+  "token_policies": ["read-dev"],
+  "token_ttl": "15m",
+  "token_max_ttl": "15m"
+}
+JSON
 ```
 
 The `bound_claims` ensures only our repo's `dev` environment jobs can authenticate as this role. `bound_audiences` must match what vault-action sends (`jwtGithubAudience`).
@@ -183,12 +194,12 @@ The HCL files are already on the host under `~gha-runner/deploy/_shared/vault/po
 
 ```bash
 for policy in read-dev read-prod app-transit; do
-  ssh timothy-dev-ts "docker exec -i -e VAULT_TOKEN=$ROOT_TOKEN vault \
+  ssh timothy-dev-ts "docker exec -i -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=$ROOT_TOKEN vault \
     vault policy write $policy - < ~gha-runner/deploy/_shared/vault/policies/$policy.hcl"
 done
 
 # Verify
-ssh timothy-dev-ts "docker exec -e VAULT_TOKEN=$ROOT_TOKEN vault vault policy list"
+ssh timothy-dev-ts "docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=$ROOT_TOKEN vault vault policy list"
 # Expected includes: default, read-dev, read-prod, app-transit, root
 ```
 
@@ -197,7 +208,7 @@ ssh timothy-dev-ts "docker exec -e VAULT_TOKEN=$ROOT_TOKEN vault vault policy li
 ### 3.8 Enable KV v2
 
 ```bash
-ssh timothy-dev-ts "docker exec -e VAULT_TOKEN=$ROOT_TOKEN vault \
+ssh timothy-dev-ts "docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=$ROOT_TOKEN vault \
   vault secrets enable -path=secret -version=2 kv"
 ```
 
@@ -205,24 +216,31 @@ Secrets get loaded in PR 3 (dev) and PR 4 (prod) — not here.
 
 ### 3.9 Enable Transit engine and create `tokens` key
 
+Transit key creation uses **two endpoints**. The create endpoint (`PUT /transit/keys/:name`, i.e. the first `vault write -f transit/keys/tokens` below) only accepts cryptographic parameters: `type`, `exportable`, `derived`, `key_size`, `convergent_encryption`, `auto_rotate_period`, `allow_plaintext_backup`. Operational flags like `deletion_allowed` live on the separate config endpoint (`POST /transit/keys/:name/config`) and are **silently ignored with a `WARNING! Endpoint ignored these unrecognized parameters` log** if you pass them at create time. Always configure them in a second call.
+
 ```bash
-ssh timothy-dev-ts "docker exec -e VAULT_TOKEN=$ROOT_TOKEN vault \
+ssh timothy-dev-ts "docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=$ROOT_TOKEN vault \
   vault secrets enable transit"
 
-ssh timothy-dev-ts "docker exec -e VAULT_TOKEN=$ROOT_TOKEN vault \
+# 1) Create the key — cryptographic params only.
+ssh timothy-dev-ts "docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=$ROOT_TOKEN vault \
   vault write -f transit/keys/tokens \
     type=aes256-gcm96 \
-    exportable=false \
+    exportable=false"
+
+# 2) Configure operational properties on the /config sub-endpoint.
+ssh timothy-dev-ts "docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=$ROOT_TOKEN vault \
+  vault write transit/keys/tokens/config \
     deletion_allowed=false"
 
 # Verify
-ssh timothy-dev-ts "docker exec -e VAULT_TOKEN=$ROOT_TOKEN vault \
+ssh timothy-dev-ts "docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=$ROOT_TOKEN vault \
   vault read transit/keys/tokens"
-# Expected: type=aes256-gcm96, min_decryption_version=1, latest_version=1
+# Expected: type=aes256-gcm96, deletion_allowed=false, min_decryption_version=1, latest_version=1
 ```
 
 - `exportable=false` — the key material never leaves Vault. Clients can only ask Vault to encrypt/decrypt.
-- `deletion_allowed=false` — prevents an accidental `vault delete transit/keys/tokens` from making all existing ciphertexts permanently unreadable.
+- `deletion_allowed=false` — prevents an accidental `vault delete transit/keys/tokens` from making all existing ciphertexts permanently unreadable. Vault's default for this flag is also `false`, but we set it explicitly so the intent survives any future default change.
 
 App ↔ Vault authentication (so the app can call `transit/encrypt/tokens` at runtime) is out of scope for this PR; PR 4-a picks either AppRole or vault-agent and implements it end-to-end.
 
@@ -231,7 +249,7 @@ App ↔ Vault authentication (so the app can call `transit/encrypt/tokens` at ru
 Day-to-day admin work should use a scoped token, not root:
 
 ```bash
-ssh timothy-dev-ts "docker exec -e VAULT_TOKEN=$ROOT_TOKEN vault \
+ssh timothy-dev-ts "docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=$ROOT_TOKEN vault \
   vault token revoke $ROOT_TOKEN"
 
 # Remove from Keychain once you are confident the rotation worked
@@ -251,13 +269,13 @@ Vault seals itself whenever the container restarts (after host reboot, `docker c
 
 ```bash
 UNSEAL_KEY=$(security find-generic-password -a vault-admin -s onprem-vault-unseal-key -w)
-ssh timothy-dev-ts "docker exec vault vault operator unseal $UNSEAL_KEY"
+ssh timothy-dev-ts "docker exec -e VAULT_ADDR=http://127.0.0.1:8200 vault vault operator unseal $UNSEAL_KEY"
 unset UNSEAL_KEY
 ```
 
 Confirm:
 ```bash
-ssh timothy-dev-ts "docker exec vault vault status" | grep Sealed
+ssh timothy-dev-ts "docker exec -e VAULT_ADDR=http://127.0.0.1:8200 vault vault status" | grep Sealed
 # Expected: Sealed    false
 ```
 
@@ -267,7 +285,7 @@ Admin token must be set (obtain via §7.3 if needed). To rotate `ANTHROPIC_API_K
 
 ```bash
 NEW_VALUE='sk-ant-...'
-ssh timothy-dev-ts "docker exec -e VAULT_TOKEN=$ADMIN_TOKEN -i vault \
+ssh timothy-dev-ts "docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=$ADMIN_TOKEN -i vault \
   vault kv put secret/dev/ANTHROPIC_API_KEY value=$NEW_VALUE"
 unset NEW_VALUE
 ```
@@ -279,7 +297,7 @@ Trigger a re-deploy to pick up the new value (e.g. empty commit on `develop`).
 ### 4.3 Rotate the Transit `tokens` key
 
 ```bash
-ssh timothy-dev-ts "docker exec -e VAULT_TOKEN=$ADMIN_TOKEN vault \
+ssh timothy-dev-ts "docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=$ADMIN_TOKEN vault \
   vault write -f transit/keys/tokens/rotate"
 ```
 
@@ -336,7 +354,7 @@ If iCloud sync feels like too narrow a recovery base, export the unseal key to a
 Raft storage snapshots are set up in PR 5. Until then, treat Vault data as recoverable only by re-entering secrets manually. A one-off snapshot can be taken at any time:
 
 ```bash
-ssh timothy-dev-ts "docker exec -e VAULT_TOKEN=$ADMIN_TOKEN vault \
+ssh timothy-dev-ts "docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=$ADMIN_TOKEN vault \
   vault operator raft snapshot save /vault/audit/vault-$(date +%Y%m%d).snap"
 ```
 
@@ -369,7 +387,7 @@ Common causes:
 | Symptom | Likely cause | Fix |
 |---------|-------------|-----|
 | `Vault is sealed` on every health probe | Post-reboot and not yet unsealed | §4.1 |
-| `failed to setup raft cluster: ... permission denied` | `data/` is owned by root after an `rsync` mishap | `sudo chown -R gha-runner:gha-runner ~gha-runner/deploy/_shared/vault/data` |
+| `failed to open bolt file: ... permission denied` | `data/` or `audit/` is owned by `root:root` (Docker auto-created them on first boot), but the container's `vault` user (uid 100, gid 1000) cannot write there | `sudo chown -R 100:1000 ~gha-runner/deploy/_shared/vault/data ~gha-runner/deploy/_shared/vault/audit` |
 | `bind: address already in use` | Port 8200 already bound on the host | `sudo lsof -iTCP:8200 -sTCP:LISTEN` to find the culprit |
 | `cannot allocate memory` or `mlock failed` | `IPC_LOCK` cap missing | Confirm `cap_add: [IPC_LOCK]` in compose, re-up |
 
@@ -381,16 +399,16 @@ Root was revoked in §3.10. To regain admin access (e.g. to create a scoped admi
 UNSEAL_KEY=$(security find-generic-password -a vault-admin -s onprem-vault-unseal-key -w)
 
 # Start root generation; outputs a nonce and OTP
-OTP=$(ssh timothy-dev-ts "docker exec vault vault operator generate-root -init -format=json" | jq -r '.otp')
-NONCE=$(ssh timothy-dev-ts "docker exec vault vault operator generate-root -status -format=json" | jq -r '.nonce')
+OTP=$(ssh timothy-dev-ts "docker exec -e VAULT_ADDR=http://127.0.0.1:8200 vault vault operator generate-root -init -format=json" | jq -r '.otp')
+NONCE=$(ssh timothy-dev-ts "docker exec -e VAULT_ADDR=http://127.0.0.1:8200 vault vault operator generate-root -status -format=json" | jq -r '.nonce')
 
 # Provide the unseal key with the nonce
-ENCODED=$(ssh timothy-dev-ts "docker exec vault vault operator generate-root \
+ENCODED=$(ssh timothy-dev-ts "docker exec -e VAULT_ADDR=http://127.0.0.1:8200 vault vault operator generate-root \
   -nonce=$NONCE \
   $UNSEAL_KEY" | grep 'Encoded Token' | awk '{print $NF}')
 
 # Decode with the OTP to get the new root token
-NEW_ROOT=$(ssh timothy-dev-ts "docker exec vault vault operator generate-root -decode=$ENCODED -otp=$OTP")
+NEW_ROOT=$(ssh timothy-dev-ts "docker exec -e VAULT_ADDR=http://127.0.0.1:8200 vault vault operator generate-root -decode=$ENCODED -otp=$OTP")
 echo "New root token: $NEW_ROOT"
 
 # Use it, then revoke as in §3.10
