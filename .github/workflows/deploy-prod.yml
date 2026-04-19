@@ -121,13 +121,19 @@ jobs:
           VAULT_SECRET_ID: ${{ steps.vault.outputs.VAULT_SECRET_ID }}
         run: |
           # The vault-agent container reads these files at startup to perform
-          # AppRole auto-auth. Owned by the runner; mounted read-only into the
-          # agent (see docker-compose.yml).
+          # AppRole auto-auth. The runner (gha-runner) owns the files; the
+          # hashicorp/vault image's default non-root user (uid 100) cannot
+          # share that uid without sudo. Files are therefore mode 0644
+          # (world-readable) so the container user can read the mounted
+          # copies, while the parent directory is 0700 to block any host-
+          # side lateral access — directory traversal requires +x on every
+          # ancestor, so others cannot see or stat the files.
           umask 077
           mkdir -p "$DEPLOY_DIR/vault-secrets"
+          chmod 700 "$DEPLOY_DIR/vault-secrets"
           printf '%s' "$VAULT_ROLE_ID"  > "$DEPLOY_DIR/vault-secrets/role-id"
           printf '%s' "$VAULT_SECRET_ID" > "$DEPLOY_DIR/vault-secrets/secret-id"
-          chmod 600 "$DEPLOY_DIR/vault-secrets/role-id" "$DEPLOY_DIR/vault-secrets/secret-id"
+          chmod 644 "$DEPLOY_DIR/vault-secrets/role-id" "$DEPLOY_DIR/vault-secrets/secret-id"
           # Sanity check — empty files would make auto-auth fail silently with
           # 'missing role_id' only after the container spins up.
           [ -s "$DEPLOY_DIR/vault-secrets/role-id" ]   || { echo "::error::role-id is empty";   exit 1; }
