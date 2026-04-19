@@ -1,0 +1,16 @@
+name: sanalabo-shared-cloudflared
+
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: sanalabo-shared-cloudflared
+    restart: unless-stopped
+    command: tunnel --config /etc/cloudflared/config.yml run
+    volumes:
+      - ./config.yml:/etc/cloudflared/config.yml:ro
+      - ./creds.json:/etc/cloudflared/creds.json:ro
+    networks: [cf_tunnel]
+
+networks:
+  cf_tunnel:
+    external: true
