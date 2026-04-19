@@ -1,13 +1,10 @@
 import { describe, test, expect, afterEach, beforeEach } from "bun:test";
-import { randomBytes } from "node:crypto";
 import { createGwsExecutorFactory } from "./executor.js";
-import { AesGcmEncryption } from "./encryption.js";
+import { FakeEncryption } from "../../test-utils/fake-encryption.js";
 import { JsonFileTokenStore, type GoogleTokens } from "./token-store.js";
 import type { GoogleAuthConfig } from "./google-auth.js";
 import { createTestDir } from "../../test-utils/tmpdir.js";
 
-/** 테스트용 32바이트 키 (hex) */
-const TEST_KEY = randomBytes(32).toString("hex");
 const td = createTestDir("executor");
 
 const testAuthConfig: GoogleAuthConfig = {
@@ -28,7 +25,7 @@ describe("createGwsExecutorFactory", () => {
 
   beforeEach(() => {
     const dataDir = td.path();
-    const encryption = new AesGcmEncryption(TEST_KEY);
+    const encryption = new FakeEncryption("primary");
     tokenStore = new JsonFileTokenStore(dataDir, encryption);
     factory = createGwsExecutorFactory(tokenStore, testAuthConfig);
   });
@@ -96,7 +93,7 @@ describe("createGwsExecutorFactory", () => {
 
   test("팩토리 간 캐시 격리", async () => {
     const dataDir2 = td.path();
-    const encryption2 = new AesGcmEncryption(TEST_KEY);
+    const encryption2 = new FakeEncryption("primary");
     const tokenStore2 = new JsonFileTokenStore(dataDir2, encryption2);
     const factory2 = createGwsExecutorFactory(tokenStore2, testAuthConfig);
 
