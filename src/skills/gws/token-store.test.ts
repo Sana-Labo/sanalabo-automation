@@ -1,12 +1,10 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { randomBytes } from "node:crypto";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { AesGcmEncryption } from "./encryption.js";
 import { JsonFileTokenStore, type GoogleTokens } from "./token-store.js";
+import { FakeEncryption } from "../../test-utils/fake-encryption.js";
 import { createTestDir } from "../../test-utils/tmpdir.js";
 
-const TEST_KEY = randomBytes(32).toString("hex");
 const td = createTestDir("token-store");
 
 describe("JsonFileTokenStore", () => {
@@ -15,7 +13,7 @@ describe("JsonFileTokenStore", () => {
 
   beforeEach(() => {
     dataDir = td.path();
-    const encryption = new AesGcmEncryption(TEST_KEY);
+    const encryption = new FakeEncryption("primary");
     store = new JsonFileTokenStore(dataDir, encryption);
   });
 
@@ -83,10 +81,9 @@ describe("JsonFileTokenStore", () => {
     test("다른 키로 초기화된 store에서 복호화 실패 시 null + 에러 로그", async () => {
       await store.save("ws-1", sampleTokens);
 
-      const otherKey = randomBytes(32).toString("hex");
       const otherStore = new JsonFileTokenStore(
         dataDir,
-        new AesGcmEncryption(otherKey),
+        new FakeEncryption("secondary"),
       );
 
       expect(await otherStore.load("ws-1")).toBeNull();

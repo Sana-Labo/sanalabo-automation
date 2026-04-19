@@ -2,6 +2,16 @@ services:
   assistant:
     build: .
     env_file: .env
+    # VAULT_AGENT_URL is set here (not in .env) so that a developer who copies
+    # .env.example for local runs without vault-agent can still boot; the app
+    # resolves the default from config.ts when the variable is unset. When the
+    # sidecar is present the DNS name `vault-agent` resolves on the default
+    # compose network.
+    environment:
+      VAULT_AGENT_URL: http://vault-agent:8100
+    depends_on:
+      vault-agent:
+        condition: service_healthy
     volumes:
       - user-data:/app/data
     networks: [cf_tunnel, default]
@@ -12,6 +22,18 @@ services:
       retries: 3
       start_period: 30s
     restart: unless-stopped
+
+  # Vault Agent sidecar — see deploy/_shared/vault-agent/ for rationale and
+  # the shared service definition. Per-env AppRole credentials are rendered
+  # by the deploy workflow into ./vault-secrets/ and mounted read-only.
+  vault-agent:
+    extends:
+      file: deploy/_shared/vault-agent/docker-compose.yml
+      service: vault-agent
+    volumes:
+      - ./vault-secrets/role-id:/vault/secrets/role-id:ro
+      - ./vault-secrets/secret-id:/vault/secrets/secret-id:ro
+    networks: [default]
 
 volumes:
   user-data:

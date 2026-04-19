@@ -8,7 +8,7 @@ import { createGoogleOAuthRoute } from "./routes/googleOAuth.js";
 import { createHealthRoute } from "./routes/health.js";
 import { createLineWebhookRoute } from "./routes/lineWebhook.js";
 import { startScheduler } from "./scheduler.js";
-import { AesGcmEncryption } from "./skills/gws/encryption.js";
+import { VaultTransitEncryption } from "./skills/gws/encryption.js";
 import { createGwsExecutorFactory } from "./skills/gws/executor.js";
 import type { GoogleAuthConfig } from "./skills/gws/google-auth.js";
 import { JsonFileTokenStore } from "./skills/gws/token-store.js";
@@ -63,23 +63,24 @@ async function main() {
   log.info("Tool registry built", { definitionCount: registry.definitions.length });
 
   // 5. GWS executor 팩토리 (TokenStore + OAuth2Client → API executor)
-  const tokenEncryption = config.tokenEncryptionKey
-    ? new AesGcmEncryption(config.tokenEncryptionKey)
-    : undefined;
-  const tokenStore = tokenEncryption
-    ? new JsonFileTokenStore(config.workspaceDataDir, tokenEncryption)
-    : undefined;
+  // 앱은 자체 Vault 토큰을 보유하지 않는다. vault-agent sidecar가
+  // AppRole auto-auth로 토큰을 주입하며, 앱은 agent의 API proxy listener로
+  // Transit encrypt/decrypt만 호출한다.
+  const tokenEncryption = new VaultTransitEncryption({
+    agentUrl: config.vaultAgentUrl,
+    keyName: config.vaultTransitKey,
+  });
+  const tokenStore = new JsonFileTokenStore(config.workspaceDataDir, tokenEncryption);
   const authConfig: GoogleAuthConfig | undefined =
-    tokenStore && config.googleClientId && config.googleClientSecret
+    config.googleClientId && config.googleClientSecret
       ? { clientId: config.googleClientId, clientSecret: config.googleClientSecret, redirectUri: config.googleRedirectUri }
       : undefined;
-  const gwsFactory = tokenStore && authConfig
+  const gwsFactory = authConfig
     ? createGwsExecutorFactory(tokenStore, authConfig)
     : undefined;
   const getGwsExecutors = gwsFactory?.getExecutors ?? (async () => null);
-  const getGrantedScopes = tokenStore
-    ? async (wsId: string) => (await tokenStore.load(wsId))?.scope
-    : async () => undefined;
+  const getGrantedScopes = async (wsId: string) =>
+    (await tokenStore.load(wsId))?.scope;
 
   // 6. 에이전트 의존성 (webhook + scheduler 공유)
   const deps: AgentDependencies = {
@@ -95,7 +96,7 @@ async function main() {
   const app = new Hono();
   app.route("/", createHealthRoute(mcp));
   app.route("/", createLineWebhookRoute(deps, userStore));
-  if (gwsFactory && tokenStore && authConfig) {
+  if (gwsFactory && authConfig) {
     app.route("/", createGoogleOAuthRoute({
       tokenStore,
       workspaceStore,

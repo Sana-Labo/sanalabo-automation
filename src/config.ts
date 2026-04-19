@@ -65,5 +65,9 @@ export const config = {
   googleClientId: process.env["GOOGLE_CLIENT_ID"] ?? "",
   googleClientSecret: process.env["GOOGLE_CLIENT_SECRET"] ?? "",
   googleRedirectUri: process.env["GOOGLE_REDIRECT_URI"] ?? "",
-  tokenEncryptionKey: process.env["TOKEN_ENCRYPTION_KEY"] ?? "",
+
+  // Vault Transit (OAuth 토큰 at-rest 암호화)
+  // vault-agent proxy listener URL. 미설정 시 sidecar 기본 DNS 이름.
+  vaultAgentUrl: optional("VAULT_AGENT_URL", "http://vault-agent:8100"),
+  vaultTransitKey: optional("VAULT_TRANSIT_KEY", "tokens"),
 } as const;
