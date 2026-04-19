@@ -13,7 +13,6 @@ Empty-string values are treated as "not set" so schema defaults apply.
 | `GOOGLE_CLIENT_SECRET` | GWS only | Google Cloud OAuth 2.0 Client Secret |
 | `GOOGLE_REDIRECT_URI` | GWS only | OAuth redirect URI — must match the value in Google Cloud Console |
 | `TOKEN_ENCRYPTION_KEY` | GWS only | AES-256-GCM master key (32 bytes = 64 hex chars) |
-| `CF_TUNNEL_TOKEN` | Docker only | Cloudflare Tunnel token |
 | `PORT` | No | Server port (default: `3000`) |
 | `MCP_POOL_SIZE` | No | MCP connection pool size (default: `3`) |
 | `AGENT_MODEL` | No | Agent model ID (default: `claude-haiku-4-5-20251001`) |
