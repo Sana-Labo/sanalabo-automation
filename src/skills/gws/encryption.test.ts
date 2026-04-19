@@ -16,7 +16,7 @@ describe("VaultTransitEncryption", () => {
     // ciphertext → plaintext 대응표 (deterministic round-trip)
     let counter = 0;
     const store = new Map<string, string>();
-    const fakeFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const fakeFetch = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
       const url = typeof input === "string" ? input : input.toString();
       const body = init?.body ? JSON.parse(init.body as string) : {};
       calls.push({ url, body });
@@ -46,7 +46,7 @@ describe("VaultTransitEncryption", () => {
         );
       }
       return new Response("not found", { status: 404 });
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
     return { fetch: fakeFetch, calls };
   }
 
@@ -108,7 +108,7 @@ describe("VaultTransitEncryption", () => {
       new Response(JSON.stringify({ errors: ["permission denied"] }), {
         status: 403,
         headers: { "content-type": "application/json" },
-      })) as typeof fetch;
+      })) as unknown as typeof fetch;
     const enc = new VaultTransitEncryption({ agentUrl, keyName, fetch: fakeFetch });
     expect(enc.encrypt("x")).rejects.toThrow(/403/);
   });
@@ -116,7 +116,7 @@ describe("VaultTransitEncryption", () => {
   test("네트워크 예외 전파", async () => {
     const fakeFetch = (async () => {
       throw new Error("ECONNREFUSED");
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
     const enc = new VaultTransitEncryption({ agentUrl, keyName, fetch: fakeFetch });
     expect(enc.encrypt("x")).rejects.toThrow("ECONNREFUSED");
   });
@@ -126,7 +126,7 @@ describe("VaultTransitEncryption", () => {
       new Response(JSON.stringify({ data: {} }), {
         status: 200,
         headers: { "content-type": "application/json" },
-      })) as typeof fetch;
+      })) as unknown as typeof fetch;
     const enc = new VaultTransitEncryption({ agentUrl, keyName, fetch: fakeFetch });
     expect(enc.encrypt("x")).rejects.toThrow();
   });
