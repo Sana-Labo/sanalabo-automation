@@ -189,7 +189,9 @@ Workspaces are managed through **System Tools** via the LINE agent conversation 
 | [Setup — Environment Variables](./docs/setup/environment-variables.md) | Full list of `.env` variables |
 | [Testing](./docs/testing.md) | Unit, local smoke, and dev-server smoke tests |
 | [Deployment — Docker](./docs/deployment/docker.md) | Docker Compose + Cloudflare Tunnel |
-| [Deployment — Production](./docs/deployment/production.md) | Production server setup |
+| [Deployment — Self-hosted Runner](./docs/deployment/runner.md) | GitHub Actions runner install, systemd, rotation |
+| [Deployment — Vault](./docs/deployment/vault.md) | On-prem Vault backend for CI/CD secrets |
+| [Deployment — CI Secrets](./docs/deployment/ci-secrets.md) | GitHub Environments / secret handling |
 | [Reference — Workspace Tools](./docs/reference/workspace-tools.md) | System tools callable from the agent |
 | [Reference — Agent Orchestration](./docs/reference/agent-orchestration-industry-comparison.md) | Industry comparison notes |
 

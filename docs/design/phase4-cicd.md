@@ -2,7 +2,7 @@
 
 **Status:** Proposal — pending review
 **Target environment:** On-premise home server (Ubuntu, Tailscale-only, `ssh timothy-dev-ts`)
-**Supersedes:** The "GitHub Actions CI/CD (Optional)" section in [deployment/production.md](../deployment/production.md) for the home-server topology. The Hetzner/cloud variant in that guide remains valid for future external deployments.
+**Supersedes:** The prior `deployment/production.md` guide, which described a Hetzner/cloud + `appleboy/ssh-action` deploy model. That topology is no longer in scope; the home-server runner pattern documented here is the sole supported path. Operational details live in [deployment/runner.md](../deployment/runner.md), [deployment/vault.md](../deployment/vault.md), and [deployment/docker.md](../deployment/docker.md).
 
 ---
 
@@ -388,5 +388,4 @@ Decoupling code deploy from feature enablement is the standard practice for high
 - [GitHub Actions — self-hosted runners](https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners/about-self-hosted-runners)
 - [GitHub Actions — using environments](https://docs.github.com/en/actions/deployment/targeting-different-environments/using-environments-for-deployment)
 - [GitHub Actions — required reviewers](https://docs.github.com/en/actions/deployment/targeting-different-environments/using-environments-for-deployment#required-reviewers)
-- Existing in-repo doc: [deployment/production.md](../deployment/production.md) — Hetzner variant
-- Existing in-repo doc: [deployment/docker.md](../deployment/docker.md) — Docker Compose fundamentals
+- In-repo operational docs: [deployment/runner.md](../deployment/runner.md) (runner install/rotation), [deployment/vault.md](../deployment/vault.md) (secret backend), [deployment/docker.md](../deployment/docker.md) (Docker Compose + shared tunnel)
