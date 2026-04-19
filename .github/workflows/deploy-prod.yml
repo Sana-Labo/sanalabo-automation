@@ -1,0 +1,133 @@
+name: Deploy to prod
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write  # required to request the GitHub OIDC token for Vault JWT auth
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, home-server]
+    environment: prod
+    timeout-minutes: 15
+    env:
+      DEPLOY_DIR: /home/gha-runner/deploy/sanalabo-automation/prod
+      REPO_URL: https://github.com/Sana-Labo/sanalabo-automation.git
+      SERVICE: assistant
+      # Compose project name을 명시하여 컨테이너가 `sanalabo-automation-prod-<service>-N`으로
+      # 명명되도록 한다. 미지정 시 Compose는 DEPLOY_DIR의 말단 디렉터리(`prod`)를 기본값으로
+      # 사용하여 `prod-assistant-1`이 되며, dev와 시각적으로 구분되지 않는다.
+      COMPOSE_PROJECT_NAME: sanalabo-automation-prod
+      # GitHub Actions는 2026-06-02부터 Node.js 20 기반 JavaScript action을 Node.js 24
+      # 런타임으로 강제 승격하고, 2026-09-16에 Node 20 런타임을 제거한다. 현재 사용 중인
+      # hashicorp/vault-action@v3(v3.4.0)는 action.yml의 runs.using이 여전히 node20이지만,
+      # 번들된 dist/index.js는 이미 Node 24에서 동작 가능한 것으로 업스트림에서 확인됨
+      # (issue #594). 공식 opt-in 플래그로 지금부터 Node 24로 실행해 deprecation warning을
+      # 제거하고 6월 전환도 무중단으로 통과한다. vault-action 상위 버전 릴리스 후 제거.
+      # 참고: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+    steps:
+      - name: Bootstrap deploy dir (idempotent)
+        run: |
+          if [ ! -d "$DEPLOY_DIR/.git" ]; then
+            mkdir -p "$DEPLOY_DIR"
+            git init "$DEPLOY_DIR"
+            git -C "$DEPLOY_DIR" remote add origin "$REPO_URL"
+          fi
+
+      - name: Fetch target SHA
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Runner 호스트의 system/global gitconfig를 무시하여 url.*.insteadOf 등의 rewrite
+          # (예: https://github.com/ → git@github.com:) 에 의존하지 않도록 격리한다.
+          GIT_CONFIG_GLOBAL: /dev/null
+          GIT_CONFIG_SYSTEM: /dev/null
+        run: |
+          # remote "origin" 경유가 아니라 REPO_URL을 인자로 직접 전달하여
+          # .git/config에 저장된 URL의 영향을 완전히 배제한다. actions/checkout과
+          # 동일하게 http.extraheader + basic x-access-token 패턴으로 authenticated
+          # HTTPS fetch를 수행한다. (URL-scoped 키는 쉘 -c 한 줄 전달 시 파서가
+          # subsection 경계를 오인하여 헤더가 적용되지 않는 문제가 있어 unscoped 사용)
+          AUTH_HEADER="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git -C "$DEPLOY_DIR" \
+            -c "http.extraheader=$AUTH_HEADER" \
+            fetch --depth=1 "$REPO_URL" "$GITHUB_SHA"
+          git -C "$DEPLOY_DIR" reset --hard "$GITHUB_SHA"
+          echo "Deployed tree: $(git -C "$DEPLOY_DIR" log -1 --oneline)"
+
+      - name: Fetch secrets from Vault
+        id: vault
+        uses: hashicorp/vault-action@v3
+        with:
+          url: http://127.0.0.1:8200
+          method: jwt
+          role: gha-prod
+          jwtGithubAudience: https://vault.onprem.local
+          # Confine values to step outputs; do not spread to the job-level process env.
+          exportEnv: false
+          secrets: |
+            secret/data/prod/ANTHROPIC_API_KEY value | ANTHROPIC_API_KEY ;
+            secret/data/prod/LINE_CHANNEL_ACCESS_TOKEN value | LINE_CHANNEL_ACCESS_TOKEN ;
+            secret/data/prod/LINE_CHANNEL_SECRET value | LINE_CHANNEL_SECRET ;
+            secret/data/prod/SYSTEM_ADMIN_IDS value | SYSTEM_ADMIN_IDS ;
+            secret/data/prod/GOOGLE_CLIENT_ID value | GOOGLE_CLIENT_ID ;
+            secret/data/prod/GOOGLE_CLIENT_SECRET value | GOOGLE_CLIENT_SECRET ;
+            secret/data/prod/GOOGLE_REDIRECT_URI value | GOOGLE_REDIRECT_URI ;
+            secret/data/prod/TOKEN_ENCRYPTION_KEY value | TOKEN_ENCRYPTION_KEY ;
+
+      - name: Render .env from Vault values
+        env:
+          ANTHROPIC_API_KEY: ${{ steps.vault.outputs.ANTHROPIC_API_KEY }}
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ steps.vault.outputs.LINE_CHANNEL_ACCESS_TOKEN }}
+          LINE_CHANNEL_SECRET: ${{ steps.vault.outputs.LINE_CHANNEL_SECRET }}
+          SYSTEM_ADMIN_IDS: ${{ steps.vault.outputs.SYSTEM_ADMIN_IDS }}
+          GOOGLE_CLIENT_ID: ${{ steps.vault.outputs.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ steps.vault.outputs.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_REDIRECT_URI: ${{ steps.vault.outputs.GOOGLE_REDIRECT_URI }}
+          TOKEN_ENCRYPTION_KEY: ${{ steps.vault.outputs.TOKEN_ENCRYPTION_KEY }}
+        run: |
+          umask 077
+          {
+            printf 'ANTHROPIC_API_KEY=%s\n' "$ANTHROPIC_API_KEY"
+            printf 'LINE_CHANNEL_ACCESS_TOKEN=%s\n' "$LINE_CHANNEL_ACCESS_TOKEN"
+            printf 'LINE_CHANNEL_SECRET=%s\n' "$LINE_CHANNEL_SECRET"
+            printf 'SYSTEM_ADMIN_IDS=%s\n' "$SYSTEM_ADMIN_IDS"
+            printf 'GOOGLE_CLIENT_ID=%s\n' "$GOOGLE_CLIENT_ID"
+            printf 'GOOGLE_CLIENT_SECRET=%s\n' "$GOOGLE_CLIENT_SECRET"
+            printf 'GOOGLE_REDIRECT_URI=%s\n' "$GOOGLE_REDIRECT_URI"
+            printf 'TOKEN_ENCRYPTION_KEY=%s\n' "$TOKEN_ENCRYPTION_KEY"
+            printf 'PORT=3000\n'
+          } > "$DEPLOY_DIR/.env"
+          chmod 600 "$DEPLOY_DIR/.env"
+          # Sanity check: non-empty and not obviously corrupted.
+          if [ ! -s "$DEPLOY_DIR/.env" ]; then
+            echo "::error::.env is empty after render (Vault fetch may have returned empty values)"
+            exit 1
+          fi
+          echo ".env rendered: $(wc -l < "$DEPLOY_DIR/.env") lines, $(stat -c '%a' "$DEPLOY_DIR/.env") perms"
+
+      - name: Build image
+        working-directory: ${{ env.DEPLOY_DIR }}
+        run: docker compose build --pull "$SERVICE"
+
+      - name: Start service with healthcheck wait
+        working-directory: ${{ env.DEPLOY_DIR }}
+        run: docker compose up -d --wait "$SERVICE"
+
+      - name: Report container status
+        if: always()
+        working-directory: ${{ env.DEPLOY_DIR }}
+        run: |
+          docker compose ps "$SERVICE"
+          docker compose logs --tail=50 --no-color "$SERVICE" || true
+
+      - name: Prune images older than 7 days
+        if: success()
+        run: docker image prune --force --filter "until=168h"
