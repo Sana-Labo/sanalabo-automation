@@ -72,6 +72,9 @@ jobs:
           jwtGithubAudience: https://vault.onprem.local
           # Confine values to step outputs; do not spread to the job-level process env.
           exportEnv: false
+          # TOKEN_ENCRYPTION_KEY은 PR 4-a에서 제거되었다. at-rest 암호화는 앱이 직접
+          # 키를 들고 있지 않고 vault-agent sidecar → Vault Transit으로 수행하며,
+          # 에이전트의 AppRole 크레덴셜(VAULT_ROLE_ID/SECRET_ID)만 여기서 fetch한다.
           secrets: |
             secret/data/prod/ANTHROPIC_API_KEY value | ANTHROPIC_API_KEY ;
             secret/data/prod/LINE_CHANNEL_ACCESS_TOKEN value | LINE_CHANNEL_ACCESS_TOKEN ;
@@ -80,7 +83,8 @@ jobs:
             secret/data/prod/GOOGLE_CLIENT_ID value | GOOGLE_CLIENT_ID ;
             secret/data/prod/GOOGLE_CLIENT_SECRET value | GOOGLE_CLIENT_SECRET ;
             secret/data/prod/GOOGLE_REDIRECT_URI value | GOOGLE_REDIRECT_URI ;
-            secret/data/prod/TOKEN_ENCRYPTION_KEY value | TOKEN_ENCRYPTION_KEY ;
+            secret/data/prod/VAULT_ROLE_ID value | VAULT_ROLE_ID ;
+            secret/data/prod/VAULT_SECRET_ID value | VAULT_SECRET_ID ;
 
       - name: Render .env from Vault values
         env:
@@ -91,7 +95,6 @@ jobs:
           GOOGLE_CLIENT_ID: ${{ steps.vault.outputs.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ steps.vault.outputs.GOOGLE_CLIENT_SECRET }}
           GOOGLE_REDIRECT_URI: ${{ steps.vault.outputs.GOOGLE_REDIRECT_URI }}
-          TOKEN_ENCRYPTION_KEY: ${{ steps.vault.outputs.TOKEN_ENCRYPTION_KEY }}
         run: |
           umask 077
           {
@@ -102,7 +105,6 @@ jobs:
             printf 'GOOGLE_CLIENT_ID=%s\n' "$GOOGLE_CLIENT_ID"
             printf 'GOOGLE_CLIENT_SECRET=%s\n' "$GOOGLE_CLIENT_SECRET"
             printf 'GOOGLE_REDIRECT_URI=%s\n' "$GOOGLE_REDIRECT_URI"
-            printf 'TOKEN_ENCRYPTION_KEY=%s\n' "$TOKEN_ENCRYPTION_KEY"
             printf 'PORT=3000\n'
           } > "$DEPLOY_DIR/.env"
           chmod 600 "$DEPLOY_DIR/.env"
@@ -112,6 +114,24 @@ jobs:
             exit 1
           fi
           echo ".env rendered: $(wc -l < "$DEPLOY_DIR/.env") lines, $(stat -c '%a' "$DEPLOY_DIR/.env") perms"
+
+      - name: Render AppRole credentials for vault-agent sidecar
+        env:
+          VAULT_ROLE_ID: ${{ steps.vault.outputs.VAULT_ROLE_ID }}
+          VAULT_SECRET_ID: ${{ steps.vault.outputs.VAULT_SECRET_ID }}
+        run: |
+          # The vault-agent container reads these files at startup to perform
+          # AppRole auto-auth. Owned by the runner; mounted read-only into the
+          # agent (see docker-compose.yml).
+          umask 077
+          mkdir -p "$DEPLOY_DIR/vault-secrets"
+          printf '%s' "$VAULT_ROLE_ID"  > "$DEPLOY_DIR/vault-secrets/role-id"
+          printf '%s' "$VAULT_SECRET_ID" > "$DEPLOY_DIR/vault-secrets/secret-id"
+          chmod 600 "$DEPLOY_DIR/vault-secrets/role-id" "$DEPLOY_DIR/vault-secrets/secret-id"
+          # Sanity check — empty files would make auto-auth fail silently with
+          # 'missing role_id' only after the container spins up.
+          [ -s "$DEPLOY_DIR/vault-secrets/role-id" ]   || { echo "::error::role-id is empty";   exit 1; }
+          [ -s "$DEPLOY_DIR/vault-secrets/secret-id" ] || { echo "::error::secret-id is empty"; exit 1; }
 
       - name: Build image
         working-directory: ${{ env.DEPLOY_DIR }}
