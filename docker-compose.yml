@@ -4,6 +4,7 @@ services:
     env_file: .env
     volumes:
       - user-data:/app/data
+    networks: [cf_tunnel, default]
     healthcheck:
       test: ["CMD", "bun", "-e", "fetch('http://localhost:3000/health').then(r=>{if(!r.ok)process.exit(1)})"]
       interval: 10s
@@ -12,15 +13,9 @@ services:
       start_period: 30s
     restart: unless-stopped
 
-  tunnel:
-    image: cloudflare/cloudflared:latest
-    command: tunnel run
-    environment:
-      - TUNNEL_TOKEN=${CF_TUNNEL_TOKEN}
-    depends_on:
-      assistant:
-        condition: service_healthy
-    restart: unless-stopped
-
 volumes:
   user-data:
+
+networks:
+  cf_tunnel:
+    external: true
