@@ -48,7 +48,7 @@ cp .env.example /tmp/dev.env
 #   - SYSTEM_ADMIN_IDS (dev test user IDs)
 #   - GOOGLE_* (dev OAuth client)
 #   - TOKEN_ENCRYPTION_KEY (new value; never reuse prod's)
-#   - CF_TUNNEL_TOKEN (leave empty for PR 3 — tunnel bundling moves to PR 4's shared cloudflared)
+#   - CF_TUNNEL_TOKEN — OBSOLETE. The tunnel is now locally managed and shared across services/envs (see deploy/_shared/cloudflared/, implemented in PR 4a).
 ```
 
 Key constraints:

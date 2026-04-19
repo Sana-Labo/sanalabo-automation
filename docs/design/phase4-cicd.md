@@ -316,7 +316,7 @@ networks:
 3. `docker compose up -d` inside `_shared/cloudflared/` to reload routing (no tunnel downtime for existing hostnames)
 4. Deploy the new service; its compose file joins `cf_tunnel`
 
-Implementation lands in PR 4, at the same time prod workflow is introduced.
+**Implemented in PR 4a** (shared cloudflared structure + main compose migration). Hostname routing is registered by operators via `cloudflared tunnel route dns <name> <hostname>`; DNS records are created as proxied CNAMEs to the tunnel UUID.
 
 ## 8. Migration plan (implementation order)
 
@@ -342,7 +342,7 @@ All questions raised during design review are resolved as follows. Implementatio
 1. **Deploy directory ownership** — migrate to `~gha-runner/deploy/` and remove `~timothy01/deploy/`. Clean single-ownership story outweighs the transient disruption to manual-deploy habits. Migration is part of PR 2.
 2. **Runner token rotation** — quarterly. PR 2 adds a rotation runbook to `docs/deployment/runner.md` and a calendar reminder convention. Cost is ~5 min per quarter; benefit is muscle memory for the "token suspected compromised" path.
 3. **Dev approval gate** — none. `develop` merge auto-deploys to dev immediately. Branch ruleset + PR review already gate *what* reaches develop; adding a second click would blunt dev's purpose as the "catch issues fast" environment. Prod keeps the required-reviewer gate (see §11.1 for the removal criteria once the project matures).
-4. **Cloudflared topology** — shared tunnel architecture (§7.1). One cloudflared container under `_shared/` serves every service and environment via multi-hostname ingress. This both dissolves the "tunnel restarts when app restarts" problem and prevents `N × 2` fan-out as more services are added. Lands in PR 4.
+4. **Cloudflared topology** — shared tunnel architecture (§7.1). One cloudflared container under `_shared/` serves every service and environment via multi-hostname ingress. This both dissolves the "tunnel restarts when app restarts" problem and prevents `N × 2` fan-out as more services are added. Landed in PR 4a; mode is **locally managed** (`credentials-file` + `config.yml` committed to the repo) — the earlier remotely-managed token approach (PR #37) is superseded.
 5. **Image retention** — 7 days. `docker image prune --force --filter "until=168h"` at the end of each successful deploy. Rolling back beyond 7 days means `git checkout <sha> && docker build`, which is acceptable for the rare case.
 6. **Secret management target state** — self-hosted HashiCorp Vault, not GitHub Environment Secrets. The intermediate `*_ENV_FILE` approach (§5.3) exists only because PR 3 needed a working dev deploy before Vault infrastructure could be stood up; the Vault track in `phase4-vault.md` supersedes it. Rationale: management as code (HCL policies in Git), per-variable secrets with version history (KV v2), and linear scaling to multi-service/multi-env (same JWT role pattern).
 
