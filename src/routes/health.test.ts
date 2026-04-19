@@ -3,12 +3,12 @@ import { createHealthRoute } from "./health.js";
 import type { McpConnection } from "../agent/mcp.js";
 
 describe("GET /health", () => {
-  test("returns status 200 with status ok", async () => {
+  test("returns smoke-test 500 with status ok (V4 rollback observation)", async () => {
     const mcp = { getStatus: () => ({ healthy: true, members: 3 }) } as McpConnection;
     const route = createHealthRoute(mcp);
 
     const res = await route.request("/health");
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(500);
 
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.status).toBe("ok");
