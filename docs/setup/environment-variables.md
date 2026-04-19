@@ -12,7 +12,8 @@ Empty-string values are treated as "not set" so schema defaults apply.
 | `GOOGLE_CLIENT_ID` | GWS only | Google Cloud OAuth 2.0 Client ID |
 | `GOOGLE_CLIENT_SECRET` | GWS only | Google Cloud OAuth 2.0 Client Secret |
 | `GOOGLE_REDIRECT_URI` | GWS only | OAuth redirect URI — must match the value in Google Cloud Console |
-| `TOKEN_ENCRYPTION_KEY` | GWS only | AES-256-GCM master key (32 bytes = 64 hex chars) |
+| `VAULT_AGENT_URL` | GWS only | vault-agent sidecar URL (default: `http://vault-agent:8100`) — app delegates at-rest OAuth token encryption to Vault Transit via this proxy |
+| `VAULT_TRANSIT_KEY` | No | Vault Transit key name (default: `tokens`) |
 | `PORT` | No | Server port (default: `3000`) |
 | `MCP_POOL_SIZE` | No | MCP connection pool size (default: `3`) |
 | `AGENT_MODEL` | No | Agent model ID (default: `claude-haiku-4-5-20251001`) |
@@ -39,5 +40,5 @@ Empty-string values are treated as "not set" so schema defaults apply.
 ### Secrets handling
 
 - Never commit `.env`. Both `.env` and `.env.*.local` are in `.gitignore`.
-- `TOKEN_ENCRYPTION_KEY` rotation requires re-authenticating all existing OAuth users.
+- OAuth refresh tokens are encrypted via Vault Transit through the vault-agent sidecar. AppRole rotation (the `VAULT_SECRET_ID` in Vault KV) is transparent — the agent re-auths on the next deploy. Rotating the Transit key itself via `vault write -f transit/keys/tokens/rotate` keeps existing ciphertexts valid (Vault embeds the key version).
 - `LINE_CHANNEL_SECRET` must match the value shown in the LINE Developers Console — mismatch causes all Webhook signatures to fail verification.

@@ -251,7 +251,7 @@ path "transit/decrypt/tokens" {
 
 Transit's encrypt/decrypt endpoints are invoked with the `update` capability (Vault convention — "write with a response"). `read` is only needed for key metadata and is deliberately withheld from the app.
 
-**App ↔ Vault authentication:** the app container must authenticate with Vault at runtime. The concrete mechanism (AppRole, a vault-agent sidecar, or something else) is chosen when PR 4-a starts. PR 2 limits itself to enabling the Transit engine, creating the `tokens` key, and checking in the policy HCL.
+**App ↔ Vault authentication (delivered in PR 4-a):** a per-environment **vault-agent sidecar** performs AppRole auto-auth and exposes an API proxy listener on `:8100`. The app posts Transit requests to `http://vault-agent:8100/v1/transit/{encrypt,decrypt}/tokens` and never handles a Vault token. See `deploy/_shared/vault-agent/` for the shared service definition and `docs/deployment/vault.md` §3.11 for the AppRole provisioning runbook.
 
 **Rotation:** `vault write -f transit/keys/tokens/rotate`. Existing ciphertexts continue to decrypt against their archived key version (Vault embeds the version number in the ciphertext metadata). Re-encrypting to the latest version is optional — `vault write transit/rewrap/tokens ciphertext=...` produces a rewrap, but correctness is preserved as long as the older versions remain in the archive.
 
@@ -314,7 +314,7 @@ jobs:
           chmod 600 "$DEPLOY_DIR/.env"
 ```
 
-> **Note (transition path):** the workflow above is the PR 3 shape. After PR 4-a the app calls Vault Transit directly at runtime, so the `TOKEN_ENCRYPTION_KEY` lines (both the fetch and the render) disappear. The `.env` file then carries only static configuration values.
+> **Note (post PR 4-a state):** the workflow snippet above is the historical PR 3 shape. In the live workflow the `TOKEN_ENCRYPTION_KEY` lines are gone — at-rest encryption is handled by the vault-agent sidecar via Transit (§6.5). Instead, the workflow fetches `VAULT_ROLE_ID` / `VAULT_SECRET_ID` from KV and renders them into `$DEPLOY_DIR/vault-secrets/` for the sidecar's AppRole auto-auth. See `.github/workflows/deploy-dev.yml` (and `deploy-prod.yml`) for the current form.
 
 **Security properties:**
 - Values fetched by vault-action are automatically masked in GitHub Actions logs.
@@ -392,8 +392,8 @@ Every secret read from GitHub Actions is recorded as JSON in `vault.log`. Used d
 | 2 | `~gha-runner/deploy/_shared/vault/` compose + config + policies directory + operations runbook (`docs/deployment/vault.md`) | `vault status` reports unsealed on the on-prem server |
 | 3 | Load 8 dev secrets into Vault + configure jwt role `gha-dev` + rewrite `deploy-dev.yml` (vault-action based) | develop push → deploy succeeds, `.env` is rendered from Vault values |
 | 4 | Load prod secrets + `gha-prod` role + rewrite `deploy-prod.yml` + approval gate | main merge → prod deploy succeeds after approval |
-| 4-a | Implement `VaultTransitEncryption` in the app (same `EncryptionService` interface as the existing `AesGcmEncryption`) + configure app ↔ Vault authentication (AppRole or vault-agent) + remove `TOKEN_ENCRYPTION_KEY` from `.env` | Newly issued refresh tokens are encrypted via Transit and persisted. Existing AES-encrypted tokens are left intact in this PR (migrated in the next PR). |
-| 4-b | One-off script that decrypts existing `data/workspaces/*/tokens.enc` with AES and re-encrypts through Transit, followed by removal of the AES path | All stored tokens are unified in the Transit format; the `TOKEN_ENCRYPTION_KEY` dependency is gone. |
+| 4-a | Implement `VaultTransitEncryption` in the app, add a per-environment vault-agent sidecar (AppRole auto-auth + API proxy), remove `AesGcmEncryption` and `TOKEN_ENCRYPTION_KEY` from the app, workflow, and `.env`. Live Google OAuth tokens at the time of the cutover are empty (`data/workspaces/*/google-tokens.enc` absent), so no ciphertext migration is needed. | Newly issued refresh tokens are encrypted via Transit and persisted. App container holds no Vault token; vault-agent owns auth and renewal. |
+| 4-b | Retired — the AES → Transit ciphertext migration step is subsumed by 4-a because no AES-encrypted tokens exist at cutover. If any pre-existing `google-tokens.enc` files resurface (e.g. restore from a stale backup), they are rejected by `JsonFileTokenStore.load` and the user re-authorizes GWS through the normal `authenticate_gws` flow. | n/a |
 | 5 | Enable audit device + snapshot cron + restore rehearsal report | Backup files present + successful restore log |
 
 **Handling of PR #53 (individual-secret refactor):** keep as draft → close when PR 3 merges. Its workflow changes are subsumed by PR 3's vault-action rewrite, so there is no independent merge value.
@@ -418,7 +418,8 @@ Items to confirm during the design review.
 2. **Vault Web UI access path** — with the listener bound to `127.0.0.1` only, UI access is either (a) SSH port-forwarding or (b) a dedicated Tailscale listener. Choose based on operational ergonomics.
 3. **Snapshot storage location** — local-only on the on-prem server (lost together with the host on failure) vs. syncing to something like Cloudflare R2. Backup philosophy decision.
 4. **Audit log retention** — 30 days / 90 days / unlimited. Trade off disk usage vs incident-investigation needs.
-5. **Vault-managed `TOKEN_ENCRYPTION_KEY`** (decided) — moved to Vault Transit (§1 Goal #6, §6.5). The `.env` render path is removed. Transition is split across §9 Migration plan into PR 4-a (app code) and PR 4-b (ciphertext migration).
+5. **Vault-managed `TOKEN_ENCRYPTION_KEY`** (decided) — moved to Vault Transit (§1 Goal #6, §6.5). The `.env` render path is removed. PR 4-a delivers the transition in one step (`VaultTransitEncryption` + vault-agent sidecar + AppRole provisioning + AES removal). PR 4-b is retired because no AES ciphertext exists at cutover (§9).
+6. **App ↔ Vault auth method** (decided) — vault-agent sidecar with AppRole auto-auth, one role per environment. App posts to the agent's API proxy listener on `:8100` and never handles a Vault token. Rationale: direct AppRole in the app would require rotating the auth code when we move off the single-host compose (K3s is on the 2026 roadmap); pinning the auth boundary to a sidecar keeps the app unchanged across those transitions.
 
 ## 12. References
 

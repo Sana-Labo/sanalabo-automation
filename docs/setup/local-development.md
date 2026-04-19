@@ -129,7 +129,11 @@ SYSTEM_ADMIN_IDS=U...              # Your LINE userId (see Step 7)
 GOOGLE_CLIENT_ID=...
 GOOGLE_CLIENT_SECRET=...
 GOOGLE_REDIRECT_URI=https://<your-static-domain>.ngrok-free.app/auth/google/callback
-TOKEN_ENCRYPTION_KEY=...           # 64-char hex string from Step 4③
+# GWS token encryption is delegated to a Vault Transit engine reached through
+# a local vault-agent sidecar. For a quick local run without Vault, leave
+# VAULT_AGENT_URL unset and skip GWS authentication — Gmail / Calendar / Drive
+# tools will return auth errors but the rest of the app still boots.
+# VAULT_AGENT_URL=http://127.0.0.1:8100
 ```
 
 For the full list of variables, see [Environment Variables](./environment-variables.md).
