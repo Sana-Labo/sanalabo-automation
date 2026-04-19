@@ -118,6 +118,44 @@ docker image prune -f
 
 ---
 
+## Image tags and rollback
+
+The deploy workflows produce images named `sanalabo-automation/assistant:${IMAGE_TAG}`, where `IMAGE_TAG` is the deployed commit SHA. The compose file's `image:` field references this name with a `:local` fallback when `IMAGE_TAG` is unset, so unattended local runs do not collide with the deploy tag namespace.
+
+### Inspect what is running
+
+```bash
+# Show the image tag (commit SHA) backing the live container.
+docker inspect -f '{{.Config.Image}}' sanalabo-automation-dev-assistant-1
+
+# List all retained assistant images (newest first). Keep-last-N retention
+# keeps the most recent N SHA-tagged images; `local` and `rollback` survive
+# as protected tags.
+docker images sanalabo-automation/assistant
+```
+
+### Automatic rollback on deploy failure
+
+Each deploy run captures the currently running container's image digest before rebuilding. If `docker compose up -d --wait` fails the healthcheck, the workflow aliases that digest as `sanalabo-automation/assistant:rollback`, overrides `IMAGE_TAG=rollback`, and recreates the service. The GitHub run still fails (so notifications fire), but the service is restored to the last known-good image within seconds.
+
+### Manual rollback to an arbitrary past deploy
+
+The old SHA tag must still be retained on the host (i.e. within the `IMAGE_KEEP=5` window; see [phase4-cicd.md §5.5](../design/phase4-cicd.md#55-rollback-strategy)).
+
+```bash
+# On the deploy host, inside the deploy directory.
+cd /home/gha-runner/deploy/sanalabo-automation/dev
+IMAGE_TAG=<previous-full-sha> docker compose up -d --wait assistant
+```
+
+If the desired SHA has already been pruned, re-run the deploy workflow against that commit via `workflow_dispatch` — it will rebuild and redeploy.
+
+### Retention tuning
+
+`IMAGE_KEEP` is set at the workflow job level (`.github/workflows/deploy-*.yml`, default `5`). Raise it on disk-rich hosts if you want a deeper manual-rollback window; lower it if disk pressure grows. Dangling layers from rebuilds are always swept by a final `docker image prune -f` per run.
+
+---
+
 ## Troubleshooting
 
 **`ERROR: network cf_tunnel declared as external, but could not be found`**
