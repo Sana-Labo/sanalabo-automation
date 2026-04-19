@@ -1,0 +1,19 @@
+# Shared Cloudflare tunnel — locally managed, multi-hostname ingress.
+# Copy to `config.yml` and fill in the tunnel UUID from `cloudflared tunnel create`
+# output (or Cloudflare Zero Trust Dashboard → Networks → Tunnels).
+#
+# The runtime `config.yml` and `creds.json` are gitignored.
+
+tunnel: <TUNNEL_UUID>
+credentials-file: /etc/cloudflared/creds.json
+
+# Ingress routing table. Entries are evaluated top-down; the last entry must be
+# the catch-all. Services are addressed by their container name over the shared
+# `cf_tunnel` Docker network.
+ingress:
+  - hostname: agent-dev.sanalabo.com
+    service: http://sanalabo-automation-dev-assistant-1:3000
+  - hostname: agent.sanalabo.com
+    service: http://sanalabo-automation-prod-assistant-1:3000
+  # Future services append entries above this line.
+  - service: http_status:404
