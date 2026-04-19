@@ -21,6 +21,19 @@ jobs:
       DEPLOY_DIR: /home/gha-runner/deploy/sanalabo-automation/dev
       REPO_URL: https://github.com/Sana-Labo/sanalabo-automation.git
       SERVICE: assistant
+      # Compose project name을 명시하여 컨테이너가 `sanalabo-automation-dev-<service>-N`으로
+      # 명명되도록 한다. 미지정 시 Compose는 DEPLOY_DIR의 말단 디렉터리(`dev`)를 기본값으로
+      # 사용하여 `dev-assistant-1`이 되며, prod와 시각적으로 구분되지 않는다. PR 4에서
+      # prod 도입 시 동일 패턴으로 `-prod` suffix를 사용한다.
+      COMPOSE_PROJECT_NAME: sanalabo-automation-dev
+      # GitHub Actions는 2026-06-02부터 Node.js 20 기반 JavaScript action을 Node.js 24
+      # 런타임으로 강제 승격하고, 2026-09-16에 Node 20 런타임을 제거한다. 현재 사용 중인
+      # hashicorp/vault-action@v3(v3.4.0)는 action.yml의 runs.using이 여전히 node20이지만,
+      # 번들된 dist/index.js는 이미 Node 24에서 동작 가능한 것으로 업스트림에서 확인됨
+      # (issue #594). 공식 opt-in 플래그로 지금부터 Node 24로 실행해 deprecation warning을
+      # 제거하고 6월 전환도 무중단으로 통과한다. vault-action 상위 버전 릴리스 후 제거.
+      # 참고: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
     steps:
       - name: Bootstrap deploy dir (idempotent)
         run: |
