@@ -259,6 +259,78 @@ unset ROOT_TOKEN
 
 If you skip this step the root token is valid forever and sits in Keychain, which enlarges blast radius if the workstation is compromised. For this PR, revoking root without a replacement admin token is acceptable — subsequent admin tasks can use a short-lived recovery procedure (regenerate root via unseal key, see §7.3).
 
+### 3.11 Provision AppRole for the app runtime (PR 4-a)
+
+Starting with PR 4-a the app no longer ships `TOKEN_ENCRYPTION_KEY`. Instead a vault-agent sidecar authenticates to Vault with **AppRole** and proxies Transit encrypt/decrypt calls. This section enables AppRole auth, creates one role per environment bound to the existing `app-transit` policy, and persists `role_id` / `secret_id` into KV so the deploy workflows can render them into the runner.
+
+Prerequisite: a valid root token. If §3.10 has already revoked root, regenerate via §7.3 first, then revoke again at the end of this section.
+
+```bash
+# Regenerate root (see §7.3) if needed, then:
+export VAULT_ADDR=http://127.0.0.1:8200
+export VAULT_TOKEN=<NEW_ROOT>   # paste from §7.3 output
+
+# 1) Enable AppRole auth (idempotent — ok if already enabled).
+ssh timothy-dev-ts "docker exec -e VAULT_ADDR -e VAULT_TOKEN vault \
+  vault auth enable approle" || true
+
+# 2) Create dev + prod roles bound to the app-transit policy (loaded in §3.7).
+#    Short token TTL is fine because vault-agent renews / re-auths silently.
+#    secret_id_ttl=0 / num_uses=0 → no expiry and unlimited uses per secret-id,
+#    rotation is explicit (repeat step 4 whenever you want a fresh credential).
+for env in dev prod; do
+  ssh timothy-dev-ts "docker exec -e VAULT_ADDR -e VAULT_TOKEN vault \
+    vault write auth/approle/role/sanalabo-automation-$env \
+      token_policies=app-transit \
+      token_ttl=1h \
+      token_max_ttl=24h \
+      secret_id_ttl=0 \
+      secret_id_num_uses=0"
+done
+
+# 3) Fetch role-id for each env. role-id is stable; on its own it is not
+#    sufficient to authenticate.
+DEV_ROLE_ID=$(ssh timothy-dev-ts "docker exec -e VAULT_ADDR -e VAULT_TOKEN vault \
+  vault read -field=role_id auth/approle/role/sanalabo-automation-dev/role-id")
+PROD_ROLE_ID=$(ssh timothy-dev-ts "docker exec -e VAULT_ADDR -e VAULT_TOKEN vault \
+  vault read -field=role_id auth/approle/role/sanalabo-automation-prod/role-id")
+
+# 4) Issue a secret-id for each env. This is the sensitive half.
+DEV_SECRET_ID=$(ssh timothy-dev-ts "docker exec -e VAULT_ADDR -e VAULT_TOKEN vault \
+  vault write -f -field=secret_id auth/approle/role/sanalabo-automation-dev/secret-id")
+PROD_SECRET_ID=$(ssh timothy-dev-ts "docker exec -e VAULT_ADDR -e VAULT_TOKEN vault \
+  vault write -f -field=secret_id auth/approle/role/sanalabo-automation-prod/secret-id")
+
+# 5) Persist to KV so hashicorp/vault-action in the deploy workflow can fetch them.
+ssh timothy-dev-ts "docker exec -e VAULT_ADDR -e VAULT_TOKEN vault \
+  vault kv put secret/dev/VAULT_ROLE_ID   value='$DEV_ROLE_ID'"
+ssh timothy-dev-ts "docker exec -e VAULT_ADDR -e VAULT_TOKEN vault \
+  vault kv put secret/dev/VAULT_SECRET_ID value='$DEV_SECRET_ID'"
+ssh timothy-dev-ts "docker exec -e VAULT_ADDR -e VAULT_TOKEN vault \
+  vault kv put secret/prod/VAULT_ROLE_ID   value='$PROD_ROLE_ID'"
+ssh timothy-dev-ts "docker exec -e VAULT_ADDR -e VAULT_TOKEN vault \
+  vault kv put secret/prod/VAULT_SECRET_ID value='$PROD_SECRET_ID'"
+
+# 6) Remove the obsolete AES master key. `kv metadata delete` tombstones all
+#    versions — once the workflows stop referencing it the old value is
+#    unrecoverable from Vault.
+ssh timothy-dev-ts "docker exec -e VAULT_ADDR -e VAULT_TOKEN vault \
+  vault kv metadata delete secret/dev/TOKEN_ENCRYPTION_KEY"
+ssh timothy-dev-ts "docker exec -e VAULT_ADDR -e VAULT_TOKEN vault \
+  vault kv metadata delete secret/prod/TOKEN_ENCRYPTION_KEY"
+
+# 7) Scrub the secret-id values from the current shell and revoke NEW_ROOT per §3.10.
+unset DEV_SECRET_ID PROD_SECRET_ID DEV_ROLE_ID PROD_ROLE_ID
+```
+
+**Rotation.** Repeat step 4 + the `VAULT_SECRET_ID` writes in step 5. The next deploy renders the new secret-id into `$DEPLOY_DIR/vault-secrets/secret-id`; vault-agent re-reads it on next auth. Because `secret_id_ttl=0`, old secret-ids do not self-expire — if a compromise is suspected, also revoke explicitly:
+
+```bash
+ssh timothy-dev-ts "docker exec -e VAULT_ADDR -e VAULT_TOKEN vault \
+  vault write auth/approle/role/sanalabo-automation-<env>/secret-id-accessor/destroy \
+  secret_id_accessor=<accessor-from-audit-log>"
+```
+
 ---
 
 ## 4. Daily operations
