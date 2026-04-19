@@ -1,0 +1,37 @@
+# Shared vault-agent sidecar template.
+#
+# This compose file is *not run directly*. It serves as the source-of-truth
+# service definition that each environment's app compose references via
+# `extends:`, so the image, command, config mount, and healthcheck stay in
+# lockstep across dev/prod. Each env provides its own AppRole credentials
+# and joins the agent to the app's Docker network.
+#
+# See ./README.md for the extends pattern and one-time bootstrap steps.
+
+name: sanalabo-shared-vault-agent-template
+
+services:
+  vault-agent:
+    image: hashicorp/vault:1.18
+    restart: unless-stopped
+    command: vault agent -config=/vault-agent/config.hcl
+
+    # Linux: host.docker.internal is not auto-populated by Docker; compose's
+    # `host-gateway` magic value resolves to the bridge gateway IP so the
+    # sidecar can reach the Vault server on host 127.0.0.1:8200.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    volumes:
+      # Shared config (read-only). Relative path resolves against each
+      # env compose's working directory once `extends:` rewrites it.
+      - ./config.hcl:/vault-agent/config.hcl:ro
+
+    healthcheck:
+      # The API proxy listener answers /v1/sys/health on behalf of Vault,
+      # so a positive response means both the agent and Vault are reachable.
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8100/v1/sys/health?standbyok=true"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

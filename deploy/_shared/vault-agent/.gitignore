@@ -1,0 +1,4 @@
+# AppRole credentials are rendered at deploy time by the GitHub Actions
+# workflow and never committed. The agent expects them at
+# <env-compose>/vault-secrets/{role-id,secret-id}.
+vault-secrets/
