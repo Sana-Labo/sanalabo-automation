@@ -6,12 +6,15 @@
 # handles Vault tokens directly. Running one agent per environment (dev/prod)
 # presents a distinct AppRole identity to Vault.
 
-# Vault server address. The server binds host 127.0.0.1:8200 (see
-# deploy/_shared/vault/docker-compose.yml), so the agent reaches it through
-# the Docker host gateway. Each env compose must provide
-# `extra_hosts: host.docker.internal:host-gateway` (Linux compose alias).
+# Vault server address. The Vault server container publishes only to host
+# loopback (127.0.0.1:8200 — see deploy/_shared/vault/docker-compose.yml),
+# which is unreachable from sibling containers via the bridge gateway. The
+# agent therefore joins the Vault compose project's external Docker network
+# (`vault_default`) alongside the app's default network, and resolves the
+# server by its compose DNS name. Each env compose must declare
+# `vault_default` as an external network and attach vault-agent to it.
 vault {
-  address = "http://host.docker.internal:8200"
+  address = "http://vault:8200"
 }
 
 auto_auth {

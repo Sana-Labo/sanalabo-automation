@@ -33,11 +33,21 @@ services:
     volumes:
       - ./vault-secrets/role-id:/vault/secrets/role-id:ro
       - ./vault-secrets/secret-id:/vault/secrets/secret-id:ro
-    networks: [default]
+    # Attach to both networks: `default` for app↔agent traffic
+    # (assistant → http://vault-agent:8100), and `vault` (external alias
+    # for the Vault compose project's `vault_default` network) so the
+    # agent can resolve `http://vault:8200`.
+    networks: [default, vault]
 
 volumes:
   user-data:
 
 networks:
   cf_tunnel:
+    external: true
+  # Vault server's compose network. Declared external so this compose does
+  # not attempt to create or own it; the Vault compose project
+  # (deploy/_shared/vault) is the single source of truth for its lifecycle.
+  vault:
+    name: vault_default
     external: true

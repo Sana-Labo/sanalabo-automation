@@ -16,12 +16,10 @@ services:
     restart: unless-stopped
     command: vault agent -config=/vault-agent/config.hcl
 
-    # Linux: host.docker.internal is not auto-populated by Docker; compose's
-    # `host-gateway` magic value resolves to the bridge gateway IP so the
-    # sidecar can reach the Vault server on host 127.0.0.1:8200.
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-
+    # Network: each env compose attaches vault-agent to both the app's
+    # default network (so assistant can reach vault-agent:8100) and the
+    # Vault server's compose network (`vault_default`, external) so the
+    # agent can resolve `vault:8200`. See each env's docker-compose.yml.
     volumes:
       # Shared config (read-only). Relative path resolves against each
       # env compose's working directory once `extends:` rewrites it.

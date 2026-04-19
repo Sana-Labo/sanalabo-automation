@@ -62,11 +62,17 @@ networks:
 - `role-id` is effectively a public identifier; `secret-id` is the sensitive
   half. The deploy workflow fetches both from Vault KV (`secret/<env>/VAULT_ROLE_ID`,
   `secret/<env>/VAULT_SECRET_ID`) and writes them to `vault-secrets/` on the
-  runner with `0600`. Rotation: re-issue `secret-id` (see
+  runner: files are mode `0644` so the container's non-root `vault` user
+  can read the mounts, and the parent directory is mode `0700` so no other
+  host user can traverse in. Rotation: re-issue `secret-id` (see
   `docs/deployment/vault.md` §AppRole), update the KV value, redeploy.
 - AppRole auth is provisioned once per env using a Vault root token
   generated through `vault operator generate-root`; see the Task #8 guide
   in the PR body for the exact command sequence.
-- The agent talks to Vault over `http://host.docker.internal:8200` (Linux
-  `host-gateway` alias). Any future switch to a remote Vault requires
-  revisiting both `config.hcl` and the `extra_hosts` line.
+- The agent reaches Vault via the Vault compose project's external Docker
+  network (`vault_default`), resolving the server by its compose DNS name
+  `vault` (see `config.hcl`). Each env compose must declare that network
+  as `external: true` and attach vault-agent to it; the Vault server
+  itself is not published to the bridge gateway. A future switch to a
+  remote Vault requires revisiting `config.hcl` and the per-env network
+  attachments.
